@@ -302,6 +302,37 @@ DPAD 遥控器友好
 
                         </RelativeLayout>
 
+                        <!-- 缓冲时间 -->
+                        <RelativeLayout
+                            android:id="@+id/rlBufferTime"
+                            android:layout_width="match_parent"
+                            android:layout_height="52dp"
+                            android:layout_marginTop="8dp"
+                            android:background="@drawable/bg_input"
+                            android:focusable="true"
+                            android:paddingLeft="12dp"
+                            android:paddingRight="12dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_centerVertical="true"
+                                android:text="缓冲时间"
+                                android:textColor="@color/text_primary"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:id="@+id/tvBufferTimeValue"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_alignParentRight="true"
+                                android:layout_centerVertical="true"
+                                android:text="30s"
+                                android:textColor="@color/colorAccent"
+                                android:textSize="14sp" />
+
+                        </RelativeLayout>
+
                         <!-- 弹幕服务器地址 -->
                         <RelativeLayout
                             android:id="@+id/rlDanmuSetting"

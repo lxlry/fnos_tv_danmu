@@ -67,6 +67,7 @@ public class PlayerActivity extends AppCompatActivity {
     private CloudStreamManager cloudStreamManager;
     private boolean useHls = false;
     private int seekStep = 10000;
+    private int bufferTimeMs = 30000;
     private int streamBitrate = 0; // bps 来自 stream API
     private Runnable seekCommitR;
     private long pendingSeekMs = -1;
@@ -148,6 +149,10 @@ public class PlayerActivity extends AppCompatActivity {
         infoText = findViewById(R.id.infoText);
         infoTextAudio = findViewById(R.id.infoTextAudio);
         infoTextExtra = findViewById(R.id.infoTextExtra);
+
+        SharedPreferences sp = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
+        seekStep = sp.getInt("seek_step", 10) * 1000;
+        bufferTimeMs = sp.getInt("buffer_time", 30) * 1000;
 
         initPlayer();
 
@@ -242,7 +247,6 @@ public class PlayerActivity extends AppCompatActivity {
         }, btnEpisodeList, btnNextEp);
 
         btnPlayPause.setOnClickListener(v -> togglePlay());
-        seekStep = getSharedPreferences("fntv_prefs", MODE_PRIVATE).getInt("seek_step", 10) * 1000;
         btnRewind.setOnClickListener(v -> seekRel(-seekStep));
         btnForward.setOnClickListener(v -> seekRel(seekStep));
         btnRewind.setText("-" + (seekStep / 1000) + "秒");
@@ -519,7 +523,9 @@ public class PlayerActivity extends AppCompatActivity {
             rf.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
         }
         player = new SimpleExoPlayer.Builder(this, rf)
-                .setTrackSelector(new DefaultTrackSelector(this)).build();
+                .setTrackSelector(new DefaultTrackSelector(this))
+                .setLoadControl(createLoadControl())
+                .build();
         playerView.setPlayer(player);
         playerView.setUseController(false);
         playerView.setShutterBackgroundColor(Color.TRANSPARENT);
@@ -801,7 +807,9 @@ public class PlayerActivity extends AppCompatActivity {
         };
         rf2.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
         player = new SimpleExoPlayer.Builder(this, rf2)
-                .setTrackSelector(new DefaultTrackSelector(this)).build();
+                .setTrackSelector(new DefaultTrackSelector(this))
+                .setLoadControl(createLoadControl())
+                .build();
         playerView.setPlayer(player);
         playerView.setUseController(false);
         playerView.setKeepScreenOn(true);
@@ -870,6 +878,17 @@ public class PlayerActivity extends AppCompatActivity {
         long p = Math.max(0, Math.min(player.getDuration(), player.getCurrentPosition() + ms));
         player.seekTo(p);
         if (danmuManager != null) danmuManager.onSeekTo(p);
+    }
+
+    private DefaultLoadControl createLoadControl() {
+        return new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                        bufferTimeMs,   // MIN_BUFFER_MS
+                        bufferTimeMs,   // MAX_BUFFER_MS
+                        2500,           // BUFFER_FOR_PLAYBACK_MS
+                        5000            // BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+                )
+                .build();
     }
 
     private void cycleSpeed() {
@@ -1254,6 +1273,9 @@ public class PlayerActivity extends AppCompatActivity {
             tvTime.setText(FormatUtils.fmt(cur) + " / " + FormatUtils.fmt(dur));
             seekBar.setProgress((int) cur);
         }
+        // 显示缓冲进度（灰色条）
+        long buffered = player.getBufferedPosition();
+        seekBar.setSecondaryProgress((int) buffered);
         if (danmuManager != null) danmuManager.setPlayTime(cur);
         // 实时监测片尾位置
         if (!outroSkipped && dur > 0) {
@@ -1272,7 +1294,14 @@ public class PlayerActivity extends AppCompatActivity {
         }
         handler.postDelayed(timeR, 200);
     }
-    private final Runnable timeR = () -> { if (player != null && player.isPlaying()) updateTime(); };
+    private final Runnable timeR = () -> {
+        if (player != null) {
+            int state = player.getPlaybackState();
+            if (player.isPlaying() || state == Player.STATE_BUFFERING || state == Player.STATE_READY) {
+                updateTime();
+            }
+        }
+    };
 
     private void probeWithMediaExtractor() {
         if (mediaGuid == null || baseUrl == null) return;

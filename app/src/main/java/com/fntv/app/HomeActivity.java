@@ -40,8 +40,8 @@ public class HomeActivity extends AppCompatActivity {
     private TextView tvSettingUsername, tvSettingServer, tvDecoderValue, tvDanmuUrl;
     private Button btnLogout, btnFeedback;
     private UpdateManager updateManager;
-    private RelativeLayout rlDecoderSetting, rlDanmuSetting, rlSeekStep;
-    private TextView tvSeekStepValue;
+    private RelativeLayout rlDecoderSetting, rlDanmuSetting, rlSeekStep, rlBufferTime;
+    private TextView tvSeekStepValue, tvBufferTimeValue;
 
     private int currentTab = 0;
     private final List<MediaDbItem> mediaLibraries = new ArrayList<>();
@@ -158,6 +158,8 @@ public class HomeActivity extends AppCompatActivity {
         rlDanmuSetting = findViewById(R.id.rlDanmuSetting);
         rlSeekStep = findViewById(R.id.rlSeekStep);
         tvSeekStepValue = findViewById(R.id.tvSeekStepValue);
+        rlBufferTime = findViewById(R.id.rlBufferTime);
+        tvBufferTimeValue = findViewById(R.id.tvBufferTimeValue);
         tvDanmuUrl = findViewById(R.id.tvDanmuUrl);
         tvSettingServer.setText(prefs.getString("host", ""));
 
@@ -1980,6 +1982,31 @@ public class HomeActivity extends AppCompatActivity {
             });
             b.setNegativeButton("取消", null);
             b.show();
+        });
+
+        // 缓冲时间
+        final int[] savedBuffer = {prefs.getInt("buffer_time", 30)};
+        tvBufferTimeValue.setText(savedBuffer[0] + "s");
+        rlBufferTime.setOnClickListener(v -> {
+            android.app.AlertDialog.Builder b2 = new android.app.AlertDialog.Builder(this);
+            b2.setTitle("缓冲时间（秒）");
+            final android.widget.EditText input2 = new android.widget.EditText(this);
+            input2.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            input2.setText(String.valueOf(savedBuffer[0]));
+            input2.setSelection(input2.getText().length());
+            b2.setView(input2);
+            b2.setPositiveButton("保存", (dialog, which) -> {
+                try {
+                    int val = Integer.parseInt(input2.getText().toString().trim());
+                    if (val < 5) val = 5;
+                    if (val > 300) val = 300;
+                    prefs.edit().putInt("buffer_time", val).apply();
+                    tvBufferTimeValue.setText(val + "s");
+                    savedBuffer[0] = val;
+                } catch (Exception ignored) {}
+            });
+            b2.setNegativeButton("取消", null);
+            b2.show();
         });
 
         apiManager.getApi().getUserInfo().enqueue(new Callback<ApiResponse<UserInfoResponse>>() {
