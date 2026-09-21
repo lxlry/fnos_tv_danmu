@@ -37,6 +37,7 @@
     <color name="danger_ring">#FFFF9A9A</color>
     <color name="progress_track">#FF3A4452</color>
     <color name="progress_bg">#FF2A3544</color>
+    <color name="rating_gold">#FFFFC14A</color>
 
     <color name="transparent">#00000000</color>
 </resources>
