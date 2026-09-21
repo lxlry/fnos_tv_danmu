@@ -23,8 +23,14 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android licenses
+        run: |
+          sdkmanager=$(ls -d "${ANDROID_HOME}/cmdline-tools/"*/bin/sdkmanager 2>/dev/null | tail -n 1)
+          if [ -z "$sdkmanager" ]; then
+            sdkmanager="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" "platforms;android-33" "build-tools;33.0.2"
 
       - name: Build debug APK
         run: |
