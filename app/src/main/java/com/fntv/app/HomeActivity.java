@@ -65,6 +65,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private long t0;
     private boolean overviewBuilt = false;
+    private List<PlayListItem> cachedContinueWatching;
     private long backPressedTime = 0;
 
     private int color(int resId) {
@@ -100,6 +101,7 @@ public class HomeActivity extends AppCompatActivity {
             overviewBuilt = false;
             showOverview();
             loadAllPreviews();
+            loadContinueWatching();
             loadLiveChannels();
         }
     }
@@ -205,10 +207,12 @@ public class HomeActivity extends AppCompatActivity {
             buildDetailPage(savedDetailItem, savedDetailInfo);
         } else if (currentTab == 0 && !mediaLibraries.isEmpty() && overviewBuilt && showingOverview) {
             loadingPreviews = false;
-            showOverview();
-            loadAllPreviews();
+            if (findContinueWatchingBox() == null) {
+                showOverview();
+                loadAllPreviews();
+                loadLiveChannels();
+            }
             loadContinueWatching();
-            loadLiveChannels();
         } else if (currentTab == 0 && !overviewBuilt && showingOverview) {
             loadOverview();
         }
@@ -216,7 +220,13 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void setupTabs() {
-        tabMovies.setOnClickListener(v -> switchTab(0));
+        tabMovies.setOnClickListener(v -> {
+            if (currentTab == 0 && !showingOverview) {
+                restoreHomeOverview();
+                return;
+            }
+            switchTab(0);
+        });
         tabLibrary.setOnClickListener(v -> { switchTab(1); loadMediaLibraries(); });
         tabSettings.setOnClickListener(v -> switchTab(2));
     }
@@ -235,10 +245,28 @@ public class HomeActivity extends AppCompatActivity {
         tabMovies.setSelected(index == 0);
         tabLibrary.setSelected(index == 1);
         tabSettings.setSelected(index == 2);
-        setDetailChrome(index == 0 && savedDetailItem != null && !showingOverview);
+        boolean backToHome = index == 0 && prevTab != 0 && !showingOverview;
+        setDetailChrome(index == 0 && savedDetailItem != null && !showingOverview && !backToHome);
         if (index == 0) tabMovies.requestFocus();
         else if (index == 1) tabLibrary.requestFocus();
         else tabSettings.requestFocus();
+        if (backToHome) restoreHomeOverview();
+    }
+
+    /** 回到影视首页概览（保留已加载的媒体库，并恢复继续观看） */
+    private void restoreHomeOverview() {
+        savedDetailItem = null;
+        savedDetailInfo = null;
+        showingEpisodes = false;
+        if (mediaLibraries.isEmpty()) {
+            loadOverview();
+            return;
+        }
+        loadingPreviews = false;
+        showOverview();
+        loadAllPreviews();
+        loadContinueWatching();
+        loadLiveChannels();
     }
 
 
@@ -318,6 +346,9 @@ public class HomeActivity extends AppCompatActivity {
         continueWatchingBox.setOrientation(LinearLayout.VERTICAL);
         continueWatchingBox.setTag("continue_watching");
         moviesContainer.addView(continueWatchingBox);
+        if (cachedContinueWatching != null && !cachedContinueWatching.isEmpty()) {
+            addContinueWatchingApi(continueWatchingBox, cachedContinueWatching, 0);
+        }
 
         for (MediaDbItem lib : mediaLibraries) {
             LinearLayout headerRow = makeLibHeader(lib.guid, lib.title, 0);
@@ -677,34 +708,58 @@ public class HomeActivity extends AppCompatActivity {
         return card;
     }
 
+    private LinearLayout findContinueWatchingBox() {
+        if (moviesContainer == null) return null;
+        for (int i = 0; i < moviesContainer.getChildCount(); i++) {
+            View v = moviesContainer.getChildAt(i);
+            if (v instanceof LinearLayout && "continue_watching".equals(v.getTag())) {
+                return (LinearLayout) v;
+            }
+        }
+        return null;
+    }
+
+    private int firstLibHeaderId() {
+        for (int j = 0; j < moviesContainer.getChildCount(); j++) {
+            View cv = moviesContainer.getChildAt(j);
+            if ("lib_header".equals(cv.getTag()) && cv.getId() > 0) return cv.getId();
+        }
+        return -1;
+    }
+
     private void loadContinueWatching() {
+        if (apiManager.getApi() == null) return;
         apiManager.getApi().getPlayList().enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
             @Override
             public void onResponse(Call<ApiResponse<List<PlayListItem>>> call,
                                    Response<ApiResponse<List<PlayListItem>>> response) {
-                if (!response.isSuccessful() || response.body() == null || response.body().code != 0
-                        || response.body().data == null || response.body().data.isEmpty()) return;
-                // 找到继续观看占位容器
-                for (int i = 0; i < moviesContainer.getChildCount(); i++) {
-                    View v = moviesContainer.getChildAt(i);
-                    if (v instanceof LinearLayout && "continue_watching".equals(v.getTag())) {
-                        final int firstViewAllId;
-                        // 查找第一个查看全部按钮
-                        int fva = -1;
-                        for (int j = 0; j < moviesContainer.getChildCount(); j++) {
-                            View cv = moviesContainer.getChildAt(j);
-                            if ("lib_header".equals(cv.getTag()) && cv.getId() > 0) {
-                                fva = cv.getId();
-                                break;
-                            }
-                        }
-                        addContinueWatchingApi((LinearLayout) v, response.body().data, fva);
-                        break;
-                    }
+                List<PlayListItem> list = (response.isSuccessful() && response.body() != null
+                        && response.body().code == 0) ? response.body().data : null;
+                if (list != null && !list.isEmpty()) {
+                    cachedContinueWatching = new ArrayList<>(list);
+                } else if (response.isSuccessful() && response.body() != null && response.body().code == 0) {
+                    cachedContinueWatching = null;
                 }
+                if (!showingOverview) return;
+                LinearLayout box = findContinueWatchingBox();
+                if (box == null) return;
+                if (cachedContinueWatching == null || cachedContinueWatching.isEmpty()) {
+                    box.removeAllViews();
+                    box.setVisibility(View.GONE);
+                    return;
+                }
+                addContinueWatchingApi(box, cachedContinueWatching, firstLibHeaderId());
             }
             @Override
-            public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {}
+            public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
+                if (!showingOverview) return;
+                LinearLayout box = findContinueWatchingBox();
+                if (box == null) return;
+                if (cachedContinueWatching != null && !cachedContinueWatching.isEmpty()
+                        && box.getChildCount() == 0) {
+                    addContinueWatchingApi(box, cachedContinueWatching, firstLibHeaderId());
+                }
+            }
         });
     }
 
@@ -2821,7 +2876,7 @@ public class HomeActivity extends AppCompatActivity {
                 return true;
             }
             if (!showingOverview) {
-                loadOverview();
+                restoreHomeOverview();
                 return true;
             }
             if (backPressedTime + 2000 > System.currentTimeMillis()) {
