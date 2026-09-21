@@ -51,6 +51,7 @@ captures/
 *.jks
 *.keystore
 *.p12
+!app/ci.p12
 
 ################################################
 # Native build

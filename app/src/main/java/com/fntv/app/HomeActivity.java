@@ -71,6 +71,10 @@ public class HomeActivity extends AppCompatActivity {
         return ContextCompat.getColor(this, resId);
     }
 
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
     // 横竖屏切换时保存的页面状态
     private String savedBrowseGuid, savedBrowseTitle;
     private List<PlayListItem> savedBrowseList;
@@ -167,6 +171,15 @@ public class HomeActivity extends AppCompatActivity {
         tvBufferTimeValue = findViewById(R.id.tvBufferTimeValue);
         tvDanmuUrl = findViewById(R.id.tvDanmuUrl);
         tvSettingServer.setText(prefs.getString("host", ""));
+
+        Button btnHomeSearch = findViewById(R.id.btnHomeSearch);
+        if (btnHomeSearch != null) {
+            btnHomeSearch.setOnClickListener(v -> {
+                switchTab(1);
+                loadMediaLibraries();
+                if (etSearch != null) etSearch.post(() -> etSearch.requestFocus());
+            });
+        }
 
         TextView tvVersion = findViewById(R.id.tvVersionName);
         try {
@@ -282,7 +295,14 @@ public class HomeActivity extends AppCompatActivity {
         showingOverview = true;
         overviewBuilt = true;
 
-        // 继续观看（最顶部，占位，稍后由 loadContinueWatching 填充）
+        LinearLayout libRowBox = new LinearLayout(this);
+        libRowBox.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        libRowBox.setOrientation(LinearLayout.VERTICAL);
+        libRowBox.setTag("lib_shortcuts");
+        libRowBox.addView(makeLibShortcutRow());
+        moviesContainer.addView(libRowBox);
+
         LinearLayout continueWatchingBox = new LinearLayout(this);
         continueWatchingBox.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -290,29 +310,17 @@ public class HomeActivity extends AppCompatActivity {
         continueWatchingBox.setTag("continue_watching");
         moviesContainer.addView(continueWatchingBox);
 
-        // 各媒体库：标题 + 预览容器
-        java.util.ArrayList<Integer> viewAllIds = new java.util.ArrayList<>();
         for (MediaDbItem lib : mediaLibraries) {
             LinearLayout headerRow = makeLibHeader(lib.guid, lib.title, 0);
             moviesContainer.addView(headerRow);
-            for (int ci = 0; ci < headerRow.getChildCount(); ci++) {
-                View child = headerRow.getChildAt(ci);
-                if (child instanceof Button && child.isFocusable()) {
-                    viewAllIds.add(child.getId());
-                }
-            }
-            // 预览卡片容器（暂空，loadAllPreviews 后填充）
             LinearLayout previewBox = new LinearLayout(this);
             previewBox.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             previewBox.setOrientation(LinearLayout.VERTICAL);
-            previewBox.setPadding(6, 0, 6, 0);
             previewBox.setTag("preview_" + lib.guid);
             moviesContainer.addView(previewBox);
-            moviesContainer.addView(makeSpacer(16));
+            moviesContainer.addView(makeSpacer(dp(8)));
         }
-
-        // 继续观看卡片 ↓ 第一个查看全部（在 loadContinueWatching 中设置焦点）
 
         if (moviesContainer.getChildCount() == 0) {
             TextView e = new TextView(this);
@@ -345,6 +353,7 @@ public class HomeActivity extends AppCompatActivity {
                     List<PlayListItem> items = response.body().data.list;
                     if (items.size() > 20) items = items.subList(0, 20);
                     fillPreview(guid, items);
+                    updateLibShortcutPoster(guid, items.get(0));
                 }
                 @Override public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {}
             });
@@ -372,41 +381,128 @@ public class HomeActivity extends AppCompatActivity {
         headerRow.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setPadding(6, 24, 6, 18);
+        headerRow.setPadding(dp(4), dp(16), dp(4), dp(8));
         headerRow.setGravity(Gravity.CENTER_VERTICAL);
-        headerRow.setMinimumHeight(68);
+        headerRow.setMinimumHeight(dp(40));
         headerRow.setId(View.generateViewId());
+        headerRow.setTag("lib_header");
+        headerRow.setFocusable(true);
+        headerRow.setBackgroundResource(R.drawable.bg_text_action);
+        headerRow.setOnClickListener(v -> browseItems(libGuid, libTitle));
 
         TextView header = new TextView(this);
         header.setLayoutParams(new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        header.setText(libTitle);
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        header.setText(libTitle + "  >");
         header.setTextColor(color(R.color.text_primary));
-        header.setTextSize(18);
+        header.setTextSize(16);
         header.setTypeface(Typeface.DEFAULT_BOLD);
         headerRow.addView(header);
-
-        Button viewAll = new Button(this);
-        viewAll.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, 68));
-        viewAll.setBackgroundResource(R.drawable.bg_text_action);
-        viewAll.setText("查看全部 ›");
-        viewAll.setTextColor(color(R.color.text_secondary));
-        viewAll.setTextSize(14);
-        viewAll.setFocusable(true);
-        viewAll.setId(View.generateViewId());
-        viewAll.setPadding(24, 0, 24, 0);
-        viewAll.setOnClickListener(v -> browseItems(libGuid, libTitle));
-        viewAll.setOnFocusChangeListener((v, hasFocus) -> {
-            viewAll.setTextColor(hasFocus ? color(R.color.success) : color(R.color.text_secondary));
-        });
-        headerRow.setOnClickListener(v -> browseItems(libGuid, libTitle));
-        headerRow.setFocusable(true);
-        headerRow.setOnFocusChangeListener((v, hasFocus) -> {
-            if (hasFocus) viewAll.requestFocus();
-        });
-        headerRow.addView(viewAll);
+        headerRow.setOnFocusChangeListener((v, hasFocus) ->
+                header.setTextColor(hasFocus ? color(R.color.border_focused) : color(R.color.text_primary)));
         return headerRow;
+    }
+
+    private HorizontalScrollView makeLibShortcutRow() {
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        hsv.setHorizontalScrollBarEnabled(false);
+        hsv.setPadding(0, dp(4), 0, dp(8));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(dp(4), 0, dp(4), 0);
+
+        Button searchBtn = findViewById(R.id.btnHomeSearch);
+        int searchId = searchBtn != null ? searchBtn.getId() : View.NO_ID;
+        for (int i = 0; i < mediaLibraries.size(); i++) {
+            MediaDbItem lib = mediaLibraries.get(i);
+            View tile = makeLibShortcutCard(lib);
+            tile.setId(View.generateViewId());
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(148), dp(92));
+            lp.setMargins(dp(6), 0, dp(6), 0);
+            tile.setLayoutParams(lp);
+            if (searchId != View.NO_ID) tile.setNextFocusUpId(searchId);
+            if (i == 0 && searchBtn != null) searchBtn.setNextFocusDownId(tile.getId());
+            row.addView(tile);
+        }
+        hsv.addView(row);
+        new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
+        return hsv;
+    }
+
+    private View makeLibShortcutCard(MediaDbItem lib) {
+        FrameLayout tile = new FrameLayout(this);
+        tile.setBackgroundResource(R.drawable.bg_lib_tile);
+        tile.setFocusable(true);
+        tile.setTag("lib_tile_" + lib.guid);
+        tile.setOnClickListener(v -> browseItems(lib.guid, lib.title));
+
+        RoundedImageView img = new RoundedImageView(this);
+        img.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        img.setCornerRadius(14);
+        img.setBackgroundColor(color(R.color.bg_poster));
+        String poster = makePosterUrl(lib.getFirstPoster());
+        if (poster != null) img.setTag(poster);
+        tile.addView(img);
+
+        View scrim = new View(this);
+        FrameLayout.LayoutParams scrimLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+        scrimLp.gravity = Gravity.BOTTOM;
+        scrim.setLayoutParams(scrimLp);
+        scrim.setBackgroundResource(R.drawable.bg_scrim);
+        tile.addView(scrim);
+
+        TextView name = new TextView(this);
+        FrameLayout.LayoutParams nameLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nameLp.gravity = Gravity.BOTTOM;
+        nameLp.setMargins(dp(10), 0, dp(10), dp(8));
+        name.setLayoutParams(nameLp);
+        name.setText(lib.title != null ? lib.title : "");
+        name.setTextColor(color(R.color.text_white));
+        name.setTextSize(14);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        tile.addView(name);
+        return tile;
+    }
+
+    private void updateLibShortcutPoster(String libGuid, PlayListItem first) {
+        if (first == null || first.poster == null || first.poster.isEmpty()) return;
+        String url = makePosterUrl(first.poster);
+        if (url == null) return;
+        String tag = "lib_tile_" + libGuid;
+        for (int i = 0; i < moviesContainer.getChildCount(); i++) {
+            View box = moviesContainer.getChildAt(i);
+            if (!(box instanceof ViewGroup) || !"lib_shortcuts".equals(box.getTag())) continue;
+            View tile = findViewWithTagDeep((ViewGroup) box, tag);
+            if (!(tile instanceof ViewGroup)) return;
+            View img = ((ViewGroup) tile).getChildAt(0);
+            if (img instanceof ImageView && img.getTag() == null) {
+                img.setTag(url);
+                SimpleImageLoader.load(url, (ImageView) img, apiManager.getClient());
+            }
+            return;
+        }
+    }
+
+    private View findViewWithTagDeep(ViewGroup root, Object tag) {
+        if (tag.equals(root.getTag())) return root;
+        for (int i = 0; i < root.getChildCount(); i++) {
+            View c = root.getChildAt(i);
+            if (tag.equals(c.getTag())) return c;
+            if (c instanceof ViewGroup) {
+                View found = findViewWithTagDeep((ViewGroup) c, tag);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
 
@@ -436,27 +532,25 @@ public class HomeActivity extends AppCompatActivity {
         TextView h = new TextView(this);
         h.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        h.setPadding(6, 8, 6, 4);
-        h.setText("▶ 继续观看");
-        h.setTextColor(color(R.color.success));
-        h.setTextSize(15);
-        h.setTypeface(Typeface.DEFAULT_BOLD);
+        h.setPadding(dp(4), dp(12), dp(4), dp(8));
+        h.setText("继续观看");
+        h.setTextColor(color(R.color.text_secondary));
+        h.setTextSize(14);
         cont.addView(h);
 
         HorizontalScrollView hsv = new HorizontalScrollView(this);
         hsv.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 410));
-        hsv.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        hsv.setHorizontalScrollBarEnabled(false);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(10, 8, 10, 8);
+        row.setPadding(dp(4), 0, dp(4), dp(8));
 
         for (PlayListItem item : items) {
             View card = makeContinueCard(item);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    220, 380);
-            lp.setMargins(10, 0, 10, 0);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(dp(6), 0, dp(6), 0);
             card.setLayoutParams(lp);
             if (viewAllId > 0) card.setNextFocusDownId(viewAllId);
             row.addView(card);
@@ -465,94 +559,96 @@ public class HomeActivity extends AppCompatActivity {
         hsv.addView(row);
         cont.addView(hsv);
 
-        new Handler(Looper.getMainLooper()).post(new Runnable() {
-            @Override
-            public void run() {
-                loadImagesLazily(hsv, 0);
-            }
-        });
-
-        cont.addView(makeSpacer(6));
+        new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
     }
 
-    private String formatContinueTitle(PlayListItem item) {
-        if (item.tvTitle != null && !item.tvTitle.isEmpty()) {
-            StringBuilder sb = new StringBuilder(item.tvTitle);
-            if (item.seasonNumber > 0) sb.append(" 第").append(item.seasonNumber).append("季");
-            if (item.episodeNumber > 0) sb.append(item.episodeNumber).append("集");
-            return sb.toString();
-        }
+    private String continueMainTitle(PlayListItem item) {
+        if (item.tvTitle != null && !item.tvTitle.isEmpty()) return item.tvTitle;
         return item.title != null ? item.title : "";
+    }
+
+    private String continueSubTitle(PlayListItem item) {
+        if (item.seasonNumber <= 0 && item.episodeNumber <= 0) return "";
+        StringBuilder sb = new StringBuilder();
+        if (item.seasonNumber > 0) sb.append("第").append(item.seasonNumber).append("季");
+        if (item.episodeNumber > 0) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append("第").append(item.episodeNumber).append("集");
+        }
+        return sb.toString();
     }
 
     private View makeContinueCard(PlayListItem item) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.bg_media_card);
-        card.setPadding(6, 6, 6, 6);
+        card.setBackgroundResource(R.drawable.bg_poster_card);
+        card.setPadding(dp(2), dp(2), dp(2), dp(2));
         card.setFocusable(true);
 
+        FrameLayout shot = new FrameLayout(this);
+        shot.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(100)));
+
         RoundedImageView poster = new RoundedImageView(this);
-        poster.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 280));
+        poster.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
         poster.setCornerRadius(10);
         poster.setBackgroundColor(color(R.color.bg_poster));
         String imgUrl = makePosterUrl(item.poster);
-        if (imgUrl != null) { poster.setTag(imgUrl); }
-        card.addView(poster);
+        if (imgUrl != null) poster.setTag(imgUrl);
+        shot.addView(poster);
 
-        // 进度条
-        LinearLayout pBar = new LinearLayout(this);
-        pBar.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 5));
-        pBar.setOrientation(LinearLayout.HORIZONTAL);
-        pBar.setWeightSum(100);
-        int pct = item.duration > 0 ? Math.max(0, Math.min(100, (int)(item.ts * 100 / item.duration))) : 0;
-        Log.d("Overview", "进度条: ts=" + item.ts + " dur=" + item.duration + " pct=" + pct + " " + formatContinueTitle(item));
+        int pct = item.duration > 0 ? Math.max(0, Math.min(100, (int) (item.ts * 100 / item.duration))) : 0;
         if (pct > 0) {
-            View f = new View(HomeActivity.this);
-            f.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, pct));
-            f.setBackgroundColor(color(R.color.success));
-            pBar.addView(f);
+            LinearLayout pBar = new LinearLayout(this);
+            FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(3));
+            barLp.gravity = Gravity.BOTTOM;
+            pBar.setLayoutParams(barLp);
+            pBar.setOrientation(LinearLayout.HORIZONTAL);
+            pBar.setWeightSum(100);
+            View fill = new View(this);
+            fill.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, pct));
+            fill.setBackgroundColor(color(R.color.colorPrimary));
+            pBar.addView(fill);
+            View rest = new View(this);
+            rest.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 100 - pct));
+            rest.setBackgroundColor(color(R.color.progress_track));
+            pBar.addView(rest);
+            shot.addView(pBar);
         }
-        if (pct < 100) {
-            View r = new View(HomeActivity.this);
-            r.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 100 - pct));
-            r.setBackgroundColor(color(R.color.progress_track));
-            pBar.addView(r);
-        }
-        card.addView(pBar);
+        card.addView(shot);
 
-        TextView title = new TextView(this);
-        title.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 85));
+        final TextView title = new TextView(this);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.topMargin = dp(8);
+        title.setLayoutParams(titleLp);
         title.setSingleLine(true);
-        title.setHorizontallyScrolling(true);
-        title.setEllipsize(android.text.TextUtils.TruncateAt.MARQUEE);
-        title.setMarqueeRepeatLimit(-1);
-        title.setTextSize(13);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setTextSize(14);
         title.setTextColor(color(R.color.text_primary));
-        title.setGravity(Gravity.CENTER_VERTICAL);
-        title.setPadding(4, 0, 4, 0);
-        title.setText(formatContinueTitle(item));
-        title.setFocusable(false);
+        title.setText(continueMainTitle(item));
         card.addView(title);
 
-        // 跑马灯：强制选中，始终滚动
-        title.post(() -> title.setSelected(true));
+        String sub = continueSubTitle(item);
+        if (!sub.isEmpty()) {
+            TextView subTv = new TextView(this);
+            subTv.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            subTv.setSingleLine(true);
+            subTv.setTextSize(12);
+            subTv.setTextColor(color(R.color.text_hint));
+            subTv.setPadding(0, dp(2), 0, 0);
+            subTv.setText(sub);
+            card.addView(subTv);
+        }
 
-        // 点击直接播放
         final PlayListItem fi = item;
-        card.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                launchPlayer(fi.guid, fi.title, fi.tvTitle != null ? fi.tvTitle : "",
-                        fi.episodeNumber, fi.poster, fi.getCategoryLabel(),
-                        fi.ts, fi.duration, fi.parentGuid);
-            }
-        });
-
+        card.setOnClickListener(v -> launchPlayer(fi.guid, fi.title, fi.tvTitle != null ? fi.tvTitle : "",
+                fi.episodeNumber, fi.poster, fi.getCategoryLabel(),
+                fi.ts, fi.duration, fi.parentGuid));
         return card;
     }
 
@@ -572,15 +668,9 @@ public class HomeActivity extends AppCompatActivity {
                         int fva = -1;
                         for (int j = 0; j < moviesContainer.getChildCount(); j++) {
                             View cv = moviesContainer.getChildAt(j);
-                            if (cv instanceof ViewGroup) {
-                                for (int ci = 0; ci < ((ViewGroup) cv).getChildCount(); ci++) {
-                                    View child = ((ViewGroup) cv).getChildAt(ci);
-                                    if (child instanceof Button && child.isFocusable()) {
-                                        fva = child.getId();
-                                        break;
-                                    }
-                                }
-                                if (fva > 0) break;
+                            if ("lib_header".equals(cv.getTag()) && cv.getId() > 0) {
+                                fva = cv.getId();
+                                break;
                             }
                         }
                         addContinueWatchingApi((LinearLayout) v, response.body().data, fva);
@@ -613,55 +703,39 @@ public class HomeActivity extends AppCompatActivity {
     private void populateGrid(LinearLayout cont, List<PlayListItem> items) {
         HorizontalScrollView hsv = new HorizontalScrollView(this);
         hsv.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 410));
-        hsv.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        hsv.setHorizontalScrollBarEnabled(false);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(12, 8, 12, 8);
+        row.setPadding(dp(4), 0, dp(4), dp(8));
 
-        // 找到 cont 前后的 headerRow，取 viewAll 按钮
         View focusUpTarget = null;
         View focusDownTarget = null;
         if (cont.getParent() instanceof ViewGroup) {
             ViewGroup parent = (ViewGroup) cont.getParent();
             int idx = parent.indexOfChild(cont);
-            // 前面的 headerRow（当前分类的查看全部）
             for (int si = idx - 1; si >= 0; si--) {
                 View v = parent.getChildAt(si);
-                if (v instanceof ViewGroup) {
-                    for (int ci = 0; ci < ((ViewGroup) v).getChildCount(); ci++) {
-                        View child = ((ViewGroup) v).getChildAt(ci);
-                        if (child instanceof Button && child.isFocusable()) {
-                            focusUpTarget = child;
-                            break;
-                        }
-                    }
-                    if (focusUpTarget != null) break;
+                if (v.isFocusable() && v.getId() != View.NO_ID) {
+                    focusUpTarget = v;
+                    break;
                 }
             }
-            // 后面的 headerRow（下一个分类的查看全部）
             for (int si = idx + 1; si < parent.getChildCount(); si++) {
                 View v = parent.getChildAt(si);
-                if (v instanceof ViewGroup) {
-                    for (int ci = 0; ci < ((ViewGroup) v).getChildCount(); ci++) {
-                        View child = ((ViewGroup) v).getChildAt(ci);
-                        if (child instanceof Button && child.isFocusable()) {
-                            focusDownTarget = child;
-                            break;
-                        }
-                    }
-                    if (focusDownTarget != null) break;
+                if (v.isFocusable() && v.getId() != View.NO_ID) {
+                    focusDownTarget = v;
+                    break;
                 }
             }
         }
 
         for (int i = 0; i < items.size(); i++) {
             View card = makeItemCard(items.get(i));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(220, 380);
-            lp.setMargins(10, 0, 10, 0);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(128), ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(dp(6), 0, dp(6), 0);
             card.setLayoutParams(lp);
-            // 卡片：↑到当前查看全部，↓到下一个查看全部
             if (focusUpTarget != null) card.setNextFocusUpId(focusUpTarget.getId());
             if (focusDownTarget != null) card.setNextFocusDownId(focusDownTarget.getId());
             row.addView(card);
@@ -670,71 +744,112 @@ public class HomeActivity extends AppCompatActivity {
         hsv.addView(row);
         cont.addView(hsv);
 
-        new Handler(Looper.getMainLooper()).post(new Runnable() {
-            @Override
-            public void run() {
-                loadImagesLazily(hsv, 0);
-            }
-        });
+        new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
     }
 
-    /** 竖版卡片（2:3 比例适配海报图，图片为主，文字一条） */
+    private String itemYear(PlayListItem item) {
+        String d = item.airDate;
+        if (d != null && d.length() >= 4 && Character.isDigit(d.charAt(0))) return d.substring(0, 4);
+        return "";
+    }
+
+    private String itemResolution(PlayListItem item) {
+        if (item.mediaStream == null || item.mediaStream.resolutions == null
+                || item.mediaStream.resolutions.isEmpty()) return "";
+        String raw = item.mediaStream.resolutions.get(0);
+        if (raw == null) return "";
+        String u = raw.toUpperCase();
+        if (u.contains("2160") || u.contains("4K") || u.contains("UHD")) return "4K";
+        if (u.contains("1440") || u.contains("2K")) return "2K";
+        if (u.contains("1080")) return "1080";
+        if (u.contains("720")) return "720";
+        return raw.length() > 6 ? "" : raw;
+    }
+
+    private String itemRating(PlayListItem item) {
+        if (item.voteAverage == null || item.voteAverage.isEmpty()) return "";
+        try {
+            float v = Float.parseFloat(item.voteAverage);
+            if (v <= 0) return "";
+            return String.format(java.util.Locale.US, "%.1f", v);
+        } catch (NumberFormatException ignored) {
+            return "";
+        }
+    }
+
+    private TextView makeOverlayBadge(String text, int gravity) {
+        TextView tv = new TextView(this);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = gravity;
+        lp.setMargins(dp(6), dp(6), dp(6), dp(6));
+        tv.setLayoutParams(lp);
+        tv.setText(text);
+        tv.setTextColor(color(R.color.text_white));
+        tv.setTextSize(10);
+        tv.setPadding(dp(6), dp(2), dp(6), dp(2));
+        tv.setBackgroundResource(R.drawable.bg_badge);
+        return tv;
+    }
+
+    /** 竖版海报卡片：图 + 角标 + 标题/年份 */
 
     private View makeItemCard(PlayListItem item) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.bg_media_card);
-        card.setPadding(6, 6, 6, 6);
+        card.setBackgroundResource(R.drawable.bg_poster_card);
+        card.setPadding(dp(2), dp(2), dp(2), dp(2));
         card.setFocusable(true);
 
-        // 海报 — 16:9 比例，等页面显示完后统一逐张加载
+        FrameLayout posterBox = new FrameLayout(this);
+        posterBox.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(186)));
+
         RoundedImageView iv = new RoundedImageView(this);
-        iv.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 280));
-        iv.setScaleType(ImageView.ScaleType.FIT_XY);
+        iv.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
         iv.setBackgroundColor(color(R.color.bg_poster));
         iv.setCornerRadius(10);
         String imgUrl = makePosterUrl(item.poster);
-        if (imgUrl != null) { iv.setTag(imgUrl); }
-        card.addView(iv);
+        if (imgUrl != null) iv.setTag(imgUrl);
+        posterBox.addView(iv);
 
-        // 底部文字条：类型 + 标题
-        LinearLayout textBar = new LinearLayout(this);
-        textBar.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 88));
-        textBar.setOrientation(LinearLayout.VERTICAL);
-        textBar.setGravity(Gravity.CENTER_VERTICAL);
-        textBar.setPadding(0, 4, 0, 4);
-
-        TextView tag = new TextView(this);
-        tag.setTextSize(9);
-        tag.setTextColor(color(R.color.colorAccent));
-        String t = item.type;
-        if ("TV".equals(t)) t = "剧集";
-        else if ("Movie".equals(t)) t = "电影";
-        else if ("Directory".equals(t)) t = "文件夹";
-        else if ("Video".equals(t)) t = "视频";
-        tag.setText(t);
-        textBar.addView(tag);
+        String rating = itemRating(item);
+        if (!rating.isEmpty()) {
+            posterBox.addView(makeOverlayBadge(rating, Gravity.TOP | Gravity.RIGHT));
+        }
+        String res = itemResolution(item);
+        if (!res.isEmpty()) {
+            posterBox.addView(makeOverlayBadge(res, Gravity.BOTTOM | Gravity.RIGHT));
+        }
+        card.addView(posterBox);
 
         final TextView title = new TextView(this);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.topMargin = dp(8);
+        title.setLayoutParams(titleLp);
         title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.MARQUEE);
-        title.setMarqueeRepeatLimit(-1);
-        title.setTextSize(11);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setTextSize(13);
         title.setTextColor(color(R.color.text_primary));
         title.setText(item.title != null ? item.title : "未知");
-        textBar.addView(title);
+        card.addView(title);
 
-        card.addView(textBar);
+        String year = itemYear(item);
+        if (!year.isEmpty()) {
+            TextView yearTv = new TextView(this);
+            yearTv.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            yearTv.setTextSize(12);
+            yearTv.setTextColor(color(R.color.text_hint));
+            yearTv.setPadding(0, dp(2), 0, 0);
+            yearTv.setText(year);
+            card.addView(yearTv);
+        }
 
-        card.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            @Override
-            public void onFocusChange(View v, boolean hasFocus) {
-                title.setSelected(hasFocus);
-            }
-        });
-
+        card.setOnFocusChangeListener((v, hasFocus) -> title.setSelected(hasFocus));
         card.setTag(item);
         card.setOnClickListener(v -> onItemClick((PlayListItem) card.getTag()));
         return card;
@@ -823,8 +938,8 @@ public class HomeActivity extends AppCompatActivity {
                             // 图片按9:16竖版比例
                             if (card instanceof ViewGroup) {
                                 View ch = ((ViewGroup) card).getChildAt(0);
-                                if (ch instanceof ImageView) {
-                                    int posterH = Math.min(550, (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2);
+                                if (ch != null) {
+                                    int posterH = Math.min(dp(280), (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2);
                                     ch.setLayoutParams(new LinearLayout.LayoutParams(
                                             ViewGroup.LayoutParams.MATCH_PARENT, posterH));
                                 }
@@ -899,8 +1014,8 @@ public class HomeActivity extends AppCompatActivity {
                 View card = makeItemCard(pli);
                 if (card instanceof ViewGroup) {
                     View ch = ((ViewGroup) card).getChildAt(0);
-                    if (ch instanceof ImageView) {
-                        int posterH = Math.min(550, (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2);
+                    if (ch != null) {
+                        int posterH = Math.min(dp(280), (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2);
                         ch.setLayoutParams(new LinearLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT, posterH));
                     }
@@ -1821,8 +1936,8 @@ public class HomeActivity extends AppCompatActivity {
                 View card = makeItemCard(item);
                 if (card instanceof ViewGroup) {
                     View ch = ((ViewGroup) card).getChildAt(0);
-                    if (ch instanceof ImageView) {
-                        int posterH = Math.min(550, (int) (getResources().getDisplayMetrics().widthPixels / cols * 1.5));
+                    if (ch != null) {
+                        int posterH = Math.min(dp(280), (int) (getResources().getDisplayMetrics().widthPixels / cols * 1.5));
                         ch.setLayoutParams(new LinearLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT, posterH));
                     }
@@ -2217,66 +2332,33 @@ public class HomeActivity extends AppCompatActivity {
         section.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ── 标题行 ──
-        LinearLayout headerRow = new LinearLayout(this);
-        headerRow.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setPadding(6, 24, 6, 18);
-        headerRow.setGravity(Gravity.CENTER_VERTICAL);
-        headerRow.setMinimumHeight(68);
-        headerRow.setId(View.generateViewId());
-
-        TextView header = new TextView(this);
-        header.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        header.setText("直播频道");
-        header.setTextColor(color(R.color.text_primary));
-        header.setTextSize(18);
-        header.setTypeface(Typeface.DEFAULT_BOLD);
-        headerRow.addView(header);
-
-        Button viewAll = new Button(this);
-        viewAll.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 68));
-        viewAll.setBackgroundResource(R.drawable.bg_text_action);
-        viewAll.setText("查看全部 ›");
-        viewAll.setTextColor(color(R.color.text_secondary));
-        viewAll.setTextSize(14);
-        viewAll.setFocusable(true);
-        viewAll.setId(View.generateViewId());
-        viewAll.setPadding(24, 0, 24, 0);
-        viewAll.setOnClickListener(v -> browseLiveChannels());
-        viewAll.setOnFocusChangeListener((v, hasFocus) -> {
-            viewAll.setTextColor(hasFocus ? color(R.color.success) : color(R.color.text_secondary));
-        });
-        headerRow.addView(viewAll);
+        LinearLayout headerRow = makeLibHeader(null, "直播频道", 0);
+        headerRow.setOnClickListener(v -> browseLiveChannels());
         section.addView(headerRow);
 
-        // ── 横向滚动卡片预览（和其他媒体库预览一致的高度）──
         HorizontalScrollView hsv = new HorizontalScrollView(this);
         hsv.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 410));
-        hsv.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        hsv.setHorizontalScrollBarEnabled(false);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(12, 8, 12, 8);
+        row.setPadding(dp(4), 0, dp(4), dp(8));
 
-            // 焦点链：卡片 ↑ 到查看全部按钮，↓ 到底部菜单栏
-            for (int i = 0; i < items.size(); i++) {
-                View card = makeLiveChannelCard(items.get(i));
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(220, 380);
-                lp.setMargins(10, 0, 10, 0);
-                card.setLayoutParams(lp);
-                card.setNextFocusUpId(viewAll.getId());
-                card.setNextFocusDownId(tabMovies.getId());
-                row.addView(card);
-            }
+        for (int i = 0; i < items.size(); i++) {
+            View card = makeLiveChannelCard(items.get(i));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(128), ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(dp(6), 0, dp(6), 0);
+            card.setLayoutParams(lp);
+            card.setNextFocusUpId(headerRow.getId());
+            card.setNextFocusDownId(tabMovies.getId());
+            row.addView(card);
+        }
 
         hsv.addView(row);
         section.addView(hsv);
-        section.addView(makeSpacer(16));
+        section.addView(makeSpacer(dp(8)));
 
-        // 插入到 moviesContainer
         moviesContainer.addView(section);
     }
 
@@ -2284,56 +2366,48 @@ public class HomeActivity extends AppCompatActivity {
     private View makeLiveChannelCard(PlayListItem item) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.bg_media_card);
-        card.setPadding(6, 6, 6, 6);
+        card.setBackgroundResource(R.drawable.bg_poster_card);
+        card.setPadding(dp(2), dp(2), dp(2), dp(2));
         card.setFocusable(true);
 
-        // 频道全名 + 彩色背景
         String shortName = item.title != null && !item.title.isEmpty() ? item.title : "?";
         int[] colors = {0xFFE53935, 0xFF1E88E5, 0xFF43A047, 0xFFFB8C00,
                         0xFF8E24AA, 0xFF00ACC1, 0xFF6D4C41, 0xFF546E7A};
         int colorIdx = item.guid != null ? Math.abs(item.guid.hashCode() % colors.length) : 0;
-        float r = 10 * getResources().getDisplayMetrics().density;
         android.graphics.drawable.GradientDrawable badgeBg = new android.graphics.drawable.GradientDrawable();
         badgeBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-        badgeBg.setCornerRadius(r);
+        badgeBg.setCornerRadius(dp(10));
         badgeBg.setColor(colors[colorIdx]);
         TextView channelBadge = new TextView(this);
         channelBadge.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 280));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(186)));
         channelBadge.setGravity(Gravity.CENTER);
         channelBadge.setText(shortName);
         channelBadge.setTextColor(color(R.color.text_white));
         int len = shortName.length();
-        channelBadge.setTextSize(len <= 2 ? 56 : len <= 4 ? 40 : len <= 6 ? 30 : 22);
+        channelBadge.setTextSize(len <= 2 ? 28 : len <= 4 ? 20 : 16);
         channelBadge.setTypeface(Typeface.DEFAULT_BOLD);
-        channelBadge.setBackground(badgeBg);
+        channelBadge.setBackgroundDrawable(badgeBg);
         card.addView(channelBadge);
 
-        // 底部文字条：类型 + 标题
-        LinearLayout textBar = new LinearLayout(this);
-        textBar.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 88));
-        textBar.setOrientation(LinearLayout.VERTICAL);
-        textBar.setGravity(Gravity.CENTER_VERTICAL);
-        textBar.setPadding(0, 4, 0, 4);
-
-        TextView tag = new TextView(this);
-        tag.setTextSize(9);
-        tag.setTextColor(color(R.color.colorAccent));
-        tag.setText("直播");
-        textBar.addView(tag);
-
         final TextView title = new TextView(this);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.topMargin = dp(8);
+        title.setLayoutParams(titleLp);
         title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.MARQUEE);
-        title.setMarqueeRepeatLimit(-1);
-        title.setTextSize(11);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setTextSize(13);
         title.setTextColor(color(R.color.text_primary));
         title.setText(item.title != null ? item.title : "未知");
-        textBar.addView(title);
+        card.addView(title);
 
-        card.addView(textBar);
+        TextView tag = new TextView(this);
+        tag.setTextSize(12);
+        tag.setTextColor(color(R.color.text_hint));
+        tag.setPadding(0, dp(2), 0, 0);
+        tag.setText("直播");
+        card.addView(tag);
 
         card.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override

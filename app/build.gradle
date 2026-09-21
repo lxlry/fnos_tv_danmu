@@ -26,6 +26,24 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
+    signingConfigs {
+        sideload {
+            storeFile file("ci.p12")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.sideload
+        }
+        release {
+            signingConfig signingConfigs.sideload
+        }
+    }
+
     applicationVariants.all { variant ->
         variant.outputs.all {
             outputFileName = "FNTV_${variant.buildType.name}_v${variant.versionName}_${generateTime()}.apk"

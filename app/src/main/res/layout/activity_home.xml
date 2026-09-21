@@ -27,6 +27,41 @@ DPAD 遥控器友好
             android:orientation="vertical"
             android:visibility="visible">
 
+            <RelativeLayout
+                android:id="@+id/moviesHeader"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:paddingLeft="16dp"
+                android:paddingRight="8dp">
+
+                <TextView
+                    android:id="@+id/tvHomeTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    android:text="FN TV"
+                    android:textColor="@color/text_primary"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnHomeSearch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_alignParentRight="true"
+                    android:layout_centerVertical="true"
+                    android:background="@drawable/bg_text_action"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:paddingLeft="14dp"
+                    android:paddingRight="14dp"
+                    android:text="搜索"
+                    android:textAllCaps="false"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp" />
+            </RelativeLayout>
+
             <ScrollView
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
