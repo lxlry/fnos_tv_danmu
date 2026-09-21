@@ -6,6 +6,8 @@ import android.os.AsyncTask;
 import android.util.LruCache;
 import android.util.Log;
 import android.widget.ImageView;
+import androidx.core.content.ContextCompat;
+import com.fntv.app.R;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import okhttp3.OkHttpClient;
@@ -30,7 +32,7 @@ public class SimpleImageLoader {
     public static void load(String url, ImageView view, OkHttpClient client) {
         if (url == null || url.isEmpty()) {
             view.setImageBitmap(null);
-            view.setBackgroundColor(0xFF333333);
+            view.setBackgroundColor(ContextCompat.getColor(view.getContext(), R.color.bg_poster));
             return;
         }
 
@@ -111,7 +113,7 @@ public class SimpleImageLoader {
             if (bitmap != null) {
                 imageView.setImageBitmap(bitmap);
             } else {
-                imageView.setBackgroundColor(0xFF444444);
+                imageView.setBackgroundColor(ContextCompat.getColor(imageView.getContext(), R.color.bg_poster));
             }
         }
     }

@@ -13,6 +13,7 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
+import androidx.core.content.ContextCompat;
 import com.fntv.app.api.FnApiManager;
 import com.fntv.app.api.model.ApiResponse;
 import com.fntv.app.api.model.LoginRequest;
@@ -53,7 +54,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(Color.TRANSPARENT);
-            getWindow().setNavigationBarColor(0xFF1A1A1A);
+            getWindow().setNavigationBarColor(color(R.color.bg_dark));
         }
 
         prefs = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
@@ -83,8 +84,8 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout modeRow = new LinearLayout(this);
         LinearLayout.LayoutParams modeLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        modeLp.leftMargin = (int)(24 * density);
-        modeLp.rightMargin = (int)(24 * density);
+        modeLp.leftMargin = 0;
+        modeLp.rightMargin = 0;
         modeRow.setLayoutParams(modeLp);
         modeRow.setOrientation(LinearLayout.HORIZONTAL);
         modeRow.setGravity(android.view.Gravity.CENTER);
@@ -209,12 +210,16 @@ public class MainActivity extends AppCompatActivity {
 
     // ==================== 卡片构建 ====================
 
+    private int color(int resId) {
+        return ContextCompat.getColor(this, resId);
+    }
+
     private Button makeToggleBtn(String text) {
         Button btn = new Button(this);
-        btn.setLayoutParams(new LinearLayout.LayoutParams(0, (int)(27 * density), 1));
-        btn.setBackgroundResource(R.drawable.bg_input);
+        btn.setLayoutParams(new LinearLayout.LayoutParams(0, (int)(44 * density), 1));
+        btn.setBackgroundResource(R.drawable.bg_mode_toggle);
         btn.setText(text);
-        btn.setTextColor(0xFFEEEEEE);
+        btn.setTextColor(color(R.color.text_primary));
         btn.setTextSize(13);
         btn.setFocusable(true);
         btn.setPadding(8, 0, 8, 0);
@@ -253,7 +258,8 @@ public class MainActivity extends AppCompatActivity {
         etHost.setHint(hostHint);
         etHost.setInputType(hostInputType);
         etHost.setPadding((int)(12 * density), 0, (int)(12 * density), 0);
-        etHost.setTextColor(0xFFEEEEEE);
+        etHost.setTextColor(color(R.color.text_primary));
+        etHost.setHintTextColor(color(R.color.text_hint));
         etHost.setTextSize(15);
         int hostId = View.generateViewId();
         etHost.setId(hostId);
@@ -270,7 +276,8 @@ public class MainActivity extends AppCompatActivity {
         etUser.setHint("输入用户名");
         etUser.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
         etUser.setPadding((int)(12 * density), 0, (int)(12 * density), 0);
-        etUser.setTextColor(0xFFEEEEEE);
+        etUser.setTextColor(color(R.color.text_primary));
+        etUser.setHintTextColor(color(R.color.text_hint));
         etUser.setTextSize(15);
         int userId = View.generateViewId();
         etUser.setId(userId);
@@ -289,7 +296,8 @@ public class MainActivity extends AppCompatActivity {
         etPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
         etPass.setPadding((int)(12 * density), 0, (int)(12 * density), 0);
-        etPass.setTextColor(0xFFEEEEEE);
+        etPass.setTextColor(color(R.color.text_primary));
+        etPass.setHintTextColor(color(R.color.text_hint));
         etPass.setTextSize(15);
         int passId = View.generateViewId();
         etPass.setId(passId);
@@ -313,12 +321,12 @@ public class MainActivity extends AppCompatActivity {
         cb.setLayoutParams(cbLp);
         cb.setFocusable(false);
         cb.setText("记住密码");
-        cb.setTextColor(0xFFEEEEEE);
+        cb.setTextColor(color(R.color.text_primary));
         cb.setTextSize(14);
         cb.setId(View.generateViewId());
         // 兼容旧版本的勾选图标染蓝（替代 API 22 的 getButtonDrawable + setTint）
         androidx.core.widget.CompoundButtonCompat.setButtonTintList(
-                cb, android.content.res.ColorStateList.valueOf(0xFF3370FF));
+                cb, android.content.res.ColorStateList.valueOf(color(R.color.colorAccent)));
         cbWrap.addView(cb);
         cbWrap.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -350,7 +358,7 @@ public class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         tv.setPadding(0, 0, 0, (int)(4 * density));
         tv.setText(text);
-        tv.setTextColor(0xFFB0B0B0);
+        tv.setTextColor(color(R.color.text_secondary));
         tv.setTextSize(12);
         return tv;
     }
@@ -394,13 +402,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateModeColor() {
-        if (isFnIdMode) {
-            btnHttpMode.setTextColor(0xFF808080);
-            btnFnIdMode.setTextColor(0xFFEEEEEE);
-        } else {
-            btnHttpMode.setTextColor(0xFFEEEEEE);
-            btnFnIdMode.setTextColor(0xFF808080);
-        }
+        btnHttpMode.setSelected(!isFnIdMode);
+        btnFnIdMode.setSelected(isFnIdMode);
+        btnHttpMode.setTextColor(color(isFnIdMode ? R.color.text_hint : R.color.text_primary));
+        btnFnIdMode.setTextColor(color(isFnIdMode ? R.color.text_primary : R.color.text_hint));
     }
 
     // ==================== 登录逻辑 ====================

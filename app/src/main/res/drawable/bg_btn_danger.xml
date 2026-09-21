@@ -2,14 +2,20 @@
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <shape android:shape="rectangle">
-            <solid android:color="@color/bg_card_focused" />
-            <stroke android:width="2dp" android:color="@color/border_focused" />
+            <solid android:color="@color/danger_focused" />
+            <corners android:radius="12dp" />
+            <stroke android:width="3dp" android:color="@color/danger_ring" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/danger" />
             <corners android:radius="12dp" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="@color/bg_card" />
+            <solid android:color="@color/danger" />
             <corners android:radius="12dp" />
         </shape>
     </item>
