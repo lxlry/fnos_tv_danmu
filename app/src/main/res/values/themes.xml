@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+    深灰色主题，无 ActionBar。
+    使用 Theme.AppCompat.NoActionBar 作为父主题，
+    兼容 Android 4.4 (API 19)。
+    -->
+    <style name="Theme.FntvApp" parent="Theme.AppCompat.NoActionBar">
+        <!-- 主色 -->
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+
+        <!-- 窗口背景 -->
+        <item name="android:windowBackground">@color/bg_dark</item>
+
+        <!-- 让 Dialog / Popup 也用深色 -->
+        <item name="android:alertDialogTheme">@style/DarkDialog</item>
+    </style>
+
+    <!-- 深色对话框主题 -->
+    <style name="DarkDialog" parent="Theme.AppCompat.Dialog">
+        <item name="android:windowBackground">@color/bg_card</item>
+        <item name="colorAccent">@color/colorAccent</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+    </style>
+
+    <!-- 遥控器焦点高亮：配合 ?attr/selectableItemBackground 默认有涟漪/高亮 -->
+</resources>

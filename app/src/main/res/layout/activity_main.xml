@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+登录界面
+- ScrollView 包裹 → 横竖屏自适应
+- 深色背景，卡片式登录面板
+- 所有交互控件支持 DPAD 遥控器焦点导航
+- Android 4.4+ 兼容
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:minHeight="@dimen/min_height_fill">
+
+        <!-- 居中卡片 -->
+        <LinearLayout
+            android:id="@+id/loginCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_margin="16dp"
+            android:background="@drawable/bg_card"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <!-- Logo / 图标区域 -->
+            <TextView
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/bg_btn_primary"
+                android:gravity="center"
+                android:text="FN"
+                android:textColor="@color/text_white"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <!-- 应用名称（无"飞牛影视"文字，仅用简洁图标） -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:text="FN TV"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp" />
+
+            <!-- 服务器地址 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="服务器地址"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/etHost"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/bg_input"
+                android:focusable="true"
+                android:hint="例如 http://192.168.1.1:5666"
+                android:textColorHint="@color/text_hint"
+                android:imeOptions="actionNext"
+                android:inputType="textUri"
+                android:nextFocusDown="@+id/etUser"
+                android:nextFocusForward="@+id/etUser"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp"
+                android:textColor="@color/text_primary"
+                android:textColorHighlight="@color/colorAccent"
+                android:textSize="15sp" />
+
+            <!-- 用户名 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="用户名"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/etUser"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/bg_input"
+                android:focusable="true"
+                android:hint="输入用户名"
+                android:textColorHint="@color/text_hint"
+                android:imeOptions="actionNext"
+                android:inputType="text"
+                android:nextFocusDown="@+id/etPass"
+                android:nextFocusUp="@+id/etHost"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp"
+                android:textColor="@color/text_primary"
+                android:textColorHighlight="@color/colorAccent"
+                android:textSize="15sp" />
+
+            <!-- 密码 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="密码"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/etPass"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/bg_input"
+                android:focusable="true"
+                android:hint="输入密码"
+                android:textColorHint="@color/text_hint"
+                android:imeOptions="actionDone"
+                android:inputType="textPassword"
+                android:nextFocusDown="@+id/cbRemember"
+                android:nextFocusUp="@+id/etUser"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp"
+                android:textColor="@color/text_primary"
+                android:textColorHighlight="@color/colorAccent"
+                android:textSize="15sp" />
+
+            <!-- 记住密码 -->
+            <RelativeLayout
+                android:id="@+id/cbRemember"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@drawable/bg_input"
+                android:focusable="true"
+                android:nextFocusDown="@+id/btnLogin"
+                android:nextFocusUp="@+id/etPass"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp">
+
+                <CheckBox
+                    android:id="@+id/cbRememberCheck"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    app:buttonTint="@color/colorAccent"
+                    android:focusable="false"
+                    android:text="记住密码"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp" />
+
+            </RelativeLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:background="@color/divider" />
+
+            <!-- 登录按钮 -->
+            <Button
+                android:id="@+id/btnLogin"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_btn_primary"
+                android:focusable="true"
+                android:nextFocusUp="@+id/cbRemember"
+                android:nextFocusDown="@+id/etHost"
+                android:text="登 录"
+                android:textAllCaps="false"
+                android:textColor="@color/text_white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
+
+    </RelativeLayout>
+
+</ScrollView>

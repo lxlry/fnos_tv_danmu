@@ -1,0 +1,83 @@
+################################################
+# Android / Gradle
+################################################
+
+# Build output
+build/
+app/build/
+*/build/
+app/release
+
+# AAR / APK / AAB / DEX（打包产物）
+*.apk
+*.ap_
+*.aab
+*.dex
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# local config (敏感)
+local.properties
+
+################################################
+# Android Studio / IntelliJ IDEA
+################################################
+
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Android Studio 3+ specific
+.navigation/
+captures/
+.externalNativeBuild/
+
+################################################
+# Kotlin / Java
+################################################
+
+*.class
+*.log
+
+################################################
+# Keystore
+################################################
+
+*.jks
+*.keystore
+*.p12
+
+################################################
+# Native build
+################################################
+
+.cxx/
+.externalNativeBuild/
+*.so
+
+################################################
+# OS generated files (Windows / macOS / Linux)
+################################################
+
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+################################################
+# Logs / temp
+################################################
+
+*.log
+*.tmp
+*.temp
+
+################################################
+# Android profiler / cache
+################################################
+
+*.hprof
