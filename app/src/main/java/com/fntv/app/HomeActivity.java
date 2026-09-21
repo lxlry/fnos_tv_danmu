@@ -827,6 +827,17 @@ public class HomeActivity extends AppCompatActivity {
         new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
     }
 
+    private String itemCardSub(PlayListItem item) {
+        if (item != null && ("TV".equals(item.type) || "Episode".equals(item.type))) {
+            int seasons = item.localNumberOfSeasons > 0 ? item.localNumberOfSeasons : item.numberOfSeasons;
+            int episodes = item.localNumberOfEpisodes > 0 ? item.localNumberOfEpisodes : item.numberOfEpisodes;
+            if (seasons > 1) return "共" + seasons + "季";
+            if (episodes > 0) return "共" + episodes + "集";
+            if (seasons == 1) return "共1季";
+        }
+        return itemYear(item);
+    }
+
     private String itemYear(PlayListItem item) {
         String d = item.airDate;
         if (d != null && d.length() >= 4 && Character.isDigit(d.charAt(0))) return d.substring(0, 4);
@@ -917,16 +928,16 @@ public class HomeActivity extends AppCompatActivity {
         title.setText(item.title != null ? item.title : "未知");
         card.addView(title);
 
-        String year = itemYear(item);
-        if (!year.isEmpty()) {
-            TextView yearTv = new TextView(this);
-            yearTv.setLayoutParams(new LinearLayout.LayoutParams(
+        String sub = itemCardSub(item);
+        if (!sub.isEmpty()) {
+            TextView subTv = new TextView(this);
+            subTv.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            yearTv.setTextSize(12);
-            yearTv.setTextColor(color(R.color.text_hint));
-            yearTv.setPadding(0, dp(2), 0, 0);
-            yearTv.setText(year);
-            card.addView(yearTv);
+            subTv.setTextSize(12);
+            subTv.setTextColor(color(R.color.text_hint));
+            subTv.setPadding(0, dp(2), 0, 0);
+            subTv.setText(sub);
+            card.addView(subTv);
         }
 
         card.setOnFocusChangeListener((v, hasFocus) -> title.setSelected(hasFocus));
