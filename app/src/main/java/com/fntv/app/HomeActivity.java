@@ -23,6 +23,7 @@ import com.fntv.app.api.model.*;
 import com.fntv.app.util.SimpleImageLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,6 +85,14 @@ public class HomeActivity extends AppCompatActivity {
     private boolean browseFromLibrary;
     private String savedLiveChannelTitle;
     private int[] savedMoviesPad;
+    private View lastContentFocus;
+    private boolean homeEntryFocused;
+    private String lastFocusSectionTag;
+    private int lastFocusIndexInSection;
+    private Button detailPlayBtn;
+    private TextView detailOverview;
+    private ViewGroup detailChipRow;
+    private ViewGroup detailEpisodeBox;
 
     @Override
 
@@ -138,6 +147,7 @@ public class HomeActivity extends AppCompatActivity {
         updateManager.setup();
         setupFeedback();
         setupSearch();
+        setupTvFocus();
 
         switchTab(0);
         tvMoviesLoading.setVisibility(View.VISIBLE);
@@ -251,6 +261,25 @@ public class HomeActivity extends AppCompatActivity {
         else if (index == 1) tabLibrary.requestFocus();
         else tabSettings.requestFocus();
         if (backToHome) restoreHomeOverview();
+        refreshTabFocusTargets();
+    }
+
+    private void refreshTabFocusTargets() {
+        if (currentTab == 2) {
+            wireSettingsFocus();
+        } else if (currentTab == 1) {
+            if (savedBrowseGuid != null || isSearching) {
+                wireBrowseGrid(libraryContainer);
+            } else {
+                wireLibraryList();
+            }
+        } else if (showingOverview) {
+            wireOverviewFocus();
+        } else if (savedDetailItem != null) {
+            wireDetailNav();
+        } else if (moviesContainer != null) {
+            wireBrowseGrid(moviesContainer);
+        }
     }
 
     /** 回到影视首页概览（保留已加载的媒体库，并恢复继续观看） */
@@ -331,14 +360,11 @@ public class HomeActivity extends AppCompatActivity {
         moviesContainer.removeAllViews();
         showingOverview = true;
         overviewBuilt = true;
-
-        LinearLayout libRowBox = new LinearLayout(this);
-        libRowBox.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        libRowBox.setOrientation(LinearLayout.VERTICAL);
-        libRowBox.setTag("lib_shortcuts");
-        libRowBox.addView(makeLibShortcutRow());
-        moviesContainer.addView(libRowBox);
+        homeEntryFocused = false;
+        detailPlayBtn = null;
+        detailOverview = null;
+        detailChipRow = null;
+        detailEpisodeBox = null;
 
         LinearLayout continueWatchingBox = new LinearLayout(this);
         continueWatchingBox.setLayoutParams(new LinearLayout.LayoutParams(
@@ -349,6 +375,14 @@ public class HomeActivity extends AppCompatActivity {
         if (cachedContinueWatching != null && !cachedContinueWatching.isEmpty()) {
             addContinueWatchingApi(continueWatchingBox, cachedContinueWatching, 0);
         }
+
+        LinearLayout libRowBox = new LinearLayout(this);
+        libRowBox.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        libRowBox.setOrientation(LinearLayout.VERTICAL);
+        libRowBox.setTag("lib_shortcuts");
+        libRowBox.addView(makeLibShortcutRow());
+        moviesContainer.addView(libRowBox);
 
         for (MediaDbItem lib : mediaLibraries) {
             LinearLayout headerRow = makeLibHeader(lib.guid, lib.title, 0);
@@ -372,6 +406,7 @@ public class HomeActivity extends AppCompatActivity {
             e.setTextSize(14);
             moviesContainer.addView(e);
         }
+        wireOverviewFocus();
     }
 
     /** 加载各媒体库预览 */
@@ -409,6 +444,7 @@ public class HomeActivity extends AppCompatActivity {
                 LinearLayout box = (LinearLayout) v;
                 box.removeAllViews();
                 populateGrid(box, items);
+                wireOverviewFocus();
                 break;
             }
         }
@@ -443,19 +479,23 @@ public class HomeActivity extends AppCompatActivity {
         return headerRow;
     }
 
-    private HorizontalScrollView makeLibShortcutRow() {
+    private HorizontalScrollView makeHsv() {
         HorizontalScrollView hsv = new HorizontalScrollView(this);
         hsv.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         hsv.setHorizontalScrollBarEnabled(false);
+        TvFocus.asScroller(hsv);
+        return hsv;
+    }
+
+    private HorizontalScrollView makeLibShortcutRow() {
+        HorizontalScrollView hsv = makeHsv();
         hsv.setPadding(0, dp(4), 0, dp(8));
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(dp(4), 0, dp(4), 0);
 
-        Button searchBtn = findViewById(R.id.btnHomeSearch);
-        int searchId = searchBtn != null ? searchBtn.getId() : View.NO_ID;
         for (int i = 0; i < mediaLibraries.size(); i++) {
             MediaDbItem lib = mediaLibraries.get(i);
             View tile = makeLibShortcutCard(lib);
@@ -463,8 +503,6 @@ public class HomeActivity extends AppCompatActivity {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(148), dp(92));
             lp.setMargins(dp(6), 0, dp(6), 0);
             tile.setLayoutParams(lp);
-            if (searchId != View.NO_ID) tile.setNextFocusUpId(searchId);
-            if (i == 0 && searchBtn != null) searchBtn.setNextFocusDownId(tile.getId());
             row.addView(tile);
         }
         hsv.addView(row);
@@ -475,6 +513,7 @@ public class HomeActivity extends AppCompatActivity {
     private View makeLibShortcutCard(MediaDbItem lib) {
         FrameLayout tile = new FrameLayout(this);
         tile.setBackgroundResource(R.drawable.bg_lib_tile);
+        tile.setPadding(dp(3), dp(3), dp(3), dp(3));
         tile.setFocusable(true);
         tile.setTag("lib_tile_" + lib.guid);
         tile.setOnClickListener(v -> browseItems(lib.guid, lib.title));
@@ -510,6 +549,15 @@ public class HomeActivity extends AppCompatActivity {
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
         tile.addView(name);
+
+        View ring = new View(this);
+        ring.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        ring.setBackgroundResource(R.drawable.bg_lib_tile);
+        ring.setDuplicateParentStateEnabled(true);
+        ring.setClickable(false);
+        ring.setFocusable(false);
+        tile.addView(ring);
         return tile;
     }
 
@@ -594,10 +642,7 @@ public class HomeActivity extends AppCompatActivity {
         h.setTextSize(14);
         cont.addView(h);
 
-        HorizontalScrollView hsv = new HorizontalScrollView(this);
-        hsv.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        hsv.setHorizontalScrollBarEnabled(false);
+        HorizontalScrollView hsv = makeHsv();
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -608,7 +653,6 @@ public class HomeActivity extends AppCompatActivity {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(dp(6), 0, dp(6), 0);
             card.setLayoutParams(lp);
-            if (viewAllId > 0) card.setNextFocusDownId(viewAllId);
             row.addView(card);
         }
 
@@ -616,6 +660,7 @@ public class HomeActivity extends AppCompatActivity {
         cont.addView(hsv);
 
         new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
+        if (showingOverview) wireOverviewFocus();
     }
 
     private String continueMainTitle(PlayListItem item) {
@@ -781,43 +826,17 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void populateGrid(LinearLayout cont, List<PlayListItem> items) {
-        HorizontalScrollView hsv = new HorizontalScrollView(this);
-        hsv.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        hsv.setHorizontalScrollBarEnabled(false);
+        HorizontalScrollView hsv = makeHsv();
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(dp(4), 0, dp(4), dp(8));
-
-        View focusUpTarget = null;
-        View focusDownTarget = null;
-        if (cont.getParent() instanceof ViewGroup) {
-            ViewGroup parent = (ViewGroup) cont.getParent();
-            int idx = parent.indexOfChild(cont);
-            for (int si = idx - 1; si >= 0; si--) {
-                View v = parent.getChildAt(si);
-                if (v.isFocusable() && v.getId() != View.NO_ID) {
-                    focusUpTarget = v;
-                    break;
-                }
-            }
-            for (int si = idx + 1; si < parent.getChildCount(); si++) {
-                View v = parent.getChildAt(si);
-                if (v.isFocusable() && v.getId() != View.NO_ID) {
-                    focusDownTarget = v;
-                    break;
-                }
-            }
-        }
 
         for (int i = 0; i < items.size(); i++) {
             View card = makeItemCard(items.get(i));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(128), ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(dp(6), 0, dp(6), 0);
             card.setLayoutParams(lp);
-            if (focusUpTarget != null) card.setNextFocusUpId(focusUpTarget.getId());
-            if (focusDownTarget != null) card.setNextFocusDownId(focusDownTarget.getId());
             row.addView(card);
         }
 
@@ -1054,6 +1073,7 @@ public class HomeActivity extends AppCompatActivity {
                         container.addView(makeSpacer(12));
                     }
                     new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(container, 0));
+                    wireBrowseGrid(container);
                 } else {
                     TextView e = new TextView(HomeActivity.this);
                     e.setLayoutParams(new LinearLayout.LayoutParams(
@@ -1128,6 +1148,7 @@ public class HomeActivity extends AppCompatActivity {
             container.addView(makeSpacer(12));
         }
         new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(container, 0));
+        wireBrowseGrid(container);
     }
 
     // ==================== 媒体库排序筛选 ====================
@@ -1381,6 +1402,10 @@ public class HomeActivity extends AppCompatActivity {
         savedDetailItem = item;
         savedDetailInfo = info;
         showingEpisodes = false;
+        detailPlayBtn = null;
+        detailOverview = null;
+        detailChipRow = null;
+        detailEpisodeBox = null;
         setDetailChrome(true);
 
         boolean land = getResources().getConfiguration().orientation
@@ -1545,12 +1570,11 @@ public class HomeActivity extends AppCompatActivity {
             infoCol.addView(subTv);
         }
 
-        HorizontalScrollView chipScroll = new HorizontalScrollView(this);
+        HorizontalScrollView chipScroll = makeHsv();
         LinearLayout.LayoutParams chipScrollLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         chipScrollLp.topMargin = dp(10);
         chipScroll.setLayoutParams(chipScrollLp);
-        chipScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.setGravity(Gravity.CENTER_VERTICAL);
@@ -1658,6 +1682,7 @@ public class HomeActivity extends AppCompatActivity {
             });
             ov.setOnFocusChangeListener((v, hasFocus) ->
                     ov.setTextColor(hasFocus ? color(R.color.text_primary) : color(R.color.text_secondary)));
+            detailOverview = ov;
             below.addView(ov);
             below.addView(makeSpacer(dp(12)));
         }
@@ -1672,6 +1697,10 @@ public class HomeActivity extends AppCompatActivity {
         }
 
         moviesContainer.addView(below);
+        detailPlayBtn = playBtn;
+        detailChipRow = null;
+        detailEpisodeBox = null;
+        wireDetailNav();
         playBtn.post(playBtn::requestFocus);
     }
 
@@ -1727,10 +1756,7 @@ public class HomeActivity extends AppCompatActivity {
 
                 content.addView(makeSectionLabel("剧集"));
 
-                HorizontalScrollView hsv = new HorizontalScrollView(HomeActivity.this);
-                hsv.setLayoutParams(new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                hsv.setHorizontalScrollBarEnabled(false);
+                HorizontalScrollView hsv = makeHsv();
                 LinearLayout chipRow = new LinearLayout(HomeActivity.this);
                 chipRow.setOrientation(LinearLayout.HORIZONTAL);
                 chipRow.setPadding(0, 0, 0, dp(4));
@@ -1740,6 +1766,8 @@ public class HomeActivity extends AppCompatActivity {
 
                 final LinearLayout epBox = newEpisodeBox();
                 content.addView(epBox);
+                detailChipRow = chipRow;
+                detailEpisodeBox = epBox;
 
                 PlayListItem selected = seasons.get(0);
                 for (PlayListItem s : seasons) {
@@ -1753,7 +1781,6 @@ public class HomeActivity extends AppCompatActivity {
                 for (final PlayListItem season : seasons) {
                     TextView chip = makeSeasonChip(season);
                     chip.setId(View.generateViewId());
-                    if (playBtn.getId() != View.NO_ID) chip.setNextFocusUpId(playBtn.getId());
                     chip.setOnClickListener(v -> {
                         for (TextView c : chips) c.setSelected(false);
                         chip.setSelected(true);
@@ -1763,9 +1790,7 @@ public class HomeActivity extends AppCompatActivity {
                     chips.add(chip);
                     chipRow.addView(chip);
                 }
-                if (!chips.isEmpty() && playBtn.getId() != View.NO_ID) {
-                    playBtn.setNextFocusDownId(chips.get(0).getId());
-                }
+                wireDetailNav();
                 fillSeasonEpisodes(epBox, selected.guid, item, playBtn, pTs);
             }
             @Override public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
@@ -1833,10 +1858,7 @@ public class HomeActivity extends AppCompatActivity {
                     epBox.addView(empty);
                     return;
                 }
-                HorizontalScrollView hsv = new HorizontalScrollView(HomeActivity.this);
-                hsv.setLayoutParams(new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                hsv.setHorizontalScrollBarEnabled(false);
+                HorizontalScrollView hsv = makeHsv();
                 LinearLayout row = new LinearLayout(HomeActivity.this);
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setPadding(0, 0, 0, dp(4));
@@ -1847,13 +1869,13 @@ public class HomeActivity extends AppCompatActivity {
                             dp(176), ViewGroup.LayoutParams.WRAP_CONTENT);
                     lp.rightMargin = dp(10);
                     card.setLayoutParams(lp);
-                    if (playBtn.getId() != View.NO_ID) card.setNextFocusUpId(playBtn.getId());
                     row.addView(card);
                     if (current && ep.duration > 0) playBtn.setTag(ep.duration);
                 }
                 hsv.addView(row);
                 epBox.addView(hsv);
                 new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
+                wireDetailNav();
             }
             @Override public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
                 if (savedDetailItem == null || item.guid == null || !item.guid.equals(savedDetailItem.guid)) return;
@@ -2062,6 +2084,12 @@ public class HomeActivity extends AppCompatActivity {
             moviesContainer.addView(makeSpacer(dp(8)));
         }
         new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(moviesContainer, 0));
+        List<View> cards = TvFocus.collectVisibleFocusables(moviesContainer);
+        TvFocus.bindChain(cards);
+        if (!cards.isEmpty()) {
+            bindTabBar(TvFocus.listOf(cards.get(0)), TvFocus.listOf(cards.get(cards.size() - 1)));
+        }
+        TvFocus.sealAll(cards);
     }
 
     /** 剧集条目卡片 */
@@ -2298,6 +2326,7 @@ public class HomeActivity extends AppCompatActivity {
             libraryContainer.addView(makeSpacer(12));
         }
         new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(libraryContainer, 0));
+        wireBrowseGrid(libraryContainer);
     }
 
     private void showSearchEmpty() {
@@ -2327,6 +2356,7 @@ public class HomeActivity extends AppCompatActivity {
             cont.addView(makeLibCard(libs.get(i)));
             if (i < libs.size() - 1) cont.addView(makeSpacer(8));
         }
+        wireLibraryList();
     }
 
 
@@ -2675,10 +2705,7 @@ public class HomeActivity extends AppCompatActivity {
         headerRow.setOnClickListener(v -> browseLiveChannels());
         section.addView(headerRow);
 
-        HorizontalScrollView hsv = new HorizontalScrollView(this);
-        hsv.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        hsv.setHorizontalScrollBarEnabled(false);
+        HorizontalScrollView hsv = makeHsv();
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -2689,8 +2716,6 @@ public class HomeActivity extends AppCompatActivity {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(128), ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(dp(6), 0, dp(6), 0);
             card.setLayoutParams(lp);
-            card.setNextFocusUpId(headerRow.getId());
-            card.setNextFocusDownId(tabMovies.getId());
             row.addView(card);
         }
 
@@ -2699,6 +2724,7 @@ public class HomeActivity extends AppCompatActivity {
         section.addView(makeSpacer(dp(8)));
 
         moviesContainer.addView(section);
+        if (showingOverview) wireOverviewFocus();
     }
 
     /** 直播频道卡片（和其他卡片样式一致，图片区域空白） */
@@ -2855,14 +2881,473 @@ public class HomeActivity extends AppCompatActivity {
             moviesContainer.addView(row);
             moviesContainer.addView(makeSpacer(8));
         }
+        wireBrowseGrid(moviesContainer);
     }
 
+
+    // ==================== 电视焦点 ====================
+
+    private void setupTvFocus() {
+        getWindow().getDecorView().getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
+            if (newF != null) TvFocus.remember(newF);
+            if (newF != null && !isTabBar(newF) && newF.isShown()) {
+                lastContentFocus = newF;
+                rememberFocusSection(newF);
+            }
+        });
+        TvFocus.bindRow(Arrays.asList(tabMovies, tabLibrary, tabSettings));
+        TvFocus.point(tabMovies, View.FOCUS_DOWN, tabMovies);
+        TvFocus.point(tabLibrary, View.FOCUS_DOWN, tabLibrary);
+        TvFocus.point(tabSettings, View.FOCUS_DOWN, tabSettings);
+        wireSettingsFocus();
+    }
+
+    private boolean isTabBar(View v) {
+        return v == tabMovies || v == tabLibrary || v == tabSettings;
+    }
+
+    private View currentTabView() {
+        if (currentTab == 1) return tabLibrary;
+        if (currentTab == 2) return tabSettings;
+        return tabMovies;
+    }
+
+    private boolean isUsableFocus(View v) {
+        return v != null && v.isShown() && v.isFocusable() && v.getVisibility() == View.VISIBLE;
+    }
+
+    private boolean isInCurrentPanel(View v) {
+        View panel = currentTab == 1 ? panelLibrary : currentTab == 2 ? panelSettings : panelMovies;
+        View p = v;
+        while (p != null) {
+            if (p == panel) return panel.getVisibility() == View.VISIBLE;
+            Object parent = p.getParent();
+            p = parent instanceof View ? (View) parent : null;
+        }
+        return false;
+    }
+
+    private void bindTabBar(List<View> enterLane, List<View> exitLane) {
+        List<View> tabs = Arrays.asList(tabMovies, tabLibrary, tabSettings);
+        if (enterLane != null && !enterLane.isEmpty()) {
+            TvFocus.bindUpToNearest(tabs, enterLane);
+        }
+        if (exitLane != null && !exitLane.isEmpty()) {
+            TvFocus.bindDown(exitLane, currentTabView());
+        }
+    }
+
+    private boolean moveExplicitFocus(View focused, int keyCode) {
+        if (focused == null) return false;
+        View next = TvFocus.resolve(focused, TvFocus.dirFromKey(keyCode));
+        if (next == null) return false;
+        if (next == focused) return true;
+        if (!isUsableFocus(next)) return true;
+        if (!isTabBar(next) && !isInCurrentPanel(next) && next != findViewById(R.id.btnHomeSearch)) {
+            return true;
+        }
+        next.requestFocus();
+        next.requestRectangleOnScreen(
+                new android.graphics.Rect(0, 0, Math.max(next.getWidth(), 1), Math.max(next.getHeight(), 1)),
+                false);
+        return true;
+    }
+
+    private void wireSettingsFocus() {
+        List<View> items = new ArrayList<>();
+        if (rlDecoderSetting != null) items.add(rlDecoderSetting);
+        if (rlSeekStep != null) items.add(rlSeekStep);
+        if (rlBufferTime != null) items.add(rlBufferTime);
+        if (rlDanmuSetting != null) items.add(rlDanmuSetting);
+        View checkUpdate = findViewById(R.id.btnCheckUpdate);
+        if (checkUpdate != null) items.add(checkUpdate);
+        if (btnFeedback != null) items.add(btnFeedback);
+        if (btnLogout != null) items.add(btnLogout);
+        TvFocus.bindChain(items);
+        if (!items.isEmpty()) {
+            bindTabBar(Collections.singletonList(items.get(0)),
+                    Collections.singletonList(items.get(items.size() - 1)));
+        }
+        TvFocus.sealAll(items);
+    }
+
+    private void wireLibraryList() {
+        List<View> cards = TvFocus.collectVisibleFocusables(libraryContainer);
+        TvFocus.bindChain(cards);
+        if (etSearch != null && etSearch.getVisibility() == View.VISIBLE) {
+            TvFocus.stay(etSearch);
+            if (!cards.isEmpty()) {
+                TvFocus.point(etSearch, View.FOCUS_DOWN, cards.get(0));
+                TvFocus.point(cards.get(0), View.FOCUS_UP, etSearch);
+            } else {
+                TvFocus.point(etSearch, View.FOCUS_DOWN, tabLibrary);
+            }
+        }
+        List<View> enter = etSearch != null && etSearch.getVisibility() == View.VISIBLE
+                ? TvFocus.listOf(etSearch)
+                : (!cards.isEmpty() ? TvFocus.listOf(cards.get(0)) : null);
+        List<View> exit = !cards.isEmpty()
+                ? TvFocus.listOf(cards.get(cards.size() - 1)) : enter;
+        bindTabBar(enter, exit);
+        TvFocus.sealAll(cards);
+        TvFocus.seal(etSearch);
+    }
+
+    private void wireBrowseGrid(LinearLayout container) {
+        if (container == null) return;
+        container.post(() -> {
+            bindBrowseGridNow(container);
+            container.post(() -> bindBrowseGridNow(container));
+        });
+    }
+
+    private void bindBrowseGridNow(LinearLayout container) {
+        if (container == null) return;
+        if (currentTab == 1 && container != libraryContainer) return;
+        if (currentTab == 0 && container != moviesContainer) return;
+        List<List<View>> rows = TvFocus.collectGridRows(container);
+        View sortBar = container.findViewWithTag("lib_sort_bar");
+        List<View> sortBtns = sortBar instanceof ViewGroup
+                ? TvFocus.collectVisibleFocusables(sortBar) : Collections.emptyList();
+        View upTarget = null;
+        if (!sortBtns.isEmpty()) {
+            TvFocus.bindRow(sortBtns);
+            upTarget = sortBtns.get(0);
+        } else if (container == libraryContainer && etSearch != null
+                && etSearch.getVisibility() == View.VISIBLE) {
+            upTarget = etSearch;
+        }
+        TvFocus.bindGrid(rows, upTarget, currentTabView());
+        if (!sortBtns.isEmpty() && !rows.isEmpty()) {
+            TvFocus.bindVertical(sortBtns, rows.get(0));
+        }
+        if (!sortBtns.isEmpty()) {
+            if (container == libraryContainer && etSearch != null
+                    && etSearch.getVisibility() == View.VISIBLE) {
+                TvFocus.stay(etSearch);
+                TvFocus.bindVertical(TvFocus.listOf(etSearch), sortBtns);
+            } else {
+                for (View v : sortBtns) TvFocus.point(v, View.FOCUS_UP, v);
+            }
+        } else if (upTarget == etSearch && etSearch != null) {
+            TvFocus.stay(etSearch);
+            if (!rows.isEmpty()) {
+                TvFocus.bindVertical(TvFocus.listOf(etSearch), rows.get(0));
+            } else {
+                TvFocus.point(etSearch, View.FOCUS_DOWN, tabLibrary);
+            }
+        }
+        List<View> enter = null;
+        if (container == libraryContainer && etSearch != null
+                && etSearch.getVisibility() == View.VISIBLE) {
+            enter = TvFocus.listOf(etSearch);
+        } else if (!sortBtns.isEmpty()) {
+            enter = sortBtns;
+        } else if (!rows.isEmpty()) {
+            enter = rows.get(0);
+        }
+        List<View> exit = !rows.isEmpty() ? rows.get(rows.size() - 1)
+                : (!sortBtns.isEmpty() ? sortBtns : enter);
+        bindTabBar(enter, exit);
+        for (List<View> row : rows) TvFocus.sealAll(row);
+        TvFocus.sealAll(sortBtns);
+        TvFocus.seal(etSearch);
+    }
+
+    private void wireOverviewFocus() {
+        if (!showingOverview || moviesContainer == null) return;
+        moviesContainer.post(() -> {
+            bindOverviewFocusNow();
+            moviesContainer.post(this::bindOverviewFocusNow);
+        });
+    }
+
+    private void bindOverviewFocusNow() {
+        if (!showingOverview || moviesContainer == null || currentTab != 0) return;
+        List<List<View>> lanes = new ArrayList<>();
+        Button searchBtn = findViewById(R.id.btnHomeSearch);
+        if (searchBtn != null && searchBtn.getVisibility() == View.VISIBLE) {
+            TvFocus.stay(searchBtn);
+            lanes.add(TvFocus.listOf(searchBtn));
+        }
+
+        View pendingHeader = null;
+        List<View> headerViews = new ArrayList<>();
+        List<List<View>> headerCardLanes = new ArrayList<>();
+        List<List<View>> headerPrevLanes = new ArrayList<>();
+        for (int i = 0; i < moviesContainer.getChildCount(); i++) {
+            View child = moviesContainer.getChildAt(i);
+            Object tag = child.getTag();
+            if ("lib_shortcuts".equals(tag)) {
+                List<View> tiles = TvFocus.collectVisibleFocusables(child);
+                if (!tiles.isEmpty()) {
+                    TvFocus.bindRow(tiles);
+                    lanes.add(tiles);
+                }
+            } else if ("continue_watching".equals(tag) && child.getVisibility() == View.VISIBLE) {
+                List<View> cards = TvFocus.collectVisibleFocusables(child);
+                if (!cards.isEmpty()) {
+                    TvFocus.bindRow(cards);
+                    lanes.add(cards);
+                }
+            } else if ("lib_header".equals(tag)) {
+                pendingHeader = child;
+            } else if (tag instanceof String && ((String) tag).startsWith("preview_")) {
+                List<View> cards = TvFocus.collectVisibleFocusables(child);
+                if (!cards.isEmpty()) {
+                    TvFocus.bindRow(cards);
+                    List<View> prev = contentLaneBefore(lanes, searchBtn);
+                    if (pendingHeader != null) {
+                        headerViews.add(pendingHeader);
+                        headerCardLanes.add(cards);
+                        headerPrevLanes.add(prev);
+                    }
+                    lanes.add(cards);
+                }
+                pendingHeader = null;
+            } else if ("live_channel".equals(tag) && child instanceof ViewGroup) {
+                List<View> cards = new ArrayList<>();
+                collectLiveLane((ViewGroup) child, cards);
+                View liveHeader = findHeaderIn((ViewGroup) child);
+                if (!cards.isEmpty()) {
+                    TvFocus.bindRow(cards);
+                    List<View> prev = contentLaneBefore(lanes, searchBtn);
+                    if (liveHeader != null) {
+                        headerViews.add(liveHeader);
+                        headerCardLanes.add(cards);
+                        headerPrevLanes.add(prev);
+                    }
+                    lanes.add(cards);
+                }
+            }
+        }
+
+        int start = 0;
+        if (searchBtn != null && !lanes.isEmpty() && lanes.get(0).get(0) == searchBtn && lanes.size() > 1) {
+            TvFocus.bindCornerAbove(searchBtn, lanes.get(1));
+            start = 1;
+        }
+        for (int i = start; i < lanes.size() - 1; i++) {
+            TvFocus.bindVertical(lanes.get(i), lanes.get(i + 1));
+        }
+        if (!lanes.isEmpty()) {
+            bindTabBar(lanes.get(0), lanes.get(lanes.size() - 1));
+            for (View v : lanes.get(0)) TvFocus.point(v, View.FOCUS_UP, v);
+        }
+        for (int i = 0; i < headerViews.size(); i++) {
+            TvFocus.bindSectionHeader(headerViews.get(i), headerCardLanes.get(i), headerPrevLanes.get(i));
+        }
+        for (List<View> lane : lanes) TvFocus.sealAll(lane);
+        TvFocus.sealAll(TvFocus.collectAllFocusables(moviesContainer));
+        TvFocus.seal(searchBtn);
+        restoreOverviewFocus();
+    }
+
+    private List<View> contentLaneBefore(List<List<View>> lanes, View searchBtn) {
+        if (lanes == null || lanes.isEmpty()) return null;
+        List<View> last = lanes.get(lanes.size() - 1);
+        if (searchBtn != null && !last.isEmpty() && last.get(0) == searchBtn) return null;
+        return last;
+    }
+
+    private View findHeaderIn(ViewGroup group) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View c = group.getChildAt(i);
+            if ("lib_header".equals(c.getTag())) return c;
+        }
+        return null;
+    }
+
+    private void collectLiveLane(ViewGroup group, List<View> cards) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View c = group.getChildAt(i);
+            if ("lib_header".equals(c.getTag())) continue;
+            if (c instanceof HorizontalScrollView || c instanceof ScrollView) {
+                collectLiveLane((ViewGroup) c, cards);
+            } else if (c.isFocusable() && c.getVisibility() == View.VISIBLE) {
+                cards.add(c);
+            } else if (c instanceof ViewGroup) {
+                collectLiveLane((ViewGroup) c, cards);
+            }
+        }
+    }
+
+    private void rememberFocusSection(View v) {
+        lastFocusSectionTag = null;
+        lastFocusIndexInSection = 0;
+        View p = v;
+        while (p != null) {
+            Object tag = p.getTag();
+            if (tag instanceof String) {
+                String s = (String) tag;
+                if ("lib_shortcuts".equals(s) || "continue_watching".equals(s)
+                        || "live_channel".equals(s) || s.startsWith("preview_")) {
+                    lastFocusSectionTag = s;
+                    List<View> items = TvFocus.collectAllFocusables(p);
+                    int idx = items.indexOf(v);
+                    lastFocusIndexInSection = Math.max(0, idx);
+                    return;
+                }
+                if ("lib_header".equals(s)) {
+                    lastFocusSectionTag = headerSectionKey(p);
+                    lastFocusIndexInSection = 0;
+                    return;
+                }
+            }
+            Object parent = p.getParent();
+            p = parent instanceof View ? (View) parent : null;
+        }
+    }
+
+    private String headerSectionKey(View header) {
+        Object parent = header.getParent();
+        if (parent instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) parent;
+            int i = g.indexOfChild(header);
+            if (i >= 0 && i + 1 < g.getChildCount()) {
+                Object nt = g.getChildAt(i + 1).getTag();
+                if (nt instanceof String) return "header:" + nt;
+            }
+            if ("live_channel".equals(g.getTag())) return "header:live_channel";
+        }
+        return "lib_header";
+    }
+
+    private View restoreInRememberedSection() {
+        if (lastFocusSectionTag == null || moviesContainer == null) return null;
+        if (lastFocusSectionTag.startsWith("header:")) {
+            String rest = lastFocusSectionTag.substring("header:".length());
+            if ("live_channel".equals(rest)) {
+                View live = moviesContainer.findViewWithTag("live_channel");
+                return live instanceof ViewGroup ? findHeaderIn((ViewGroup) live) : null;
+            }
+            View preview = moviesContainer.findViewWithTag(rest);
+            if (preview != null && preview.getParent() instanceof ViewGroup) {
+                ViewGroup g = (ViewGroup) preview.getParent();
+                int i = g.indexOfChild(preview);
+                if (i > 0) {
+                    View prev = g.getChildAt(i - 1);
+                    if ("lib_header".equals(prev.getTag())) return prev;
+                }
+            }
+            return null;
+        }
+        View section = moviesContainer.findViewWithTag(lastFocusSectionTag);
+        if (section == null) return null;
+        List<View> items = TvFocus.collectAllFocusables(section);
+        if (items.isEmpty()) return null;
+        View pick = items.get(Math.min(lastFocusIndexInSection, items.size() - 1));
+        return isUsableFocus(pick) ? pick : null;
+    }
+
+    private void restoreOverviewFocus() {
+        if (currentTab != 0 || !showingOverview) return;
+        View focused = getCurrentFocus();
+        if (isUsableFocus(focused) && isInCurrentPanel(focused) && !isTabBar(focused)) {
+            homeEntryFocused = true;
+            return;
+        }
+        if (isTabBar(focused) && homeEntryFocused) return;
+
+        View restore = restoreInRememberedSection();
+        if (isUsableFocus(restore) && isInCurrentPanel(restore)) {
+            restore.requestFocus();
+            homeEntryFocused = true;
+            return;
+        }
+        if (isUsableFocus(lastContentFocus) && isInCurrentPanel(lastContentFocus)) {
+            lastContentFocus.requestFocus();
+            homeEntryFocused = true;
+            return;
+        }
+        if (homeEntryFocused) return;
+
+        Button searchBtn = findViewById(R.id.btnHomeSearch);
+        List<View> continueCards = Collections.emptyList();
+        List<View> shortcuts = Collections.emptyList();
+        for (int i = 0; i < moviesContainer.getChildCount(); i++) {
+            View child = moviesContainer.getChildAt(i);
+            if ("continue_watching".equals(child.getTag()) && child.getVisibility() == View.VISIBLE) {
+                continueCards = TvFocus.collectVisibleFocusables(child);
+            } else if ("lib_shortcuts".equals(child.getTag())) {
+                shortcuts = TvFocus.collectVisibleFocusables(child);
+            }
+        }
+        View target = !continueCards.isEmpty() ? continueCards.get(0)
+                : (!shortcuts.isEmpty() ? shortcuts.get(0)
+                : (searchBtn != null ? searchBtn : null));
+        if (isUsableFocus(target)) {
+            target.requestFocus();
+            homeEntryFocused = true;
+        }
+    }
+
+    private void wireDetailNav() {
+        if (moviesContainer == null) return;
+        moviesContainer.post(() -> {
+            bindDetailNavNow();
+            moviesContainer.post(this::bindDetailNavNow);
+        });
+    }
+
+    private void bindDetailNavNow() {
+        if (showingOverview || showingEpisodes || currentTab != 0) return;
+        List<View> play = detailPlayBtn != null ? TvFocus.listOf(detailPlayBtn) : Collections.emptyList();
+        List<View> ov = detailOverview != null ? TvFocus.listOf(detailOverview) : Collections.emptyList();
+        List<View> chips = detailChipRow != null
+                ? TvFocus.collectVisibleFocusables(detailChipRow) : Collections.emptyList();
+        List<View> eps = detailEpisodeBox != null
+                ? TvFocus.collectVisibleFocusables(detailEpisodeBox) : Collections.emptyList();
+
+        List<List<View>> rows = new ArrayList<>();
+        if (!play.isEmpty()) rows.add(play);
+        if (!ov.isEmpty()) rows.add(ov);
+        if (!chips.isEmpty()) rows.add(chips);
+        if (!eps.isEmpty()) rows.add(eps);
+
+        for (List<View> row : rows) TvFocus.bindRow(row);
+        for (int i = 0; i < rows.size() - 1; i++) {
+            TvFocus.bindVertical(rows.get(i), rows.get(i + 1));
+        }
+        if (!rows.isEmpty()) {
+            for (View v : rows.get(0)) TvFocus.point(v, View.FOCUS_UP, v);
+            bindTabBar(rows.get(0), rows.get(rows.size() - 1));
+        }
+        for (List<View> row : rows) TvFocus.sealAll(row);
+    }
 
     // ==================== 按键 ====================
 
     @Override
 
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP
+                || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            View focused = getCurrentFocus();
+            if (isTabBar(focused)) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP
+                        && isUsableFocus(lastContentFocus) && isInCurrentPanel(lastContentFocus)) {
+                    lastContentFocus.requestFocus();
+                    lastContentFocus.requestRectangleOnScreen(
+                            new android.graphics.Rect(0, 0,
+                                    Math.max(lastContentFocus.getWidth(), 1),
+                                    Math.max(lastContentFocus.getHeight(), 1)),
+                            false);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    return true;
+                }
+            }
+            if (focused instanceof EditText
+                    && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                return super.onKeyDown(keyCode, event);
+            }
+            if (moveExplicitFocus(focused, keyCode)) return true;
+        }
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
             // 搜索框有焦点 → 隐藏键盘并清除搜索
             if (etSearch.isFocused()) {

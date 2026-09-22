@@ -67,6 +67,8 @@ DPAD 遥控器友好
                 android:layout_height="match_parent"
                 android:fillViewport="true"
                 android:scrollbars="none"
+                android:focusable="false"
+                android:focusableInTouchMode="false"
                 android:descendantFocusability="afterDescendants">
 
                 <LinearLayout
@@ -136,7 +138,10 @@ DPAD 遥控器友好
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:fillViewport="true"
-                android:scrollbars="none">
+                android:scrollbars="none"
+                android:focusable="false"
+                android:focusableInTouchMode="false"
+                android:descendantFocusability="afterDescendants">
 
                 <LinearLayout
                     android:id="@+id/libraryGridContainer"
@@ -209,7 +214,10 @@ DPAD 遥控器友好
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:fillViewport="true"
-                android:scrollbars="none">
+                android:scrollbars="none"
+                android:focusable="false"
+                android:focusableInTouchMode="false"
+                android:descendantFocusability="afterDescendants">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -514,6 +522,7 @@ DPAD 遥控器友好
             android:layout_weight="1"
             android:background="@drawable/selector_tab"
             android:focusable="true"
+            android:nextFocusDown="@+id/tabMovies"
             android:nextFocusRight="@+id/tabLibrary"
             android:text="影视"
             android:textAllCaps="false"
@@ -528,6 +537,7 @@ DPAD 遥控器友好
             android:layout_weight="1"
             android:background="@drawable/selector_tab"
             android:focusable="true"
+            android:nextFocusDown="@+id/tabLibrary"
             android:nextFocusLeft="@+id/tabMovies"
             android:nextFocusRight="@+id/tabSettings"
             android:text="媒体库"
@@ -543,6 +553,7 @@ DPAD 遥控器友好
             android:layout_weight="1"
             android:background="@drawable/selector_tab"
             android:focusable="true"
+            android:nextFocusDown="@+id/tabSettings"
             android:nextFocusLeft="@+id/tabLibrary"
             android:text="设置"
             android:textAllCaps="false"

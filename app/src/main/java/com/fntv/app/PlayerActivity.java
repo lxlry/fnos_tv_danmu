@@ -409,19 +409,17 @@ public class PlayerActivity extends AppCompatActivity {
                 }
                 // 直链/STRM 按钮显示时，隐藏画质按钮
                 if (vis && btnQuality != null) btnQuality.setVisibility(View.GONE);
+                if (ctrlVis) wirePlayerFocus();
             }
             @Override public void runOnUiThread(Runnable r) { PlayerActivity.this.runOnUiThread(r); }
         }, btnCloudMode, getSharedPreferences("fntv_prefs", MODE_PRIVATE));
         cloudStreamManager.initFromPrefs();
         cloudStreamManager.setPlayer(player);
 
-        // 顶部栏焦点链
-        btnCloudMode.setNextFocusLeftId(btnBack.getId());
-        btnCloudMode.setNextFocusDownId(btnLock.getId());
-        btnBack.setNextFocusRightId(btnCloudMode.getId());
-        btnBack.setNextFocusDownId(btnDanmu.getId());
-        btnDanmu.setNextFocusUpId(btnBack.getId());
-        btnLock.setNextFocusUpId(btnCloudMode.getId());
+        getWindow().getDecorView().getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
+            if (newF != null) TvFocus.remember(newF);
+        });
+        wirePlayerFocus();
 
         // 音轨/字幕选择按钮
         Button btnAudioTrack = findViewById(R.id.btnAudioTrack);
@@ -1215,6 +1213,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (show) {
             updateTitle();
             resetHideTimer();
+            controller.post(this::wirePlayerFocus);
         }
         else hideSystemUi();
     }
@@ -1234,6 +1233,27 @@ public class PlayerActivity extends AppCompatActivity {
         }
         showCtrl(false);
     };
+
+    private void wirePlayerFocus() {
+        List<View> top = TvFocus.present(btnBack, btnCloudMode);
+        List<View> sides = TvFocus.present(btnDanmu, btnLock);
+        List<View> seek = TvFocus.present(seekBar);
+        List<View> bottom = TvFocus.present(btnPlayPause, btnRewind, btnForward, btnSpeed, btnRatio,
+                btnEpisodeList, btnNextEp, btnSkip, btnInfo, btnQuality, btnBrightness);
+        TvFocus.bindRow(top);
+        TvFocus.bindRow(sides);
+        TvFocus.bindRow(bottom);
+        if (!top.isEmpty() && !sides.isEmpty()) TvFocus.bindVertical(top, sides);
+        else if (!top.isEmpty() && !seek.isEmpty()) TvFocus.bindVertical(top, seek);
+        if (!sides.isEmpty() && !seek.isEmpty()) TvFocus.bindVertical(sides, seek);
+        if (!seek.isEmpty() && !bottom.isEmpty()) TvFocus.bindVertical(seek, bottom);
+        for (View v : top) TvFocus.point(v, View.FOCUS_UP, v);
+        for (View v : bottom) TvFocus.point(v, View.FOCUS_DOWN, v);
+        TvFocus.sealAll(top);
+        TvFocus.sealAll(sides);
+        TvFocus.sealAll(seek);
+        TvFocus.sealAll(bottom);
+    }
 
     private void setupFocusAutoHide() {
         View.OnFocusChangeListener l = (v, hasFocus) -> {
@@ -1506,14 +1526,24 @@ public class PlayerActivity extends AppCompatActivity {
                     }
                     togglePlay(); return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
-                    // 顶栏按上→收起，其余情况交给系统焦点导航
-                    if (topBar.hasFocus() || btnCloudMode.hasFocus()) {
-                        showCtrl(false);
-                        return true;
+                    if (!infoVis && (btnBack.hasFocus() || btnCloudMode.hasFocus())) {
+                        View next = TvFocus.resolve(getCurrentFocus(), View.FOCUS_UP);
+                        if (next == null || next == getCurrentFocus()) {
+                            showCtrl(false);
+                            return true;
+                        }
                     }
-                    return super.onKeyDown(k, e);
+                    break;
                 case KeyEvent.KEYCODE_INFO: case KeyEvent.KEYCODE_MENU:
                     toggleInfo(); return true;
+            }
+            if ((k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT)
+                    && seekBar != null && seekBar.hasFocus()) {
+                return super.onKeyDown(k, e);
+            }
+            if (k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN
+                    || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                if (TvFocus.move(getCurrentFocus(), k)) return true;
             }
             return super.onKeyDown(k, e);
         } else {
