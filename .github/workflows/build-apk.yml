@@ -1,5 +1,5 @@
 # 手动打包：仓库页 → Actions → Build APK → Run workflow
-# 打完后在本次 run 的 Artifacts 下载 FNTV-debug
+# 打完后在本次 run 的 Artifacts 下载 FNTV-release
 name: Build APK
 
 on:
@@ -32,15 +32,15 @@ jobs:
           yes | "$sdkmanager" --licenses >/dev/null || true
           "$sdkmanager" "platforms;android-33" "build-tools;33.0.2"
 
-      - name: Build debug APK
+      - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FNTV-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: FNTV-release
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
