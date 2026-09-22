@@ -15,6 +15,7 @@ SRC_CANDIDATES = [
     os.path.join(ROOT, "tools", "icon_source.png"),
 ]
 RES = os.path.join(ROOT, "app", "src", "main", "res")
+RELEASE_RES = os.path.join(ROOT, "app", "src", "release", "res")
 
 LAUNCHER = {
     "mipmap-mdpi": 48,
@@ -167,6 +168,10 @@ def main():
         out = master.resize((size, size), Image.LANCZOS)
         save(out, os.path.join(RES, folder, "ic_launcher.png"))
         save(out, os.path.join(RES, folder, "ic_launcher_round.png"))
+        # Release source set overrides main and was still the old red FN mark.
+        save(out, os.path.join(RELEASE_RES, folder, "ic_launcher.png"))
+        save(out, os.path.join(RELEASE_RES, folder, "ic_launcher_round.png"))
+    save(master.resize((512, 512), Image.LANCZOS), os.path.join(ROOT, "app", "src", "main", "ic_launcher-playstore.png"))
     write_tv_banner(master)
 
 
