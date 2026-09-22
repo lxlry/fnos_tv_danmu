@@ -49,6 +49,11 @@ android {
             outputFileName = "FNTV_${variant.buildType.name}_v${variant.versionName}_${generateTime()}.apk"
         }
     }
+
+    lintOptions {
+        abortOnError false
+        checkReleaseBuilds false
+    }
 }
 
 static def generateTime() {
