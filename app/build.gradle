@@ -54,6 +54,10 @@ android {
         abortOnError false
         checkReleaseBuilds false
     }
+
+    aaptOptions {
+        cruncherEnabled = false
+    }
 }
 
 static def generateTime() {
