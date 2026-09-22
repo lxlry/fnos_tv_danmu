@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Build Android launcher icons: iOS squircle on opaque navy, plus adaptive layers."""
+"""Build launcher icons from the iOS squircle: knock out black, no extra plate."""
 import os
+import shutil
 from collections import deque
 from PIL import Image
 
@@ -9,7 +10,7 @@ SRC_CANDIDATES = [
     os.path.join(
         os.path.expanduser("~"),
         ".cursor", "projects", "d-myCode-fnos-tv-danmu", "assets",
-        "c__Users_18210_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_FNTV_danmu-39be56dc-1205-4161-85b0-1d85ebbd9510.png",
+        "c__Users_18210_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_FNTV_danmu-fd017826-8388-494e-b5af-8e26d213d395.png",
     ),
     os.path.join(ROOT, "tools", "icon_source.png"),
 ]
@@ -21,13 +22,6 @@ LAUNCHER = {
     "mipmap-xhdpi": 96,
     "mipmap-xxhdpi": 144,
     "mipmap-xxxhdpi": 192,
-}
-FOREGROUND = {
-    "mipmap-mdpi": 108,
-    "mipmap-hdpi": 162,
-    "mipmap-xhdpi": 216,
-    "mipmap-xxhdpi": 324,
-    "mipmap-xxxhdpi": 432,
 }
 
 
@@ -93,22 +87,12 @@ def content_bbox(im, alpha_min=16):
     return minx, miny, maxx + 1, maxy + 1
 
 
-def sample_fill(im):
-    pix = im.load()
-    w, h = im.size
-    for y in range(h):
-        for x in range(max(0, w // 2 - 8), min(w, w // 2 + 8)):
-            p = pix[x, y]
-            if p[3] > 200:
-                return (p[0], p[1], p[2], 255)
-    return (26, 38, 68, 255)
-
-
-def squircle_on_navy(im, size, fill):
+def ios_squircle(im, size):
+    """Tight iOS rounded square on transparent, filling the mipmap."""
     cropped = im.crop(content_bbox(im))
     w, h = cropped.size
     side = max(w, h)
-    square = Image.new("RGBA", (side, side), fill)
+    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
     square.paste(cropped, ((side - w) // 2, (side - h) // 2), cropped)
     return square.resize((size, size), Image.LANCZOS)
 
@@ -119,54 +103,71 @@ def save(im, path):
     print("wrote", os.path.relpath(path, ROOT), im.size, im.mode)
 
 
-def write_adaptive(fill):
-    bg = os.path.join(RES, "drawable", "ic_launcher_background.xml")
-    os.makedirs(os.path.dirname(bg), exist_ok=True)
-    with open(bg, "w", encoding="utf-8") as f:
-        f.write("""<?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#FF%02X%02X%02X"
-        android:pathData="M0,0h108v108h-108z" />
-</vector>
-""" % (fill[0], fill[1], fill[2]))
-    print("wrote", os.path.relpath(bg, ROOT))
+def write_tv_banner(squircle):
+    """320x180 Leanback banner using the same iOS squircle."""
+    from PIL import ImageDraw, ImageFont
 
-    xml = """<?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background"/>
-    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-</adaptive-icon>
-"""
+    w, h = 320, 180
+    bg = Image.new("RGBA", (w, h), (22, 28, 44, 255))
+    icon = squircle.resize((118, 118), Image.LANCZOS)
+    bg.paste(icon, (24, (h - 118) // 2), icon)
+    draw = ImageDraw.Draw(bg)
+    font = None
+    for path in (
+        r"C:\Windows\Fonts\segoeuib.ttf",
+        r"C:\Windows\Fonts\arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ):
+        if os.path.isfile(path):
+            font = ImageFont.truetype(path, 42)
+            break
+    if font is None:
+        font = ImageFont.load_default()
+    draw.text((156, 90), "FN TV", font=font, fill=(255, 255, 255, 255), anchor="lm")
+    out = bg.convert("RGB")
+    save(out, os.path.join(RES, "drawable", "tv_banner.png"))
+    save(out, os.path.join(RES, "drawable-xhdpi", "tv_banner.png"))
+
+
+def remove_adaptive_layers():
+    """API 26+ adaptive mask is what clips the art or adds a gray plate."""
+    removed = []
     folder = os.path.join(RES, "mipmap-anydpi-v26")
-    os.makedirs(folder, exist_ok=True)
-    for name in ("ic_launcher.xml", "ic_launcher_round.xml"):
-        path = os.path.join(folder, name)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(xml)
-        print("wrote", os.path.relpath(path, ROOT))
+    if os.path.isdir(folder):
+        shutil.rmtree(folder)
+        removed.append(os.path.relpath(folder, ROOT))
+    bg = os.path.join(RES, "drawable", "ic_launcher_background.xml")
+    if os.path.isfile(bg):
+        os.remove(bg)
+        removed.append(os.path.relpath(bg, ROOT))
+    for folder in LAUNCHER:
+        fg = os.path.join(RES, folder, "ic_launcher_foreground.png")
+        if os.path.isfile(fg):
+            os.remove(fg)
+            removed.append(os.path.relpath(fg, ROOT))
+    for path in removed:
+        print("removed", path)
 
 
 def main():
     src_path = find_source()
     print("source", src_path)
-    knocked = knock_out(Image.open(src_path))
-    cropped = knocked.crop(content_bbox(knocked))
-    fill = sample_fill(cropped)
-    print("fill", fill)
+    local = os.path.join(ROOT, "tools", "icon_source.png")
+    if os.path.normpath(src_path) != os.path.normpath(local):
+        shutil.copy2(src_path, local)
+        print("copied", os.path.relpath(local, ROOT))
 
+    knocked = knock_out(Image.open(src_path))
+    box = content_bbox(knocked)
+    print("content_bbox", box)
+
+    remove_adaptive_layers()
+    master = ios_squircle(knocked, 1024)
     for folder, size in LAUNCHER.items():
-        out = squircle_on_navy(knocked, size, fill)
+        out = master.resize((size, size), Image.LANCZOS)
         save(out, os.path.join(RES, folder, "ic_launcher.png"))
         save(out, os.path.join(RES, folder, "ic_launcher_round.png"))
-    for folder, size in FOREGROUND.items():
-        out = squircle_on_navy(knocked, size, fill)
-        save(out, os.path.join(RES, folder, "ic_launcher_foreground.png"))
-    write_adaptive(fill)
+    write_tv_banner(master)
 
 
 if __name__ == "__main__":
