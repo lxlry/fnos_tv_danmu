@@ -87,8 +87,34 @@ def knock_out(im):
     return out
 
 
-def resample(im, size):
-    return im.resize((size, size), Image.LANCZOS)
+def content_bbox(im, alpha_min=16):
+    pix = im.load()
+    w, h = im.size
+    minx, miny, maxx, maxy = w, h, -1, -1
+    for y in range(h):
+        for x in range(w):
+            if pix[x, y][3] > alpha_min:
+                if x < minx:
+                    minx = x
+                if y < miny:
+                    miny = y
+                if x > maxx:
+                    maxx = x
+                if y > maxy:
+                    maxy = y
+    if maxx < 0:
+        raise SystemExit("no opaque pixels found")
+    return minx, miny, maxx + 1, maxy + 1
+
+
+def fit_square(im, size):
+    """Crop to the squircle, then fill the launcher square (keep rounded corners)."""
+    cropped = im.crop(content_bbox(im))
+    w, h = cropped.size
+    side = max(w, h)
+    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    square.paste(cropped, ((side - w) // 2, (side - h) // 2), cropped)
+    return square.resize((size, size), Image.LANCZOS)
 
 
 def save(im, path):
@@ -108,7 +134,7 @@ def main():
     print("corner", corner, "center", mid)
 
     for folder, size in LAUNCHER.items():
-        out = resample(knocked, size)
+        out = fit_square(knocked, size)
         save(out, os.path.join(RES, folder, "ic_launcher.png"))
         save(out, os.path.join(RES, folder, "ic_launcher_round.png"))
 
