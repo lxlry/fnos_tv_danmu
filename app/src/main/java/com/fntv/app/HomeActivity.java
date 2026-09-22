@@ -549,15 +549,6 @@ public class HomeActivity extends AppCompatActivity {
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
         tile.addView(name);
-
-        View ring = new View(this);
-        ring.setLayoutParams(new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        ring.setBackgroundResource(R.drawable.bg_lib_tile);
-        ring.setDuplicateParentStateEnabled(true);
-        ring.setClickable(false);
-        ring.setFocusable(false);
-        tile.addView(ring);
         return tile;
     }
 
