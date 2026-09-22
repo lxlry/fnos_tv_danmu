@@ -4,6 +4,21 @@
 
 ---
 
+## 2026.09.21 fork 于 https://github.com/rgcaafe/fnos_tv_danmu 项目，感谢 @rgcaafe 大佬
+## 基于该项目改动项
+- **图标修改**
+- **首页影视库样式调优**
+- **影视详情样式调优**
+- **首页继续观看在跳转后消失问题解决**
+- **TV端遥控器焦点移动优化**
+## 本项目随缘更新，目前的改动已满足日常使用，如有更深的需求，请自行研究开发。
+## 效果展示：
+<p align="center">
+<img width="200" height="200" alt="FNTV_danmu" src="https://github.com/user-attachments/assets/50a69034-0390-4383-86ce-520bfa12b422" />
+  <img width="200" height="400" alt="ffed389bd604fd0d42fd4fdec6fe27dd" src="https://github.com/user-attachments/assets/3b3670c4-85c6-48a6-99f3-9f1aa92276c6" />
+  <img width="200" height="400" alt="11333a892d08aef6edc04645026598db" src="https://github.com/user-attachments/assets/06a08403-caf7-48da-849a-e4ebccb01124" />
+  </p>
+
 ## 📥 下载与使用
 
 ### 方式一：直接下载 APK
