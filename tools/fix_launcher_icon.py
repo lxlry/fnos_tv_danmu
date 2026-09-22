@@ -137,6 +137,7 @@ def main():
         out = fit_square(knocked, size)
         save(out, os.path.join(RES, folder, "ic_launcher.png"))
         save(out, os.path.join(RES, folder, "ic_launcher_round.png"))
+        save(out, os.path.join(RES, folder, "ic_launcher_foreground.png"))
 
 
 if __name__ == "__main__":
