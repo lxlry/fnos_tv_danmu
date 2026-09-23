@@ -91,6 +91,13 @@ public class PlayerActivity extends AppCompatActivity {
     private String streamResolution = "";
     private boolean hdrNotified = false; // HDR 已提示过一次
     private boolean firstReady = true;   // 首次进入 READY（用于控制初始 UI 显示）
+    private long lastProgressMs;
+    private long lastSaveUptime;
+    private long lastSavedTs = -1;
+    private boolean saveLoopStarted;
+    private boolean progressHeld;
+    private static volatile int recordsInFlight;
+    private final Runnable initialSaveR = () -> saveProgress(true);
     private java.util.List<StreamResponse.AudioStreamInfo> streamAudioTracks;
     private java.util.List<StreamResponse.SubtitleStreamInfo> streamSubtitleTracks;
 
@@ -234,6 +241,9 @@ public class PlayerActivity extends AppCompatActivity {
             @Override public FnApiManager getApiManager() { return apiManager; }
             @Override public Context getContext() { return PlayerActivity.this; }
             @Override public void onSwitchEpisode(String guid, String title) {
+                saveProgress(true);
+                lastProgressMs = 0;
+                progressHeld = true;
                 introSkipped = false;
                 outroSkipped = false;
                 itemGuid = guid;
@@ -562,9 +572,10 @@ public class PlayerActivity extends AppCompatActivity {
             @Override public void onPlaybackStateChanged(int s) {
                 tvBuffering.setVisibility(s == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 if (s == Player.STATE_READY) {
+                    progressHeld = false;
                     if (!seeked && seekTs > 0) { player.seekTo(seekTs); seeked = true; }
-                    startSave(); updateTime();
-                    if (firstReady) { saveProgress(); showCtrl(true); firstReady = false; }
+                    ensureSaveLoop(); updateTime();
+                    if (firstReady) { scheduleInitialSave(); showCtrl(true); firstReady = false; }
                     btnPlayPause.setText(player.isPlaying() ? "暂停" : "播放");
                     if (danmuManager != null) danmuManager.onPlayerReady();
                     // HDR 检测（延时等格式就绪）
@@ -592,11 +603,15 @@ public class PlayerActivity extends AppCompatActivity {
                     }
                 } else if (s == Player.STATE_ENDED) {
                     Log.d(TAG, "STATE_ENDED hasNext=" + (episodeManager != null && episodeManager.hasNext()));
+                    noteProgress();
+                    saveProgress(true);
+                    stopSave();
                     if (episodeManager != null && episodeManager.hasNext()) {
                         episodeManager.playNext();
                     }
                 } else {
-                    stopSave();
+                    noteProgress();
+                    saveProgress(false);
                     if (danmuManager != null) danmuManager.onPlayerPause();
                 }
             }
@@ -768,6 +783,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     /** 硬解失败后切到软解，重新创建播放器 */
     private void recreatePlayerWithSwDecoder() {
+        saveProgress(true);
         if (player != null) {
             player.stop();
             player.release();
@@ -816,11 +832,19 @@ public class PlayerActivity extends AppCompatActivity {
             @Override public void onPlaybackStateChanged(int s) {
                 tvBuffering.setVisibility(s == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 if (s == Player.STATE_READY) {
+                    progressHeld = false;
                     if (!seeked && seekTs > 0) { player.seekTo(seekTs); seeked = true; }
-                    if (firstReady) { showCtrl(true); firstReady = false; }
+                    ensureSaveLoop();
+                    if (firstReady) { scheduleInitialSave(); showCtrl(true); firstReady = false; }
                     btnPlayPause.setText(player.isPlaying() ? "暂停" : "播放");
                 } else if (s == Player.STATE_ENDED) {
+                    noteProgress();
+                    saveProgress(true);
+                    stopSave();
                     if (episodeManager != null && episodeManager.hasNext()) episodeManager.playNext();
+                } else {
+                    noteProgress();
+                    saveProgress(false);
                 }
             }
             int retryCount = 0;
@@ -1436,22 +1460,65 @@ public class PlayerActivity extends AppCompatActivity {
 
     // ========== 进度保存 ==========
 
-    private void startSave() { handler.removeCallbacks(saveR); handler.postDelayed(saveR, 10000); }
-    private void stopSave() { handler.removeCallbacks(saveR); }
+    static boolean hasPendingRecord() {
+        return recordsInFlight > 0;
+    }
+
+    private void ensureSaveLoop() {
+        if (saveLoopStarted) return;
+        saveLoopStarted = true;
+        handler.postDelayed(saveR, 10000);
+    }
+
+    private void stopSave() {
+        saveLoopStarted = false;
+        handler.removeCallbacks(saveR);
+    }
+
     private final Runnable saveR = new Runnable() {
-        @Override public void run() { saveProgress(); handler.postDelayed(this, 15000); }
+        @Override public void run() {
+            saveProgress(false);
+            if (saveLoopStarted) handler.postDelayed(this, 15000);
+        }
     };
 
+    /** 等跳转进度或片头跳过落到播放器后再记第一笔。 */
+    private void scheduleInitialSave() {
+        handler.removeCallbacks(initialSaveR);
+        handler.postDelayed(initialSaveR, 800);
+    }
+
+    private void noteProgress() {
+        if (progressHeld || player == null) return;
+        long p = player.getCurrentPosition();
+        if (p > 0) lastProgressMs = p;
+    }
+
     private void saveProgress() {
-        if (player == null || player.getPlaybackState() != Player.STATE_READY) return;
-        long p = player.getCurrentPosition(); if (p <= 0) return;
-        long ts = p / 1000;
+        saveProgress(true);
+    }
+
+    private void saveProgress(boolean force) {
+        if (progressHeld) return;
+        noteProgress();
+        if (itemGuid == null || itemGuid.isEmpty() || lastProgressMs < 1000) return;
+        long ts = lastProgressMs / 1000;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (ts == lastSavedTs && now - lastSaveUptime < 2000) return;
+        if (!force && lastSaveUptime > 0 && now - lastSaveUptime < 8000 && ts - lastSavedTs < 15) return;
+        if (mediaGuid == null || mediaGuid.isEmpty()) return;
+
+        long durationSec = itemDuration;
+        if (durationSec <= 0 && player != null) {
+            long d = player.getDuration();
+            if (d > 0) durationSec = d / 1000;
+        }
         Map<String, Object> r = new HashMap<>();
-        r.put("item_guid", itemGuid); r.put("media_guid", mediaGuid);
+        r.put("item_guid", itemGuid);
+        r.put("media_guid", mediaGuid);
         r.put("video_guid", videoGuid != null ? videoGuid : "");
         r.put("audio_guid", audioGuid != null ? audioGuid : "");
         r.put("subtitle_guid", subtitleGuid != null ? subtitleGuid : "_no_display_");
-        // 非原画模式：用切换后的分辨率和码率，并记录 play_link
         if (customQualityBitrate > 0 && !customQualityRes.isEmpty()) {
             r.put("resolution", customQualityRes);
             r.put("bitrate", customQualityBitrate);
@@ -1460,21 +1527,42 @@ public class PlayerActivity extends AppCompatActivity {
             r.put("resolution", !streamResolution.isEmpty() ? streamResolution : (resolution != null ? resolution : ""));
             r.put("bitrate", streamBitrate);
         }
-        r.put("ts", ts); r.put("duration", itemDuration > 0 ? itemDuration : player.getDuration()/1000);
+        r.put("ts", ts);
+        r.put("duration", durationSec);
+        lastSaveUptime = now;
+        lastSavedTs = ts;
         apiManager.setReferer(baseUrl + "/v/video/" + itemGuid + "?media_guid=" + mediaGuid);
-        Log.d(TAG, "recordPlayStatus 请求: " + (r != null ? new com.google.gson.Gson().toJson(r) : "null"));
-        apiManager.getApi().recordPlayStatus(r).enqueue(new retrofit2.Callback<ApiResponse<Object>>() {
+        sendRecord(r, ts, 0);
+    }
+
+    private void sendRecord(Map<String, Object> body, long ts, int attempt) {
+        recordsInFlight++;
+        Log.d(TAG, "recordPlayStatus 请求: " + new com.google.gson.Gson().toJson(body) + " attempt=" + attempt);
+        apiManager.getApi().recordPlayStatus(body).enqueue(new retrofit2.Callback<ApiResponse<Object>>() {
             @Override public void onResponse(retrofit2.Call<ApiResponse<Object>> call, retrofit2.Response<ApiResponse<Object>> response) {
+                recordsInFlight = Math.max(0, recordsInFlight - 1);
                 String respBody = response.body() != null
                         ? "code=" + response.body().code + " msg='" + response.body().msg + "' data=" + response.body().data
                         : "nullBody";
                 Log.d(TAG, "recordPlayStatus 响应: HTTP " + response.code() + " " + respBody
                         + " (raw: " + (response.body() != null ? new com.google.gson.Gson().toJson(response.body()) : "null") + ")");
+                boolean ok = response.isSuccessful() && response.body() != null && response.body().code == 0;
+                if (!ok) retryRecord(body, ts, attempt);
             }
             @Override public void onFailure(retrofit2.Call<ApiResponse<Object>> call, Throwable t) {
+                recordsInFlight = Math.max(0, recordsInFlight - 1);
                 Log.e(TAG, "recordPlayStatus 失败: " + t.getMessage());
+                retryRecord(body, ts, attempt);
             }
         });
+    }
+
+    private void retryRecord(Map<String, Object> body, long ts, int attempt) {
+        if (attempt >= 2 || ts < lastSavedTs) return;
+        handler.postDelayed(() -> {
+            if (ts < lastSavedTs) return;
+            sendRecord(body, ts, attempt + 1);
+        }, 3000);
     }
 
     // ========== 按键 ==========
@@ -1645,9 +1733,9 @@ public class PlayerActivity extends AppCompatActivity {
         super.onPause();
         restoreOrientation();
     }
-    @Override protected void onStop() { super.onStop(); saveProgress(); if (player != null) player.setPlayWhenReady(false); }
+    @Override protected void onStop() { super.onStop(); saveProgress(true); if (player != null) player.setPlayWhenReady(false); }
     @Override protected void onDestroy() {
-        saveProgress();
+        saveProgress(true);
         super.onDestroy(); handler.removeCallbacksAndMessages(null);
         if (danmuManager != null) { danmuManager.destroy(); }
         if (player != null) { player.release(); player = null; }

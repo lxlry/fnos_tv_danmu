@@ -52,6 +52,8 @@ public class HomeActivity extends AppCompatActivity {
     private boolean loadingPreviews = false;
     private boolean overviewLoading = false;
     private boolean continueLoading = false;
+    private boolean continueRefreshPending = false;
+    private int recordWaitTicks = 0;
     private boolean liveLoading = false;
 
     // 媒体库浏览排序状态
@@ -115,7 +117,7 @@ public class HomeActivity extends AppCompatActivity {
             overviewBuilt = false;
             showOverview();
             loadAllPreviews();
-            loadContinueWatching();
+            refreshContinueAfterPlayback();
             loadLiveChannels();
         }
     }
@@ -227,7 +229,7 @@ public class HomeActivity extends AppCompatActivity {
                 loadAllPreviews();
                 loadLiveChannels();
             }
-            loadContinueWatching();
+            refreshContinueAfterPlayback();
         } else if (currentTab == 0 && !overviewBuilt && showingOverview && !overviewLoading) {
             loadOverview();
         }
@@ -299,7 +301,7 @@ public class HomeActivity extends AppCompatActivity {
         loadingPreviews = false;
         showOverview();
         loadAllPreviews();
-        loadContinueWatching();
+        refreshContinueAfterPlayback();
         loadLiveChannels();
     }
 
@@ -445,15 +447,32 @@ public class HomeActivity extends AppCompatActivity {
                                        Response<ApiResponse<ItemListResponse>> response) {
                     if (!response.isSuccessful() || response.body() == null || response.body().code != 0
                             || response.body().data == null || response.body().data.list == null
-                            || response.body().data.list.isEmpty()) return;
+                            || response.body().data.list.isEmpty()) {
+                        clearPreview(guid);
+                        return;
+                    }
                     // 取前6个填到预览容器
                     List<PlayListItem> items = response.body().data.list;
                     if (items.size() > 20) items = items.subList(0, 20);
                     fillPreview(guid, items);
                     updateLibShortcutPoster(guid, items.get(0));
                 }
-                @Override public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {}
+                @Override public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
+                    clearPreview(guid);
+                }
             });
+        }
+    }
+
+    /** 没有片子时去掉「加载中...」，只留标题。 */
+    private void clearPreview(String libGuid) {
+        if (moviesContainer == null) return;
+        for (int i = 0; i < moviesContainer.getChildCount(); i++) {
+            View v = moviesContainer.getChildAt(i);
+            if (v instanceof LinearLayout && ("preview_" + libGuid).equals(v.getTag())) {
+                ((LinearLayout) v).removeAllViews();
+                break;
+            }
         }
     }
 
@@ -785,8 +804,23 @@ public class HomeActivity extends AppCompatActivity {
         return -1;
     }
 
+    /** 播放记录还在上报时先等它完成，再拉继续观看，避免列表早于记录返回。 */
+    private void refreshContinueAfterPlayback() {
+        if (PlayerActivity.hasPendingRecord() && recordWaitTicks < 20) {
+            recordWaitTicks++;
+            moviesContainer.postDelayed(this::refreshContinueAfterPlayback, 400);
+            return;
+        }
+        recordWaitTicks = 0;
+        loadContinueWatching();
+    }
+
     private void loadContinueWatching() {
-        if (apiManager.getApi() == null || continueLoading) return;
+        if (apiManager.getApi() == null) return;
+        if (continueLoading) {
+            continueRefreshPending = true;
+            return;
+        }
         continueLoading = true;
         apiManager.getApi().getPlayList().enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
             @Override
@@ -800,25 +834,35 @@ public class HomeActivity extends AppCompatActivity {
                 } else if (response.isSuccessful() && response.body() != null && response.body().code == 0) {
                     cachedContinueWatching = null;
                 }
-                if (!showingOverview) return;
-                LinearLayout box = findContinueWatchingBox();
-                if (box == null) return;
-                if (cachedContinueWatching == null || cachedContinueWatching.isEmpty()) {
-                    box.removeAllViews();
-                    box.setVisibility(View.GONE);
-                    return;
+                if (showingOverview) {
+                    LinearLayout box = findContinueWatchingBox();
+                    if (box != null) {
+                        if (cachedContinueWatching == null || cachedContinueWatching.isEmpty()) {
+                            box.removeAllViews();
+                            box.setVisibility(View.GONE);
+                        } else {
+                            addContinueWatchingApi(box, cachedContinueWatching, firstLibHeaderId());
+                        }
+                    }
                 }
-                addContinueWatchingApi(box, cachedContinueWatching, firstLibHeaderId());
+                if (continueRefreshPending) {
+                    continueRefreshPending = false;
+                    loadContinueWatching();
+                }
             }
             @Override
             public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
                 continueLoading = false;
-                if (!showingOverview) return;
-                LinearLayout box = findContinueWatchingBox();
-                if (box == null) return;
-                if (cachedContinueWatching != null && !cachedContinueWatching.isEmpty()
-                        && box.getChildCount() == 0) {
-                    addContinueWatchingApi(box, cachedContinueWatching, firstLibHeaderId());
+                if (showingOverview) {
+                    LinearLayout box = findContinueWatchingBox();
+                    if (box != null && cachedContinueWatching != null && !cachedContinueWatching.isEmpty()
+                            && box.getChildCount() == 0) {
+                        addContinueWatchingApi(box, cachedContinueWatching, firstLibHeaderId());
+                    }
+                }
+                if (continueRefreshPending) {
+                    continueRefreshPending = false;
+                    loadContinueWatching();
                 }
             }
         });
