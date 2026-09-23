@@ -22,13 +22,21 @@
         android:textSize="14sp"
         android:visibility="gone" />
 
-    <!-- 顶部返回 + 标题 -->
+    <!-- 弹幕层（视频上方，控件下方） -->
+    <com.fntv.app.DanmuView
+        android:id="@+id/danmuView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center" />
+
+    <!-- 顶部返回 + 标题，必须盖在弹幕上面，否则弹幕会抢走点击 -->
     <RelativeLayout
         android:id="@+id/topBar"
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:layout_gravity="top"
         android:background="#60000000"
+        android:elevation="8dp"
         android:visibility="invisible">
 
         <Button android:id="@+id/btnBack"
@@ -91,13 +99,6 @@
             android:visibility="gone" />
     </RelativeLayout>
 
-    <!-- 弹幕层（视频上方，控件下方） -->
-    <com.fntv.app.DanmuView
-        android:id="@+id/danmuView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_gravity="center" />
-
     <!-- 弹幕状态提示（覆盖在视频上） -->
     <TextView
         android:id="@+id/tvDanmuStatus"
@@ -141,7 +142,7 @@
         android:layout_gravity="center_vertical|left"
         android:layout_marginLeft="8dp"
         android:background="@drawable/bg_chip"
-       
+        android:elevation="8dp"
         android:text="弹"
         android:textColor="#FFF"
         android:textSize="12sp"
@@ -156,6 +157,7 @@
         android:layout_gravity="center_vertical|right"
         android:layout_marginRight="8dp"
         android:background="@drawable/bg_chip"
+        android:elevation="8dp"
         android:scaleType="centerInside"
         android:padding="8dp"
         android:src="@drawable/ic_unlock"
@@ -304,6 +306,24 @@
                     android:minWidth="0dp" android:minHeight="0dp"
                     android:visibility="gone" />
 
+                <Button android:id="@+id/btnSubtitleTrack"
+                    android:layout_width="wrap_content" android:layout_height="34dp"
+                    android:background="@drawable/bg_chip" android:text="字幕"
+                    android:textColor="#EEE" android:textSize="12sp"
+                    android:focusable="true"
+                    android:layout_marginRight="3dp" android:gravity="center"
+                    android:paddingLeft="12dp" android:paddingRight="12dp"
+                    android:minWidth="0dp" android:minHeight="0dp" />
+
+                <Button android:id="@+id/btnAudioTrack"
+                    android:layout_width="wrap_content" android:layout_height="34dp"
+                    android:background="@drawable/bg_chip" android:text="音轨"
+                    android:textColor="#EEE" android:textSize="12sp"
+                    android:focusable="true"
+                    android:layout_marginRight="3dp" android:gravity="center"
+                    android:paddingLeft="12dp" android:paddingRight="12dp"
+                    android:minWidth="0dp" android:minHeight="0dp" />
+
                 <Button android:id="@+id/btnSkip"
                     android:layout_width="wrap_content" android:layout_height="34dp"
                     android:background="@drawable/bg_chip" android:text="片头尾"
@@ -421,30 +441,6 @@
             android:gravity="center"
             android:layout_marginTop="6dp">
 
-            <Button android:id="@+id/btnAudioTrack"
-                android:layout_width="wrap_content" android:layout_height="34dp"
-                android:background="@drawable/bg_chip"
-                android:text="音轨"
-                android:textColor="#EEE" android:textSize="12sp"
-                android:focusable="true"
-                android:layout_marginRight="6dp"
-                android:gravity="center"
-                android:paddingLeft="10dp" android:paddingRight="10dp"
-                android:minWidth="0dp" android:minHeight="0dp"
-                android:nextFocusDown="@+id/btnCloseInfo" />
-
-            <Button android:id="@+id/btnSubtitleTrack"
-                android:layout_width="wrap_content" android:layout_height="34dp"
-                android:background="@drawable/bg_chip"
-                android:text="字幕"
-                android:textColor="#EEE" android:textSize="12sp"
-                android:focusable="true"
-                android:gravity="center"
-                android:paddingLeft="10dp" android:paddingRight="10dp"
-                android:minWidth="0dp" android:minHeight="0dp"
-                android:layout_marginRight="6dp"
-                android:nextFocusDown="@+id/btnHdrToggle" />
-
             <Button android:id="@+id/btnHdrToggle"
                 android:layout_width="wrap_content" android:layout_height="34dp"
                 android:background="@drawable/bg_chip"
@@ -470,7 +466,7 @@
             android:textColor="#FFF"
             android:focusable="true"
             android:layout_marginTop="8dp"
-            android:nextFocusUp="@+id/btnSubtitleTrack" />
+            android:nextFocusUp="@+id/btnHdrToggle" />
     </LinearLayout>
 
 </FrameLayout>

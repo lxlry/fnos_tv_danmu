@@ -183,7 +183,12 @@ public class PlayerActivity extends AppCompatActivity {
 
         findViewById(android.R.id.content).setOnTouchListener(new View.OnTouchListener() {
             private boolean longPressing = false;
-            private android.os.Handler longPressHandler = new android.os.Handler(Looper.getMainLooper());
+            private long lastTapAt = 0;
+            private final android.os.Handler longPressHandler = new android.os.Handler(Looper.getMainLooper());
+            private final Runnable singleTapR = () -> {
+                if (ctrlVis) showCtrl(false);
+                else showCtrl(true);
+            };
             @Override public boolean onTouch(View v, android.view.MotionEvent event) {
                 if (isLocked) {
                     if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
@@ -193,6 +198,7 @@ public class PlayerActivity extends AppCompatActivity {
                 }
                 switch (event.getAction()) {
                     case android.view.MotionEvent.ACTION_DOWN:
+                        longPressHandler.removeCallbacks(singleTapR);
                         longPressing = false;
                         longPressHandler.postDelayed(() -> {
                             longPressing = true;
@@ -220,12 +226,15 @@ public class PlayerActivity extends AppCompatActivity {
                                 tvSpeedHint.setVisibility(View.GONE);
                             }
                             return true;
+                        }
+                        if (event.getAction() == android.view.MotionEvent.ACTION_CANCEL) return true;
+                        long now = event.getEventTime();
+                        if (now - lastTapAt < 300) {
+                            lastTapAt = 0;
+                            togglePlay();
                         } else {
-                            if (ctrlVis) {
-                                showCtrl(false);
-                            } else {
-                                showCtrl(true);
-                            }
+                            lastTapAt = now;
+                            longPressHandler.postDelayed(singleTapR, 280);
                         }
                         return true;
                 }
@@ -1167,35 +1176,18 @@ public class PlayerActivity extends AppCompatActivity {
             ((ViewGroup) controller).setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
             ((ViewGroup) topBar).setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
             // 信息面板内焦点全方向循环（防止方向键逃出面板）
-            View btnAudioTrack = findViewById(R.id.btnAudioTrack);
-            View btnSubtitleTrack = findViewById(R.id.btnSubtitleTrack);
             View btnHdr = findViewById(R.id.btnHdrToggle);
-            if (btnAudioTrack != null) {
-                btnAudioTrack.setNextFocusUpId(btnCloseInfo.getId());
-                btnAudioTrack.setNextFocusLeftId(btnCloseInfo.getId());
-                btnAudioTrack.setNextFocusRightId(btnSubtitleTrack != null ? btnSubtitleTrack.getId() : (btnHdr != null ? btnHdr.getId() : btnCloseInfo.getId()));
-            }
-            if (btnSubtitleTrack != null) {
-                btnSubtitleTrack.setNextFocusUpId(btnCloseInfo.getId());
-                btnSubtitleTrack.setNextFocusLeftId(btnAudioTrack != null ? btnAudioTrack.getId() : btnCloseInfo.getId());
-                btnSubtitleTrack.setNextFocusRightId(btnHdr != null ? btnHdr.getId() : btnCloseInfo.getId());
-            }
             if (btnHdr != null) {
                 btnHdr.setNextFocusUpId(btnCloseInfo.getId());
-                btnHdr.setNextFocusLeftId(btnSubtitleTrack != null ? btnSubtitleTrack.getId() : (btnAudioTrack != null ? btnAudioTrack.getId() : btnCloseInfo.getId()));
-                btnHdr.setNextFocusRightId(btnCloseInfo.getId());
                 btnHdr.setNextFocusDownId(btnCloseInfo.getId());
+                btnHdr.setNextFocusLeftId(btnCloseInfo.getId());
+                btnHdr.setNextFocusRightId(btnCloseInfo.getId());
             }
-            int closeDown = btnAudioTrack != null ? btnAudioTrack.getId()
-                    : (btnSubtitleTrack != null ? btnSubtitleTrack.getId()
-                    : (btnHdr != null ? btnHdr.getId() : btnCloseInfo.getId()));
-            btnCloseInfo.setNextFocusDownId(closeDown);
-            btnCloseInfo.setNextFocusLeftId(btnHdr != null ? btnHdr.getId()
-                    : (btnSubtitleTrack != null ? btnSubtitleTrack.getId()
-                    : (btnAudioTrack != null ? btnAudioTrack.getId() : btnCloseInfo.getId())));
-            btnCloseInfo.setNextFocusRightId(btnAudioTrack != null ? btnAudioTrack.getId()
-                    : (btnSubtitleTrack != null ? btnSubtitleTrack.getId()
-                    : (btnHdr != null ? btnHdr.getId() : btnCloseInfo.getId())));
+            int closeTarget = btnHdr != null ? btnHdr.getId() : btnCloseInfo.getId();
+            btnCloseInfo.setNextFocusDownId(closeTarget);
+            btnCloseInfo.setNextFocusUpId(closeTarget);
+            btnCloseInfo.setNextFocusLeftId(closeTarget);
+            btnCloseInfo.setNextFocusRightId(closeTarget);
             updateInfo();
             btnCloseInfo.post(() -> btnCloseInfo.requestFocus());
         } else {
@@ -1250,6 +1242,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (controller.hasFocus() || btnDanmu.hasFocus() || btnLock.hasFocus()
                 || btnCloudMode.hasFocus() || btnBrightness.hasFocus() || btnSkip.hasFocus()
                 || btnInfo.hasFocus() || btnBack.hasFocus()
+                || (findViewById(R.id.btnSubtitleTrack) != null && findViewById(R.id.btnSubtitleTrack).hasFocus())
                 || (btnHdrToggle != null && btnHdrToggle.hasFocus())
                 || (btnQuality != null && btnQuality.hasFocus())) {
             resetHideTimer();
@@ -1262,8 +1255,10 @@ public class PlayerActivity extends AppCompatActivity {
         List<View> top = TvFocus.present(btnBack, btnCloudMode);
         List<View> sides = TvFocus.present(btnDanmu, btnLock);
         List<View> seek = TvFocus.present(seekBar);
+        View btnSubtitleTrack = findViewById(R.id.btnSubtitleTrack);
+        View btnAudioTrack = findViewById(R.id.btnAudioTrack);
         List<View> bottom = TvFocus.present(btnPlayPause, btnRewind, btnForward, btnSpeed, btnRatio,
-                btnEpisodeList, btnNextEp, btnSkip, btnInfo, btnQuality, btnBrightness);
+                btnEpisodeList, btnNextEp, btnSubtitleTrack, btnAudioTrack, btnSkip, btnInfo, btnQuality, btnBrightness);
         TvFocus.bindRow(top);
         TvFocus.bindRow(sides);
         TvFocus.bindRow(bottom);
@@ -1607,9 +1602,14 @@ public class PlayerActivity extends AppCompatActivity {
                     return true;
                 // LEFT/RIGHT 由 SeekBar 自身处理（已设 keyProgressIncrement=5000）
                 case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:
+                    View subtitleBtn = findViewById(R.id.btnSubtitleTrack);
+                    View audioBtn = findViewById(R.id.btnAudioTrack);
                     if (seekBar.hasFocus() || btnRewind.hasFocus() || btnForward.hasFocus()
                             || btnSpeed.hasFocus() || btnRatio.hasFocus() || btnInfo.hasFocus()
-                            || btnEpisodeList.hasFocus() || btnNextEp.hasFocus() || btnBrightness.hasFocus() || btnSkip.hasFocus()) {
+                            || btnEpisodeList.hasFocus() || btnNextEp.hasFocus() || btnBrightness.hasFocus()
+                            || btnSkip.hasFocus()
+                            || (subtitleBtn != null && subtitleBtn.hasFocus())
+                            || (audioBtn != null && audioBtn.hasFocus())) {
                         return true;
                     }
                     togglePlay(); return true;
@@ -1646,7 +1646,9 @@ public class PlayerActivity extends AppCompatActivity {
                     }
                     return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:
-                case KeyEvent.KEYCODE_DPAD_UP:
+                    togglePlay();
+                    return true;
+                case KeyEvent.KEYCODE_DPAD_DOWN:
                     showCtrl(true);
                     btnPlayPause.postDelayed(new Runnable() { @Override public void run() { btnPlayPause.requestFocus(); } }, 50);
                     return true;
