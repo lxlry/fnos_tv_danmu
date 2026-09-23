@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_card"
+    android:orientation="vertical"
+    android:paddingLeft="20dp"
+    android:paddingTop="18dp"
+    android:paddingRight="20dp"
+    android:paddingBottom="16dp">
+
+    <TextView
+        android:id="@+id/tv_setting_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_primary"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tv_setting_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:lineSpacingExtra="2dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp" />
+
+    <EditText
+        android:id="@+id/et_setting_input"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/bg_input"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:imeOptions="actionDone"
+        android:nextFocusDown="@+id/btn_setting_positive"
+        android:paddingLeft="14dp"
+        android:paddingRight="14dp"
+        android:singleLine="true"
+        android:textColor="@color/text_primary"
+        android:textColorHighlight="@color/colorAccent"
+        android:textColorHint="@color/text_hint"
+        android:textCursorDrawable="@null"
+        android:textSize="15sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_setting_negative"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_marginRight="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_chip"
+            android:focusable="true"
+            android:nextFocusRight="@+id/btn_setting_positive"
+            android:nextFocusUp="@+id/et_setting_input"
+            android:text="取消"
+            android:textAllCaps="false"
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/btn_setting_positive"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_marginLeft="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_btn_primary"
+            android:focusable="true"
+            android:nextFocusLeft="@+id/btn_setting_negative"
+            android:nextFocusUp="@+id/et_setting_input"
+            android:text="保存"
+            android:textAllCaps="false"
+            android:textColor="@color/text_white"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+</LinearLayout>

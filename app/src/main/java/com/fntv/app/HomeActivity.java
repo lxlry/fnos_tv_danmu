@@ -42,6 +42,8 @@ public class HomeActivity extends AppCompatActivity {
     private EditText etSearch;
     private TextView tvLibraryPageTitle;
     private boolean isSearching = false;
+    /** 点开搜索时所在的标签。返回时回到这一页，而不是媒体库。 */
+    private int searchEntryTab = -1;
     private TextView tvSettingUsername, tvSettingServer, tvDecoderValue, tvDanmuUrl;
     private Button btnLogout, btnFeedback;
     private UpdateManager updateManager;
@@ -188,7 +190,7 @@ public class HomeActivity extends AppCompatActivity {
                 moviesContainer.getPaddingBottom()
         };
         libraryContainer = findViewById(R.id.libraryGridContainer);
-        etSearch = null;
+        etSearch = findViewById(R.id.etSearch);
         tvLibraryPageTitle = findViewById(R.id.tvLibraryPageTitle);
         tvMoviesLoading = findViewById(R.id.tvMoviesLoading);
         tvLibraryLoading = findViewById(R.id.tvLibraryLoading);
@@ -212,7 +214,9 @@ public class HomeActivity extends AppCompatActivity {
         Button btnHomeSearch = findViewById(R.id.btnHomeSearch);
         if (btnHomeSearch != null) {
             btnHomeSearch.setOnClickListener(v -> {
+                int fromTab = currentTab;
                 switchTab(1);
+                searchEntryTab = fromTab;
                 loadMediaLibraries();
                 if (etSearch != null) etSearch.post(this::focusLibrarySearch);
             });
@@ -248,21 +252,40 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void setupTabs() {
-        tabMovies.setOnClickListener(v -> {
-            if (currentTab == 0 && !showingOverview) {
-                restoreHomeOverview();
-                return;
-            }
-            switchTab(0);
-        });
-        tabLibrary.setOnClickListener(v -> { switchTab(1); loadMediaLibraries(); });
-        tabSettings.setOnClickListener(v -> switchTab(2));
+        tabMovies.setOnClickListener(v -> openTab(0, true));
+        tabLibrary.setOnClickListener(v -> openTab(1, true));
+        tabSettings.setOnClickListener(v -> openTab(2, true));
+        if (!isTelevision()) return;
+        View.OnFocusChangeListener onTabFocus = (v, hasFocus) -> {
+            if (!hasFocus) return;
+            if (v == tabMovies) openTab(0, false);
+            else if (v == tabLibrary) openTab(1, false);
+            else if (v == tabSettings) openTab(2, false);
+        };
+        tabMovies.setOnFocusChangeListener(onTabFocus);
+        tabLibrary.setOnFocusChangeListener(onTabFocus);
+        tabSettings.setOnFocusChangeListener(onTabFocus);
+    }
+
+    /** 底部栏目。电视上焦点移入即切换；再按一次「影视」仍回到首页。 */
+    private void openTab(int index, boolean fromClick) {
+        if (index == 0 && currentTab == 0 && !showingOverview) {
+            if (fromClick) restoreHomeOverview();
+            return;
+        }
+        if (currentTab == index) {
+            if (fromClick && index == 1) loadMediaLibraries();
+            return;
+        }
+        switchTab(index);
+        if (index == 1) loadMediaLibraries();
     }
 
 
     private void switchTab(int index) {
         int prevTab = currentTab;
         currentTab = index;
+        searchEntryTab = -1;
         // 从媒体库切换到其他标签时清除搜索状态
         if (prevTab == 1 && isSearching) clearSearch();
         // 切换标签时清除保存的页面状态，防止横竖屏切回时错误恢复
@@ -521,14 +544,17 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
-    /** 构建媒体库标题行（整行可聚焦，点击 = 查看全部） */
+    /** 媒体库标题。高亮只包住名字，点击进入该库。 */
 
     private LinearLayout makeLibHeader(String libGuid, String libTitle, int count) {
         LinearLayout headerRow = new LinearLayout(this);
         headerRow.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setPadding(dp(4), dp(16), dp(4), dp(8));
+        headerRow.setPadding(dp(10), dp(6), dp(10), dp(6));
+        LinearLayout.LayoutParams headerLp = (LinearLayout.LayoutParams) headerRow.getLayoutParams();
+        headerLp.topMargin = dp(10);
+        headerLp.bottomMargin = dp(2);
         headerRow.setGravity(Gravity.CENTER_VERTICAL);
         headerRow.setMinimumHeight(dp(40));
         headerRow.setId(View.generateViewId());
@@ -571,7 +597,7 @@ public class HomeActivity extends AppCompatActivity {
             MediaDbItem lib = mediaLibraries.get(i);
             View tile = makeLibShortcutCard(lib);
             tile.setId(View.generateViewId());
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(148), dp(92));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), dp(100));
             lp.setMargins(dp(6), 0, dp(6), 0);
             tile.setLayoutParams(lp);
             row.addView(tile);
@@ -2220,15 +2246,32 @@ public class HomeActivity extends AppCompatActivity {
             chip.setFocusable(true);
             chip.setBackgroundResource(R.drawable.bg_episode_chip);
             final int page = p;
-            chip.setOnClickListener(v -> {
-                pageHolder[0] = page;
-                styleEpisodeRangeChips(chips, page);
-                showEpisodePage(epBox, episodes, page, item, playBtn);
+            chip.setOnClickListener(v -> selectEpisodeRange(chips, pageHolder, page, epBox, episodes, item, playBtn));
+            chip.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus && isTelevision()) {
+                    selectEpisodeRange(chips, pageHolder, page, epBox, episodes, item, playBtn);
+                }
             });
             chips.add(chip);
             bar.addView(chip);
         }
         styleEpisodeRangeChips(chips, currentPage);
+    }
+
+    private void selectEpisodeRange(List<TextView> chips, int[] pageHolder, int page,
+                                    LinearLayout epBox, List<PlayListItem> episodes,
+                                    PlayListItem item, Button playBtn) {
+        if (pageHolder[0] == page) return;
+        pageHolder[0] = page;
+        styleEpisodeRangeChips(chips, page);
+        showEpisodePage(epBox, episodes, page, item, playBtn);
+    }
+
+    private boolean isTelevision() {
+        int mode = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_TYPE_MASK;
+        if (mode == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) return true;
+        return getResources().getConfiguration().smallestScreenWidthDp >= 600;
     }
 
     private void styleEpisodeRangeChips(List<TextView> chips, int page) {
@@ -2699,6 +2742,9 @@ public class HomeActivity extends AppCompatActivity {
             return false;
         });
         etSearch.setOnClickListener(v -> submitLibrarySearch());
+        etSearch.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus && searchEntryTab < 0) searchEntryTab = currentTab;
+        });
         etSearch.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
@@ -2741,9 +2787,53 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void hideKeyboard() {
+        if (etSearch == null) return;
         android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
+    }
+
+    /** 离开搜索，回到点开搜索框之前的那一页。 */
+    private void leaveSearch() {
+        int entry = searchEntryTab;
+        searchEntryTab = -1;
+        if (etSearch != null && etSearch.isFocused()) {
+            hideKeyboard();
+            etSearch.clearFocus();
+        }
+        boolean wasSearching = isSearching;
+        if (wasSearching) {
+            isSearching = false;
+            if (etSearch != null) {
+                etSearch.setText("");
+                etSearch.setVisibility(View.VISIBLE);
+            }
+        }
+        if (entry >= 0 && entry != currentTab) {
+            revealTab(entry);
+            if (wasSearching) loadMediaLibraries();
+            if (entry == 0) {
+                Button searchBtn = findViewById(R.id.btnHomeSearch);
+                if (searchBtn != null && searchBtn.getVisibility() == View.VISIBLE) {
+                    searchBtn.post(searchBtn::requestFocus);
+                }
+            }
+            return;
+        }
+        if (wasSearching) loadMediaLibraries();
+    }
+
+    /** 只切可见页，不重置首页正在看的列表或详情。 */
+    private void revealTab(int index) {
+        currentTab = index;
+        panelMovies.setVisibility(index == 0 ? View.VISIBLE : View.GONE);
+        panelLibrary.setVisibility(index == 1 ? View.VISIBLE : View.GONE);
+        panelSettings.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
+        tabMovies.setSelected(index == 0);
+        tabLibrary.setSelected(index == 1);
+        tabSettings.setSelected(index == 2);
+        setDetailChrome(index == 0 && savedDetailItem != null && !showingOverview);
+        refreshTabFocusTargets();
     }
 
     private void performSearch(String query) {
@@ -2852,9 +2942,7 @@ public class HomeActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         for (int i = 0; i < libs.size(); i++) {
             if (i > 0) group.addView(makeLibDivider());
-            boolean first = i == 0;
-            boolean last = i == libs.size() - 1;
-            group.addView(makeLibRow(libs.get(i), first, last));
+            group.addView(makeLibRow(libs.get(i)));
         }
         cont.addView(group);
         wireLibraryList();
@@ -2895,21 +2983,13 @@ public class HomeActivity extends AppCompatActivity {
         return title.contains("电影");
     }
 
-    private int libRowBackground(boolean first, boolean last) {
-        if (first && last) return R.drawable.bg_lib_row_single;
-        if (first) return R.drawable.bg_lib_row_top;
-        if (last) return R.drawable.bg_lib_row_bottom;
-        return R.drawable.bg_lib_row_mid;
-    }
-
-    private View makeLibRow(MediaDbItem lib, boolean first, boolean last) {
+    private View makeLibRow(MediaDbItem lib) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(dp(48));
         row.setPadding(dp(18), dp(8), dp(16), dp(8));
         row.setFocusable(true);
-        row.setBackgroundResource(libRowBackground(first, last));
 
         AppCompatImageView icon = new AppCompatImageView(this);
         icon.setLayoutParams(new LinearLayout.LayoutParams(dp(26), dp(26)));
@@ -2918,16 +2998,23 @@ public class HomeActivity extends AppCompatActivity {
 
         TextView title = new TextView(this);
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        titleLp.leftMargin = dp(14);
-        titleLp.rightMargin = dp(12);
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.leftMargin = dp(10);
         title.setLayoutParams(titleLp);
         title.setText(lib.title != null ? lib.title : "");
         title.setTextColor(color(R.color.text_primary));
         title.setTextSize(17);
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.55f));
+        title.setPadding(dp(8), dp(4), dp(8), dp(4));
+        title.setBackgroundResource(R.drawable.bg_text_action);
+        title.setDuplicateParentStateEnabled(true);
         row.addView(title);
+
+        View spacer = new View(this);
+        spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1));
+        row.addView(spacer);
 
         TextView count = new TextView(this);
         count.setTag(libCountTag(lib.guid));
@@ -3034,78 +3121,69 @@ public class HomeActivity extends AppCompatActivity {
             danmuUrl = "http://" + host + ":9321";
         }
         tvDanmuUrl.setText(danmuUrl);
-        rlDanmuSetting.setOnClickListener(v -> {
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-            b.setTitle("弹幕服务器地址");
-            final android.widget.EditText input = new android.widget.EditText(this);
-            input.setText(tvDanmuUrl.getText());
-            input.setSelection(input.getText().length());
-            b.setView(input);
-            b.setPositiveButton("保存", (dialog, which) -> {
-                String val = input.getText().toString().trim();
-                if (!val.isEmpty()) {
-                    prefs.edit().putString("danmu_url", val).apply();
-                    tvDanmuUrl.setText(val);
-                }
-            });
-            b.setNegativeButton("重置", (dialog, which) -> {
-                prefs.edit().remove("danmu_url").apply();
-                String host = prefs.getString("host", "");
-                host = host.replaceAll("^https?://", "").replaceAll("/.*$", "").replaceAll(":\\d+$", "");
-                tvDanmuUrl.setText("http://" + host + ":9321");
-            });
-            b.show();
-        });
+        rlDanmuSetting.setOnClickListener(v -> showSettingInput(
+                "弹幕服务器地址",
+                "例如 http://192.168.1.1:9321",
+                tvDanmuUrl.getText().toString(),
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI,
+                "重置",
+                false,
+                value -> {
+                    if (!value.isEmpty()) {
+                        prefs.edit().putString("danmu_url", value).apply();
+                        tvDanmuUrl.setText(value);
+                    }
+                },
+                () -> {
+                    prefs.edit().remove("danmu_url").apply();
+                    String host = prefs.getString("host", "");
+                    host = host.replaceAll("^https?://", "").replaceAll("/.*$", "").replaceAll(":\\d+$", "");
+                    tvDanmuUrl.setText("http://" + host + ":9321");
+                }));
 
         // 快进退步长
         final int[] savedStep = {prefs.getInt("seek_step", 10)};
         tvSeekStepValue.setText(savedStep[0] + "s");
-        rlSeekStep.setOnClickListener(v -> {
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-            b.setTitle("快进退步长（秒）");
-            final android.widget.EditText input = new android.widget.EditText(this);
-            input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-            input.setText(String.valueOf(savedStep[0]));
-            input.setSelection(input.getText().length());
-            b.setView(input);
-            b.setPositiveButton("保存", (dialog, which) -> {
-                try {
-                    int val = Integer.parseInt(input.getText().toString().trim());
-                    if (val < 1) val = 1;
-                    if (val > 300) val = 300;
-                    prefs.edit().putInt("seek_step", val).apply();
-                    tvSeekStepValue.setText(val + "s");
-                    savedStep[0] = val;
-                } catch (Exception ignored) {}
-            });
-            b.setNegativeButton("取消", null);
-            b.show();
-        });
+        rlSeekStep.setOnClickListener(v -> showSettingInput(
+                "快进退步长",
+                "单位秒，范围 1–300",
+                String.valueOf(savedStep[0]),
+                android.text.InputType.TYPE_CLASS_NUMBER,
+                "取消",
+                true,
+                value -> {
+                    try {
+                        int val = Integer.parseInt(value);
+                        if (val < 1) val = 1;
+                        if (val > 300) val = 300;
+                        prefs.edit().putInt("seek_step", val).apply();
+                        tvSeekStepValue.setText(val + "s");
+                        savedStep[0] = val;
+                    } catch (Exception ignored) {}
+                },
+                null));
 
         // 缓冲时间
         final int[] savedBuffer = {prefs.getInt("buffer_time", 30)};
         tvBufferTimeValue.setText(savedBuffer[0] + "s");
-        rlBufferTime.setOnClickListener(v -> {
-            android.app.AlertDialog.Builder b2 = new android.app.AlertDialog.Builder(this);
-            b2.setTitle("缓冲时间（秒）");
-            final android.widget.EditText input2 = new android.widget.EditText(this);
-            input2.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-            input2.setText(String.valueOf(savedBuffer[0]));
-            input2.setSelection(input2.getText().length());
-            b2.setView(input2);
-            b2.setPositiveButton("保存", (dialog, which) -> {
-                try {
-                    int val = Integer.parseInt(input2.getText().toString().trim());
-                    if (val < 5) val = 5;
-                    if (val > 300) val = 300;
-                    prefs.edit().putInt("buffer_time", val).apply();
-                    tvBufferTimeValue.setText(val + "s");
-                    savedBuffer[0] = val;
-                } catch (Exception ignored) {}
-            });
-            b2.setNegativeButton("取消", null);
-            b2.show();
-        });
+        rlBufferTime.setOnClickListener(v -> showSettingInput(
+                "缓冲时间",
+                "单位秒，范围 5–300",
+                String.valueOf(savedBuffer[0]),
+                android.text.InputType.TYPE_CLASS_NUMBER,
+                "取消",
+                true,
+                value -> {
+                    try {
+                        int val = Integer.parseInt(value);
+                        if (val < 5) val = 5;
+                        if (val > 300) val = 300;
+                        prefs.edit().putInt("buffer_time", val).apply();
+                        tvBufferTimeValue.setText(val + "s");
+                        savedBuffer[0] = val;
+                    } catch (Exception ignored) {}
+                },
+                null));
 
         apiManager.getApi().getUserInfo().enqueue(new Callback<ApiResponse<UserInfoResponse>>() {
             @Override
@@ -3118,6 +3196,67 @@ public class HomeActivity extends AppCompatActivity {
             }
             @Override public void onFailure(Call<ApiResponse<UserInfoResponse>> call, Throwable t) {}
         });
+    }
+
+
+    private void showSettingInput(String title, String hint, String value, int inputType,
+                                  String negativeText, boolean selectAll,
+                                  final SettingInputCallback onSave, final Runnable onNegative) {
+        final android.app.Dialog dialog = new android.app.Dialog(
+                this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        dialog.setContentView(R.layout.dialog_setting_input);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+            int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.86f);
+            int max = dp(440);
+            if (width > max) width = max;
+            window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        }
+
+        TextView tvTitle = dialog.findViewById(R.id.tv_setting_title);
+        TextView tvHint = dialog.findViewById(R.id.tv_setting_hint);
+        final EditText input = dialog.findViewById(R.id.et_setting_input);
+        Button negative = dialog.findViewById(R.id.btn_setting_negative);
+        Button positive = dialog.findViewById(R.id.btn_setting_positive);
+
+        tvTitle.setText(title);
+        if (hint == null || hint.isEmpty()) {
+            tvHint.setVisibility(View.GONE);
+        } else {
+            tvHint.setText(hint);
+        }
+        input.setInputType(inputType);
+        input.setText(value == null ? "" : value);
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                positive.performClick();
+                return true;
+            }
+            return false;
+        });
+        negative.setText(negativeText);
+        negative.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (onNegative != null) onNegative.run();
+        });
+        positive.setOnClickListener(v -> {
+            String text = input.getText().toString().trim();
+            dialog.dismiss();
+            if (onSave != null) onSave.onResult(text);
+        });
+        dialog.setOnShowListener(d -> {
+            input.requestFocus();
+            if (selectAll) input.selectAll();
+            else input.setSelection(input.getText().length());
+        });
+        dialog.show();
+    }
+
+
+    private interface SettingInputCallback {
+        void onResult(String value);
     }
 
 
@@ -4112,14 +4251,8 @@ public class HomeActivity extends AppCompatActivity {
 
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            // 搜索框有焦点 → 隐藏键盘并清除搜索
-            if (etSearch != null && etSearch.isFocused()) {
-                hideKeyboard();
-                etSearch.clearFocus();
-            }
-            // 搜索模式 → 清除搜索
-            if (isSearching) {
-                clearSearch();
+            if ((etSearch != null && etSearch.isFocused()) || isSearching) {
+                leaveSearch();
                 return true;
             }
             // 媒体库浏览中 → 返回媒体库首页

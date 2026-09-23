@@ -124,6 +124,26 @@ DPAD 遥控器友好
                 android:textColor="@color/text_primary"
                 android:textSize="22sp" />
 
+            <EditText
+                android:id="@+id/etSearch"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginLeft="16dp"
+                android:layout_marginRight="16dp"
+                android:layout_marginBottom="8dp"
+                android:background="@drawable/bg_input"
+                android:focusable="true"
+                android:hint="搜索媒体库..."
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_hint"
+                android:textCursorDrawable="@null"
+                android:textSize="15sp" />
+
             <ScrollView
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"

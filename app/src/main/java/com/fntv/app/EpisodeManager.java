@@ -244,12 +244,12 @@ public class EpisodeManager {
             chip.setFocusable(true);
             chip.setBackgroundResource(R.drawable.bg_episode_chip);
             final int page = p;
-            chip.setOnClickListener(v -> {
-                if (pageIndex == page) return;
-                pageIndex = page;
-                styleRangeChips();
-                fillPage(act);
-            });
+            chip.setOnClickListener(v -> switchRangePage(act, page, true));
+            if (tvLayout) {
+                chip.setOnFocusChangeListener((v, hasFocus) -> {
+                    if (hasFocus) switchRangePage(act, page, false);
+                });
+            }
             rangeBar.addView(chip);
             rangeChips.add(chip);
         }
@@ -265,7 +265,18 @@ public class EpisodeManager {
         }
     }
 
+    private void switchRangePage(Activity act, int page, boolean takeFocus) {
+        if (pageIndex == page) return;
+        pageIndex = page;
+        styleRangeChips();
+        fillPage(act, takeFocus);
+    }
+
     private void fillPage(Activity act) {
+        fillPage(act, true);
+    }
+
+    private void fillPage(Activity act, boolean takeFocus) {
         listBox.removeAllViews();
         LayoutInflater inflater = LayoutInflater.from(act);
         int layout = tvLayout ? R.layout.item_episode_tv : R.layout.item_episode_side;
@@ -281,6 +292,7 @@ public class EpisodeManager {
             if (i == currentEpIndex) currentView = row;
         }
         wirePickerFocus(rows);
+        if (!takeFocus) return;
         View focus = currentView != null ? currentView : (rows.isEmpty() ? null : rows.get(0));
         if (focus != null) focusRow(focus);
     }
