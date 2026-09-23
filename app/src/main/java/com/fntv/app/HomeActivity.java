@@ -205,7 +205,7 @@ public class HomeActivity extends AppCompatActivity {
             btnHomeSearch.setOnClickListener(v -> {
                 switchTab(1);
                 loadMediaLibraries();
-                if (etSearch != null) etSearch.post(() -> etSearch.requestFocus());
+                if (etSearch != null) etSearch.post(this::focusLibrarySearch);
             });
         }
 
@@ -2303,11 +2303,13 @@ public class HomeActivity extends AppCompatActivity {
     // ==================== 搜索 ====================
 
     private void setupSearch() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            etSearch.setShowSoftInputOnFocus(false);
+        }
         etSearch.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH
                     || actionId == EditorInfo.IME_ACTION_DONE
                     || actionId == EditorInfo.IME_ACTION_GO
-                    || actionId == EditorInfo.IME_ACTION_UNSPECIFIED
                     || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                 submitLibrarySearch();
                 return true;
@@ -2327,13 +2329,29 @@ public class HomeActivity extends AppCompatActivity {
         });
     }
 
+    private long lastSearchImeAt;
+
+    private void focusLibrarySearch() {
+        if (etSearch == null || etSearch.getVisibility() != View.VISIBLE) return;
+        if (!etSearch.isFocused()) etSearch.requestFocus();
+        showLibraryKeyboard();
+    }
+
+    private void showLibraryKeyboard() {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastSearchImeAt < 800) return;
+        lastSearchImeAt = now;
+        android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.showSoftInput(etSearch, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+
     private void submitLibrarySearch() {
         String q = etSearch.getText().toString().trim();
         if (q.isEmpty()) {
-            etSearch.requestFocus();
-            android.view.inputmethod.InputMethodManager imm =
-                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showSoftInput(etSearch, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            focusLibrarySearch();
             return;
         }
         performSearch(q);
@@ -3093,8 +3111,40 @@ public class HomeActivity extends AppCompatActivity {
         if (container == null) return;
         container.post(() -> {
             bindBrowseGridNow(container);
-            container.post(() -> bindBrowseGridNow(container));
+            container.post(() -> {
+                bindBrowseGridNow(container);
+                placeBrowseFocus(container);
+            });
         });
+    }
+
+    /** 进入媒体库网格后，焦点落到第一张海报，而不是停在搜索或底栏。 */
+    private void placeBrowseFocus(LinearLayout container) {
+        if (container == null) return;
+        View focused = getCurrentFocus();
+        if (isDescendantOf(focused, container)) return;
+        List<List<View>> rows = TvFocus.collectGridRows(container);
+        View target = null;
+        if (!rows.isEmpty() && !rows.get(0).isEmpty()) {
+            target = rows.get(0).get(0);
+        } else {
+            View sortBar = container.findViewWithTag("lib_sort_bar");
+            if (sortBar instanceof ViewGroup) {
+                List<View> sortBtns = TvFocus.collectVisibleFocusables(sortBar);
+                if (!sortBtns.isEmpty()) target = sortBtns.get(0);
+            }
+        }
+        if (isUsableFocus(target)) focusOn(target);
+    }
+
+    private boolean isDescendantOf(View child, View parent) {
+        View v = child;
+        while (v != null) {
+            if (v == parent) return true;
+            ViewParent p = v.getParent();
+            v = p instanceof View ? (View) p : null;
+        }
+        return false;
     }
 
     private void bindBrowseGridNow(LinearLayout container) {
@@ -3117,14 +3167,22 @@ public class HomeActivity extends AppCompatActivity {
         if (!sortBtns.isEmpty() && !rows.isEmpty()) {
             TvFocus.bindVertical(sortBtns, rows.get(0));
         }
+        Button homeSearch = container == moviesContainer
+                ? findViewById(R.id.btnHomeSearch) : null;
         if (!sortBtns.isEmpty()) {
             if (container == libraryContainer && etSearch != null
                     && etSearch.getVisibility() == View.VISIBLE) {
                 TvFocus.stay(etSearch);
                 TvFocus.bindVertical(TvFocus.listOf(etSearch), sortBtns);
+            } else if (homeSearch != null && homeSearch.getVisibility() == View.VISIBLE) {
+                TvFocus.stay(homeSearch);
+                TvFocus.bindAbove(homeSearch, sortBtns);
             } else {
                 for (View v : sortBtns) TvFocus.point(v, View.FOCUS_UP, v);
             }
+        } else if (homeSearch != null && homeSearch.getVisibility() == View.VISIBLE && !rows.isEmpty()) {
+            TvFocus.stay(homeSearch);
+            TvFocus.bindAbove(homeSearch, rows.get(0));
         } else if (upTarget == etSearch && etSearch != null) {
             TvFocus.stay(etSearch);
             if (!rows.isEmpty()) {
