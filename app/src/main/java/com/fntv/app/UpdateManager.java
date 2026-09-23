@@ -29,10 +29,10 @@ public class UpdateManager {
 
     /** 更新源（按优先级） */
     private static final String[] UPDATE_URLS = {
+            "https://raw.githubusercontent.com/lxlry/fnos_tv_danmu/master/update.json",
             "https://jsd.onmicrosoft.cn/gh/lxlry/fnos_tv_danmu@master/update.json",
             "https://cdn.jsdelivr.net/gh/lxlry/fnos_tv_danmu@master/update.json",
-            "https://fastly.jsdelivr.net/gh/lxlry/fnos_tv_danmu@master/update.json",
-            "https://raw.githubusercontent.com/lxlry/fnos_tv_danmu/master/update.json"
+            "https://fastly.jsdelivr.net/gh/lxlry/fnos_tv_danmu@master/update.json"
     };
 
     private static final String TAG = "Update";
