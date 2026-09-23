@@ -182,7 +182,6 @@ public class HomeActivity extends AppCompatActivity {
                 moviesContainer.getPaddingBottom()
         };
         libraryContainer = findViewById(R.id.libraryGridContainer);
-        etSearch = findViewById(R.id.etSearch);
         tvLibraryPageTitle = findViewById(R.id.tvLibraryPageTitle);
         tvMoviesLoading = findViewById(R.id.tvMoviesLoading);
         tvLibraryLoading = findViewById(R.id.tvLibraryLoading);
