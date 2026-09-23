@@ -40,6 +40,7 @@ public class HomeActivity extends AppCompatActivity {
     private LinearLayout moviesContainer, libraryContainer;
     private TextView tvMoviesLoading, tvLibraryLoading, tvLibraryEmpty;
     private EditText etSearch;
+    private TextView tvLibraryPageTitle;
     private boolean isSearching = false;
     private TextView tvSettingUsername, tvSettingServer, tvDecoderValue, tvDanmuUrl;
     private Button btnLogout, btnFeedback;
@@ -182,6 +183,7 @@ public class HomeActivity extends AppCompatActivity {
         };
         libraryContainer = findViewById(R.id.libraryGridContainer);
         etSearch = findViewById(R.id.etSearch);
+        tvLibraryPageTitle = findViewById(R.id.tvLibraryPageTitle);
         tvMoviesLoading = findViewById(R.id.tvMoviesLoading);
         tvLibraryLoading = findViewById(R.id.tvLibraryLoading);
         tvLibraryEmpty = findViewById(R.id.tvLibraryEmpty);
@@ -1068,7 +1070,10 @@ public class HomeActivity extends AppCompatActivity {
         setDetailChrome(false);
         savedBrowseGuid = ancestorGuid; savedBrowseTitle = title;
         browseFromLibrary = (container == libraryContainer);
-        if (browseFromLibrary) etSearch.setVisibility(View.GONE);
+        if (browseFromLibrary) {
+            if (etSearch != null) etSearch.setVisibility(View.GONE);
+            if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.GONE);
+        }
         if (container == moviesContainer) showingOverview = false;
 
         // 存储当前浏览上下文，排序变化时用于重新加载
@@ -2275,7 +2280,8 @@ public class HomeActivity extends AppCompatActivity {
 
     private void loadMediaLibraries() {
         isSearching = false;
-        etSearch.setVisibility(View.VISIBLE);
+        if (etSearch != null) etSearch.setVisibility(View.VISIBLE);
+        if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.VISIBLE);
         clearContainer(libraryContainer, tvLibraryLoading, tvLibraryEmpty);
         tvLibraryLoading.setVisibility(View.VISIBLE);
 
@@ -2317,6 +2323,7 @@ public class HomeActivity extends AppCompatActivity {
     // ==================== 搜索 ====================
 
     private void setupSearch() {
+        if (etSearch == null) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             etSearch.setShowSoftInputOnFocus(false);
         }
@@ -2466,14 +2473,17 @@ public class HomeActivity extends AppCompatActivity {
     private void clearSearch() {
         if (isSearching) {
             isSearching = false;
-            etSearch.setText("");
-            etSearch.setVisibility(View.VISIBLE);
+            if (etSearch != null) {
+                etSearch.setText("");
+                etSearch.setVisibility(View.VISIBLE);
+            }
             loadMediaLibraries();
         }
     }
 
     private void populateLibGrid(LinearLayout cont, List<MediaDbItem> libs) {
         clearContainer(cont, tvLibraryLoading, tvLibraryEmpty);
+        cont.addView(makeLibSectionTitle("媒体库"));
         LinearLayout group = new LinearLayout(this);
         group.setOrientation(LinearLayout.VERTICAL);
         group.setBackgroundResource(R.drawable.bg_lib_group);
@@ -2488,6 +2498,20 @@ public class HomeActivity extends AppCompatActivity {
         cont.addView(group);
         wireLibraryList();
         loadLibraryCounts(libs);
+    }
+
+    private TextView makeLibSectionTitle(String text) {
+        TextView title = new TextView(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(4);
+        lp.bottomMargin = dp(8);
+        lp.leftMargin = dp(4);
+        title.setLayoutParams(lp);
+        title.setText(text);
+        title.setTextColor(color(R.color.text_secondary));
+        title.setTextSize(13);
+        return title;
     }
 
     private View makeLibDivider() {
@@ -2521,8 +2545,8 @@ public class HomeActivity extends AppCompatActivity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(68));
-        row.setPadding(dp(20), dp(16), dp(18), dp(16));
+        row.setMinimumHeight(dp(48));
+        row.setPadding(dp(18), dp(8), dp(16), dp(8));
         row.setFocusable(true);
         row.setBackgroundResource(libRowBackground(first, last));
 
@@ -3722,7 +3746,7 @@ public class HomeActivity extends AppCompatActivity {
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
             // 搜索框有焦点 → 隐藏键盘并清除搜索
-            if (etSearch.isFocused()) {
+            if (etSearch != null && etSearch.isFocused()) {
                 hideKeyboard();
                 etSearch.clearFocus();
             }
