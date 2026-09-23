@@ -42,6 +42,8 @@ public class HomeActivity extends AppCompatActivity {
     private EditText etSearch;
     private TextView tvLibraryPageTitle;
     private boolean isSearching = false;
+    /** 打开搜索时所在的标签，返回时回到这一页。-1 表示没在搜索。 */
+    private int searchFromTab = -1;
     private TextView tvSettingUsername, tvSettingServer, tvDecoderValue, tvDanmuUrl;
     private Button btnLogout, btnFeedback;
     private UpdateManager updateManager;
@@ -254,8 +256,8 @@ public class HomeActivity extends AppCompatActivity {
     private void switchTab(int index) {
         int prevTab = currentTab;
         currentTab = index;
-        // 从媒体库切换到其他标签时清除搜索状态
-        if (prevTab == 1 && isSearching) clearSearch();
+        // 从媒体库切走时收起搜索，避免返回落在媒体库
+        if (prevTab == 1 && index != 1) dismissSearchUi();
         // 切换标签时清除保存的页面状态，防止横竖屏切回时错误恢复
         savedBrowseList = null; savedBrowseGuid = null;
         panelMovies.setVisibility(index == 0 ? View.VISIBLE : View.GONE);
@@ -2379,7 +2381,7 @@ public class HomeActivity extends AppCompatActivity {
     private void hideKeyboard() {
         android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-        if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
+        if (imm != null && etSearch != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
     }
 
     private void performSearch(String query) {
@@ -2467,8 +2469,9 @@ public class HomeActivity extends AppCompatActivity {
         libraryContainer.addView(empty);
     }
 
-    /** 首页放大镜：进入媒体库并只在这里展开搜索框。 */
+    /** 首页放大镜：进入搜索，并记住是从哪个标签点进来的。 */
     private void openHomeSearch() {
+        if (searchFromTab < 0) searchFromTab = currentTab;
         switchTab(1);
         loadMediaLibraries();
         if (etSearch == null) return;
@@ -2478,11 +2481,44 @@ public class HomeActivity extends AppCompatActivity {
         etSearch.post(this::focusLibrarySearch);
     }
 
+    private boolean searchUiOpen() {
+        return currentTab == 1 && (isSearching
+                || (etSearch != null && etSearch.getVisibility() == View.VISIBLE));
+    }
+
+    /** 关掉搜索框。从别的页进来的，回到那一页；本来就在媒体库，则回到媒体库列表。 */
+    private boolean closeSearchToOrigin() {
+        if (!searchUiOpen() && searchFromTab < 0) return false;
+        int backTo = searchFromTab;
+        searchFromTab = -1;
+        isSearching = false;
+        hideKeyboard();
+        if (etSearch != null) {
+            etSearch.setText("");
+            etSearch.setVisibility(View.GONE);
+        }
+        if (backTo >= 0 && backTo != currentTab) {
+            switchTab(backTo);
+            return true;
+        }
+        if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.VISIBLE);
+        loadMediaLibraries();
+        return true;
+    }
+
+    private void dismissSearchUi() {
+        searchFromTab = -1;
+        isSearching = false;
+        hideKeyboard();
+        if (etSearch != null) {
+            etSearch.setText("");
+            etSearch.setVisibility(View.GONE);
+        }
+    }
+
     private void clearSearch() {
-        if (isSearching) {
-            isSearching = false;
-            if (etSearch != null) etSearch.setText("");
-            loadMediaLibraries();
+        if (isSearching || (etSearch != null && etSearch.getVisibility() == View.VISIBLE)) {
+            closeSearchToOrigin();
         }
     }
 
@@ -2758,9 +2794,12 @@ public class HomeActivity extends AppCompatActivity {
 
     private void showTextInputDialog(String title, String value, int inputType,
                                      String negativeLabel, DialogInputCallback callback) {
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int dialogW = Math.min((int) (screenW * 0.9f), dp(560));
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(6), dp(20), dp(4));
+        box.setMinimumWidth(dialogW);
+        box.setPadding(dp(20), dp(8), dp(20), dp(6));
 
         androidx.appcompat.widget.AppCompatEditText input = new androidx.appcompat.widget.AppCompatEditText(this);
         input.setBackgroundResource(R.drawable.bg_input);
@@ -2771,6 +2810,7 @@ public class HomeActivity extends AppCompatActivity {
         input.setHintTextColor(color(R.color.text_hint));
         input.setTextSize(15);
         input.setSingleLine(true);
+        input.setMinHeight(dp(48));
         input.setPadding(dp(14), dp(12), dp(14), dp(12));
         input.setInputType(inputType);
         input.setText(value != null ? value : "");
@@ -2794,6 +2834,9 @@ public class HomeActivity extends AppCompatActivity {
             dialog.getWindow().setBackgroundDrawableResource(R.drawable.bg_card);
         }
         dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(dialogW, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
         input.requestFocus();
     }
 
@@ -3788,16 +3831,7 @@ public class HomeActivity extends AppCompatActivity {
 
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            // 搜索框有焦点 → 隐藏键盘并清除搜索
-            if (etSearch != null && etSearch.isFocused()) {
-                hideKeyboard();
-                etSearch.clearFocus();
-            }
-            // 搜索模式 → 清除搜索
-            if (isSearching) {
-                clearSearch();
-                return true;
-            }
+            if (closeSearchToOrigin()) return true;
             // 媒体库浏览中 → 返回媒体库首页
             if (currentTab == 1 && savedBrowseGuid != null) {
                 savedBrowseGuid = null; savedBrowseList = null;
