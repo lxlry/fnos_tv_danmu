@@ -60,13 +60,13 @@ public class EpisodeManager {
     private final List<TextView> rangeChips = new ArrayList<>();
     private final Callback cb;
     private final Button btnEpisodeList;
-    private final Button btnNextEp;
+    private final View btnNextEp;
     private String currentGuid;
     private String currentTitle;
 
     private static final String TAG = "Player";
 
-    public EpisodeManager(Callback cb, Button btnEpisodeList, Button btnNextEp) {
+    public EpisodeManager(Callback cb, Button btnEpisodeList, View btnNextEp) {
         this.cb = cb;
         this.btnEpisodeList = btnEpisodeList;
         this.btnNextEp = btnNextEp;

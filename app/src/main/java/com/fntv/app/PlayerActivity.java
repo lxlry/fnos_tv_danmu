@@ -38,7 +38,8 @@ public class PlayerActivity extends AppCompatActivity {
     private SimpleExoPlayer player;
     private TextView tvBuffering, tvTime, infoText;
     private SeekBar seekBar;
-    private Button btnPlayPause, btnRewind, btnForward, btnSpeed, btnInfo, btnCloseInfo, btnEpisodeList, btnNextEp, btnBack, btnMore, btnDanmu, btnHdrToggle, btnHdrRow, btnQuality;
+    private Button btnRewind, btnForward, btnSpeed, btnInfo, btnCloseInfo, btnEpisodeList, btnMore, btnDanmu, btnHdrToggle, btnHdrRow, btnQuality;
+    private ImageView btnPlayPause, btnNextEp, btnBack;
     private Button[] ratioChips;
     private ImageView btnLock;
     private TextView tvTitle, tvDanmuStatus, tvDanmuMatch, tvSpeedHint, infoTextAudio, infoTextExtra;
@@ -1074,7 +1075,8 @@ public class PlayerActivity extends AppCompatActivity {
     private void syncPlayButton() {
         if (btnPlayPause == null) return;
         boolean playing = player != null && player.isPlaying();
-        btnPlayPause.setText(playing ? "Ⅱ" : "▶");
+        btnPlayPause.setImageResource(playing ? R.drawable.ic_player_pause : R.drawable.ic_player_play);
+        btnPlayPause.setContentDescription(playing ? "暂停" : "播放");
     }
 
     private void setRatio(int index) {

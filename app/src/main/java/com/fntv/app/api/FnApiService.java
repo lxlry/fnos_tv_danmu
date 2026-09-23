@@ -50,12 +50,6 @@ public interface FnApiService {
     @GET("api/v1/season/list/{id}")
     Call<ApiResponse<List<PlayListItem>>> getSeasonList(@Path("id") String id);
 
-    @GET("api/v1/person/list/{id}")
-    Call<ResponseBody> getPersonList(@Path("id") String id);
-
-    @GET("api/v1/person/list")
-    Call<ResponseBody> getPersonListQuery(@Query("item_guid") String itemGuid);
-
     // ========== 播放 ==========
     @POST("api/v1/play/info")
     Call<ApiResponse<PlayInfoResponse>> getPlayInfo(@Body Object req);

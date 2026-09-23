@@ -216,7 +216,7 @@ public class HomeActivity extends AppCompatActivity {
         tvDanmuUrl = findViewById(R.id.tvDanmuUrl);
         tvSettingServer.setText(prefs.getString("host", ""));
 
-        Button btnHomeSearch = findViewById(R.id.btnHomeSearch);
+        View btnHomeSearch = findViewById(R.id.btnHomeSearch);
         if (btnHomeSearch != null) {
             btnHomeSearch.setOnClickListener(v -> {
                 int fromTab = currentTab;
@@ -1834,8 +1834,6 @@ public class HomeActivity extends AppCompatActivity {
             below.addView(makeSpacer(dp(12)));
         }
 
-        attachCastSection(below, item.guid, null);
-
         if (isSeries && item.guid != null && !item.guid.isEmpty()) {
             LinearLayout seasonsBox = new LinearLayout(this);
             seasonsBox.setLayoutParams(new LinearLayout.LayoutParams(
@@ -2110,197 +2108,6 @@ public class HomeActivity extends AppCompatActivity {
         below.addView(makeSpacer(dp(14)));
     }
 
-    /** 演职员横滑。电影用影片 guid，剧集优先用季 guid，没有再退回剧本身。 */
-    private void attachCastSection(LinearLayout below, String guid, String fallbackGuid) {
-        if ((guid == null || guid.isEmpty()) && (fallbackGuid == null || fallbackGuid.isEmpty())) return;
-        LinearLayout host = new LinearLayout(this);
-        host.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        host.setOrientation(LinearLayout.VERTICAL);
-        host.setVisibility(View.GONE);
-        below.addView(host);
-        loadCast(host, guid, fallbackGuid, false);
-    }
-
-    private void loadCast(final LinearLayout host, final String guid, final String fallbackGuid,
-                          final boolean queryForm) {
-        if (guid == null || guid.isEmpty()) {
-            if (fallbackGuid != null && !fallbackGuid.isEmpty()) loadCast(host, fallbackGuid, null, false);
-            return;
-        }
-        retrofit2.Call<okhttp3.ResponseBody> call = queryForm
-                ? apiManager.getApi().getPersonListQuery(guid)
-                : apiManager.getApi().getPersonList(guid);
-        call.enqueue(new Callback<okhttp3.ResponseBody>() {
-            @Override
-            public void onResponse(retrofit2.Call<okhttp3.ResponseBody> call,
-                                   Response<okhttp3.ResponseBody> response) {
-                List<PersonCredit> people = Collections.emptyList();
-                if (response.isSuccessful() && response.body() != null) {
-                    try {
-                        people = parsePeople(response.body().string());
-                    } catch (Exception ignored) {}
-                }
-                if (people.isEmpty() && !queryForm) {
-                    loadCast(host, guid, fallbackGuid, true);
-                    return;
-                }
-                if (people.isEmpty()) {
-                    if (fallbackGuid != null && !fallbackGuid.isEmpty() && !fallbackGuid.equals(guid)) {
-                        loadCast(host, fallbackGuid, null, false);
-                    }
-                    return;
-                }
-                if (host.getParent() == null) return;
-                renderCast(host, people);
-            }
-
-            @Override
-            public void onFailure(retrofit2.Call<okhttp3.ResponseBody> call, Throwable t) {
-                if (!queryForm) loadCast(host, guid, fallbackGuid, true);
-                else if (fallbackGuid != null && !fallbackGuid.isEmpty() && !fallbackGuid.equals(guid)) {
-                    loadCast(host, fallbackGuid, null, false);
-                }
-            }
-        });
-    }
-
-    private List<PersonCredit> parsePeople(String json) {
-        List<PersonCredit> out = new ArrayList<>();
-        if (json == null || json.isEmpty()) return out;
-        com.google.gson.JsonElement root;
-        try {
-            root = new com.google.gson.JsonParser().parse(json);
-        } catch (Exception e) {
-            return out;
-        }
-        if (root == null || !root.isJsonObject()) return out;
-        com.google.gson.JsonElement data = root.getAsJsonObject().get("data");
-        com.google.gson.JsonArray arr = peopleArray(data);
-        if (arr == null) return out;
-        for (com.google.gson.JsonElement el : arr) {
-            if (el == null || !el.isJsonObject()) continue;
-            PersonCredit p = readPerson(el.getAsJsonObject());
-            if (p.name != null && !p.name.isEmpty()) out.add(p);
-        }
-        return out;
-    }
-
-    private com.google.gson.JsonArray peopleArray(com.google.gson.JsonElement data) {
-        if (data == null || data.isJsonNull()) return null;
-        if (data.isJsonArray()) return data.getAsJsonArray();
-        if (!data.isJsonObject()) return null;
-        com.google.gson.JsonObject o = data.getAsJsonObject();
-        String[] keys = {"list", "persons", "person_list", "credits", "cast", "items", "people"};
-        for (String key : keys) {
-            if (o.has(key) && o.get(key).isJsonArray()) return o.getAsJsonArray(key);
-        }
-        return null;
-    }
-
-    private PersonCredit readPerson(com.google.gson.JsonObject o) {
-        PersonCredit p = new PersonCredit();
-        p.name = jsonText(o, "name", "person_name", "title", "original_name");
-        p.character = jsonText(o, "character", "role_name", "act_name");
-        p.role = jsonText(o, "role", "person_type", "type", "known_for_department", "department");
-        p.job = jsonText(o, "job");
-        p.image = jsonText(o, "profile_path", "profile", "poster", "avatar", "image", "img", "photo");
-        return p;
-    }
-
-    private String jsonText(com.google.gson.JsonObject o, String... keys) {
-        for (String key : keys) {
-            if (!o.has(key) || o.get(key).isJsonNull()) continue;
-            com.google.gson.JsonElement el = o.get(key);
-            if (!el.isJsonPrimitive()) continue;
-            String v = el.getAsString();
-            if (v != null && !v.trim().isEmpty() && !"null".equals(v)) return v.trim();
-        }
-        return "";
-    }
-
-    private void renderCast(LinearLayout host, List<PersonCredit> people) {
-        host.removeAllViews();
-        host.setVisibility(View.VISIBLE);
-        TextView title = new TextView(this);
-        title.setText("演职人员");
-        title.setTextColor(color(R.color.text_primary));
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(0, dp(6), 0, dp(10));
-        host.addView(title);
-
-        HorizontalScrollView hsv = makeHsv();
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, 0, 0, dp(8));
-        List<PersonCredit> ordered = new ArrayList<>();
-        for (PersonCredit p : people) if (isDirectorCredit(p)) ordered.add(p);
-        for (PersonCredit p : people) if (!isDirectorCredit(p)) ordered.add(p);
-        for (PersonCredit p : ordered) row.addView(makeCastCard(p));
-        hsv.addView(row);
-        host.addView(hsv);
-        host.addView(makeSpacer(dp(8)));
-        new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
-    }
-
-    private boolean isDirectorCredit(PersonCredit p) {
-        String blob = (p.job + " " + p.role).toLowerCase();
-        return blob.contains("director") || blob.contains("导演");
-    }
-
-    private String creditCaption(PersonCredit p) {
-        if (isDirectorCredit(p)) return "导演";
-        if (p.character != null && !p.character.isEmpty()) return "饰 " + p.character;
-        if (p.role != null && !p.role.isEmpty()
-                && !p.role.equalsIgnoreCase("actor") && !p.role.equalsIgnoreCase("acting")) {
-            return p.role;
-        }
-        return "";
-    }
-
-    private View makeCastCard(PersonCredit p) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(76), ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.rightMargin = dp(12);
-        card.setLayoutParams(lp);
-
-        RoundedImageView avatar = new RoundedImageView(this);
-        avatar.setLayoutParams(new LinearLayout.LayoutParams(dp(64), dp(64)));
-        avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        avatar.setCornerRadius(32);
-        avatar.setBackgroundColor(color(R.color.bg_poster));
-        String url = p.image != null && p.image.startsWith("http") ? p.image : makeImageUrl(p.image, 200);
-        if (url != null) avatar.setTag(url);
-        card.addView(avatar);
-
-        TextView name = new TextView(this);
-        name.setPadding(0, dp(6), 0, 0);
-        name.setText(p.name);
-        name.setTextColor(color(R.color.text_primary));
-        name.setTextSize(12);
-        name.setGravity(Gravity.CENTER);
-        name.setSingleLine(true);
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        card.addView(name);
-
-        String caption = creditCaption(p);
-        if (!caption.isEmpty()) {
-            TextView role = new TextView(this);
-            role.setPadding(0, dp(2), 0, 0);
-            role.setText(caption);
-            role.setTextColor(color(R.color.text_hint));
-            role.setTextSize(11);
-            role.setGravity(Gravity.CENTER);
-            role.setSingleLine(true);
-            role.setEllipsize(TextUtils.TruncateAt.END);
-            card.addView(role);
-        }
-        return card;
-    }
-
     /** 剧集详情第二级：某一季的海报、简介和选集。 */
     private void showSeasonEpisodePage(PlayListItem season, List<PlayListItem> seasons) {
         if (savedDetailItem == null || savedDetailInfo == null || season == null) return;
@@ -2432,8 +2239,6 @@ public class HomeActivity extends AppCompatActivity {
         Button playBtn = makeSeriesPlayButton(sameSeasonEp > 0 ? "第" + sameSeasonEp + "集" : "播放");
         below.addView(playBtn);
         addDetailOverview(below, info, item);
-        String seriesGuid = item.guid != null && !item.guid.equals(season.guid) ? item.guid : null;
-        attachCastSection(below, season.guid, seriesGuid);
 
         LinearLayout epBox = prepareEpisodeSection(below);
         if (seasons != null && seasons.size() > 1 && detailRangeScroll != null) {
@@ -3379,7 +3184,7 @@ public class HomeActivity extends AppCompatActivity {
             revealTab(entry);
             if (wasSearching) loadMediaLibraries();
             if (entry == 0) {
-                Button searchBtn = findViewById(R.id.btnHomeSearch);
+                View searchBtn = findViewById(R.id.btnHomeSearch);
                 if (searchBtn != null && searchBtn.getVisibility() == View.VISIBLE) {
                     searchBtn.post(searchBtn::requestFocus);
                 }
@@ -4427,7 +4232,7 @@ public class HomeActivity extends AppCompatActivity {
     private void bindOverviewFocusNow() {
         if (!showingOverview || moviesContainer == null || currentTab != 0) return;
         List<List<View>> lanes = new ArrayList<>();
-        Button searchBtn = findViewById(R.id.btnHomeSearch);
+        View searchBtn = findViewById(R.id.btnHomeSearch);
         if (searchBtn != null && searchBtn.getVisibility() == View.VISIBLE) {
             TvFocus.stay(searchBtn);
             lanes.add(TvFocus.listOf(searchBtn));
@@ -4624,7 +4429,7 @@ public class HomeActivity extends AppCompatActivity {
     private void restoreOverviewFocus() {
         if (currentTab != 0 || !showingOverview) return;
         View focused = getCurrentFocus();
-        Button searchBtn = findViewById(R.id.btnHomeSearch);
+        View searchBtn = findViewById(R.id.btnHomeSearch);
         List<View> continueCards = continueCards();
         List<View> shortcuts = shortcutCards();
         boolean onSearch = focused == searchBtn;
