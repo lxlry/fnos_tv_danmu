@@ -28,6 +28,10 @@
     <color name="border_light">#FF2A3340</color>
     <color name="border_focused">#FF7AA2FF</color>
     <color name="divider">#FF242C38</color>
+    <color name="lib_group">#FF2A2E34</color>
+    <color name="lib_divider">#FF3C424C</color>
+    <color name="lib_count">#FFC5CBD4</color>
+    <color name="lib_row_focused">#FF353C48</color>
 
     <!-- 状态 -->
     <color name="success">#FF3DDC97</color>

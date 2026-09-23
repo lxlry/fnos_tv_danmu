@@ -18,6 +18,7 @@ import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.AppCompatImageView;
 import androidx.core.content.ContextCompat;
 import com.fntv.app.api.FnApiManager;
 import com.fntv.app.api.model.*;
@@ -2472,59 +2473,162 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void populateLibGrid(LinearLayout cont, List<MediaDbItem> libs) {
-        cont.removeAllViews();
+        clearContainer(cont, tvLibraryLoading, tvLibraryEmpty);
+        LinearLayout group = new LinearLayout(this);
+        group.setOrientation(LinearLayout.VERTICAL);
+        group.setBackgroundResource(R.drawable.bg_lib_group);
+        group.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         for (int i = 0; i < libs.size(); i++) {
-            cont.addView(makeLibCard(libs.get(i)));
-            if (i < libs.size() - 1) cont.addView(makeSpacer(8));
+            if (i > 0) group.addView(makeLibDivider());
+            boolean first = i == 0;
+            boolean last = i == libs.size() - 1;
+            group.addView(makeLibRow(libs.get(i), first, last));
         }
+        cont.addView(group);
         wireLibraryList();
+        loadLibraryCounts(libs);
     }
 
+    private View makeLibDivider() {
+        View line = new View(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        lp.leftMargin = dp(18);
+        lp.rightMargin = dp(18);
+        line.setLayoutParams(lp);
+        line.setBackgroundColor(color(R.color.lib_divider));
+        return line;
+    }
 
-    private View makeLibCard(MediaDbItem lib) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setBackgroundResource(R.drawable.bg_media_card);
-        card.setPadding(16, 18, 16, 18);
-        card.setFocusable(true);
-        card.setMinimumHeight(56);
+    /** 电影用胶片图标，其余（影视剧 / 动漫 / 综艺等）用电视图标。 */
+    private boolean isMovieLibrary(MediaDbItem lib) {
+        String category = lib.category == null ? "" : lib.category.trim();
+        if ("movie".equalsIgnoreCase(category) || "movies".equalsIgnoreCase(category)
+                || "电影".equals(category)) return true;
+        String title = lib.title == null ? "" : lib.title;
+        return title.contains("电影");
+    }
 
-        LinearLayout text = new LinearLayout(this);
-        text.setLayoutParams(new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        text.setOrientation(LinearLayout.VERTICAL);
-        text.setGravity(Gravity.CENTER_VERTICAL);
+    private int libRowBackground(boolean first, boolean last) {
+        if (first && last) return R.drawable.bg_lib_row_single;
+        if (first) return R.drawable.bg_lib_row_top;
+        if (last) return R.drawable.bg_lib_row_bottom;
+        return R.drawable.bg_lib_row_mid;
+    }
+
+    private View makeLibRow(MediaDbItem lib, boolean first, boolean last) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(68));
+        row.setPadding(dp(20), dp(16), dp(18), dp(16));
+        row.setFocusable(true);
+        row.setBackgroundResource(libRowBackground(first, last));
+
+        AppCompatImageView icon = new AppCompatImageView(this);
+        icon.setLayoutParams(new LinearLayout.LayoutParams(dp(26), dp(26)));
+        icon.setImageResource(isMovieLibrary(lib) ? R.drawable.ic_lib_movie : R.drawable.ic_lib_tv);
+        row.addView(icon);
 
         TextView title = new TextView(this);
-        title.setTextSize(16);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        titleLp.leftMargin = dp(14);
+        titleLp.rightMargin = dp(12);
+        title.setLayoutParams(titleLp);
+        title.setText(lib.title != null ? lib.title : "");
         title.setTextColor(color(R.color.text_primary));
-        title.setText(lib.title);
-        text.addView(title);
+        title.setTextSize(17);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(title);
 
-        TextView sub = new TextView(this);
-        sub.setTextSize(12);
-        sub.setTextColor(color(R.color.text_hint));
-        sub.setText("分类: " + (lib.category != null ? lib.category : "未分类"));
-        text.addView(sub);
+        TextView count = new TextView(this);
+        count.setTag(libCountTag(lib.guid));
+        count.setTextColor(color(R.color.lib_count));
+        count.setTextSize(16);
+        count.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(count);
 
-        card.addView(text);
+        AppCompatImageView chevron = new AppCompatImageView(this);
+        LinearLayout.LayoutParams chevronLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+        chevronLp.leftMargin = dp(10);
+        chevron.setLayoutParams(chevronLp);
+        chevron.setImageResource(R.drawable.ic_chevron_right);
+        row.addView(chevron);
 
-        TextView arrow = new TextView(this);
-        arrow.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        arrow.setText("❯");
-        arrow.setTextColor(color(R.color.text_hint));
-        arrow.setTextSize(20);
-        arrow.setGravity(Gravity.CENTER);
-        arrow.setPadding(8, 0, 0, 0);
-        card.addView(arrow);
-
-        card.setTag(lib);
-        card.setOnClickListener(v -> {
-            MediaDbItem m = (MediaDbItem) card.getTag();
+        row.setTag(lib);
+        row.setOnClickListener(v -> {
+            MediaDbItem m = (MediaDbItem) row.getTag();
             browseItemsInContainer(m.guid, m.title, libraryContainer, tvLibraryLoading);
         });
-        return card;
+        return row;
+    }
+
+    private static String libCountTag(String guid) {
+        return "lib_count_" + guid;
+    }
+
+    /** 右侧数字：优先媒体库汇总，缺的再按列表 total 补。 */
+    private void loadLibraryCounts(List<MediaDbItem> libs) {
+        final List<MediaDbItem> snapshot = new ArrayList<>(libs);
+        apiManager.getApi().getMediaDbSum().enqueue(new Callback<ApiResponse<Map<String, Integer>>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<Map<String, Integer>>> call,
+                                   Response<ApiResponse<Map<String, Integer>>> response) {
+                Map<String, Integer> sums = null;
+                if (response.isSuccessful() && response.body() != null
+                        && response.body().code == 0 && response.body().data != null) {
+                    sums = response.body().data;
+                }
+                for (MediaDbItem lib : snapshot) {
+                    Integer n = lookupLibraryCount(sums, lib);
+                    if (n != null) applyLibraryCount(lib.guid, n);
+                    else fetchLibraryTotal(lib.guid);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<Map<String, Integer>>> call, Throwable t) {
+                for (MediaDbItem lib : snapshot) fetchLibraryTotal(lib.guid);
+            }
+        });
+    }
+
+    private Integer lookupLibraryCount(Map<String, Integer> sums, MediaDbItem lib) {
+        if (sums == null || sums.isEmpty() || lib == null || lib.guid == null) return null;
+        if (sums.containsKey(lib.guid)) return sums.get(lib.guid);
+        if (lib.category != null && sums.containsKey(lib.category)) return sums.get(lib.category);
+        return null;
+    }
+
+    private void fetchLibraryTotal(String guid) {
+        if (guid == null) return;
+        ItemListRequest request = new ItemListRequest(guid,
+                Arrays.asList("Movie", "TV", "Directory", "Video"),
+                true, "create_time", "DESC", 1);
+        apiManager.getApi().getItemList(request)
+                .enqueue(new Callback<ApiResponse<ItemListResponse>>() {
+                    @Override
+                    public void onResponse(Call<ApiResponse<ItemListResponse>> call,
+                                           Response<ApiResponse<ItemListResponse>> response) {
+                        if (!response.isSuccessful() || response.body() == null
+                                || response.body().code != 0 || response.body().data == null) {
+                            return;
+                        }
+                        applyLibraryCount(guid, response.body().data.total);
+                    }
+
+                    @Override
+                    public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {}
+                });
+    }
+
+    private void applyLibraryCount(String guid, int total) {
+        if (isFinishing() || libraryContainer == null || guid == null) return;
+        View v = libraryContainer.findViewWithTag(libCountTag(guid));
+        if (v instanceof TextView) ((TextView) v).setText(String.valueOf(total));
     }
 
 
