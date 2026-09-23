@@ -1,5 +1,5 @@
-# 手动打包：仓库页 → Actions → Build APK → Run workflow
-# 打完后在本次 run 的 Artifacts 下载 FNTV-release
+# 推送到 main/master 或手动运行后打包，并上传到对应版本的 Release
+# 安装包文件名固定为 FNTV_release_v版本号.apk
 name: Build APK
 
 on:
@@ -11,6 +11,8 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -44,3 +46,27 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Prepare release APK
+        id: apk
+        run: |
+          version=$(sed -n 's/.*versionName *"\([^"]*\)".*/\1/p' app/build.gradle | head -n 1)
+          if [ -z "$version" ]; then
+            echo "versionName not found"
+            exit 1
+          fi
+          mkdir -p dist
+          src=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$src" "dist/FNTV_release_v${version}.apk"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Prepared FNTV_release_v${version}.apk"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.apk.outputs.version }}
+          name: ${{ steps.apk.outputs.version }}
+          files: dist/FNTV_release_v${{ steps.apk.outputs.version }}.apk
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          make_latest: true
