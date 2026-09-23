@@ -183,7 +183,11 @@ public class PlayerActivity extends AppCompatActivity {
 
         findViewById(android.R.id.content).setOnTouchListener(new View.OnTouchListener() {
             private boolean longPressing = false;
+            private boolean draggingSeek = false;
+            private float downX, downY;
+            private long dragOriginMs;
             private long lastTapAt = 0;
+            private final int touchSlop = android.view.ViewConfiguration.get(PlayerActivity.this).getScaledTouchSlop();
             private final android.os.Handler longPressHandler = new android.os.Handler(Looper.getMainLooper());
             private final Runnable singleTapR = () -> {
                 if (ctrlVis) showCtrl(false);
@@ -196,11 +200,16 @@ public class PlayerActivity extends AppCompatActivity {
                     }
                     return true;
                 }
+                if (episodeManager != null && episodeManager.isPickerShowing()) return false;
                 switch (event.getAction()) {
                     case android.view.MotionEvent.ACTION_DOWN:
                         longPressHandler.removeCallbacks(singleTapR);
                         longPressing = false;
+                        draggingSeek = false;
+                        downX = event.getX();
+                        downY = event.getY();
                         longPressHandler.postDelayed(() -> {
+                            if (draggingSeek) return;
                             longPressing = true;
                             if (player != null) {
                                 speedBeforeLongPress = player.getPlaybackParameters().speed;
@@ -212,6 +221,19 @@ public class PlayerActivity extends AppCompatActivity {
                                 }
                             }
                         }, 500);
+                        return true;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        if (longPressing) return true;
+                        if (!draggingSeek) {
+                            float dx = event.getX() - downX;
+                            float dy = event.getY() - downY;
+                            if (Math.abs(dx) < touchSlop || Math.abs(dx) < Math.abs(dy)) return true;
+                            if (player == null || player.getDuration() <= 0) return true;
+                            draggingSeek = true;
+                            longPressHandler.removeCallbacksAndMessages(null);
+                            dragOriginMs = pendingSeekMs >= 0 ? pendingSeekMs : player.getCurrentPosition();
+                        }
+                        applyScreenDrag(event.getX() - downX, dragOriginMs);
                         return true;
                     case android.view.MotionEvent.ACTION_UP:
                     case android.view.MotionEvent.ACTION_CANCEL:
@@ -225,6 +247,12 @@ public class PlayerActivity extends AppCompatActivity {
                             if (tvSpeedHint != null) {
                                 tvSpeedHint.setVisibility(View.GONE);
                             }
+                            return true;
+                        }
+                        if (draggingSeek) {
+                            boolean commit = event.getAction() == android.view.MotionEvent.ACTION_UP;
+                            draggingSeek = false;
+                            finishScreenDrag(commit);
                             return true;
                         }
                         if (event.getAction() == android.view.MotionEvent.ACTION_CANCEL) return true;
@@ -247,8 +275,27 @@ public class PlayerActivity extends AppCompatActivity {
             @Override public String getParentGuid() { return parentGuid; }
             @Override public String getItemGuid() { return itemGuid; }
             @Override public int getEpisodeNumber() { return getIntent().getIntExtra("episode_number", 0); }
+            @Override public String getSeriesTitle() {
+                return itemTV != null && !itemTV.isEmpty() ? itemTV : itemTitle;
+            }
+            @Override public int getSeasonNumber() { return seasonNumber; }
+            @Override public long getPlayPositionSec() {
+                return player != null ? Math.max(0, player.getCurrentPosition() / 1000) : 0;
+            }
+            @Override public long getDurationSec() {
+                return player != null && player.getDuration() > 0 ? player.getDuration() / 1000 : 0;
+            }
             @Override public FnApiManager getApiManager() { return apiManager; }
             @Override public Context getContext() { return PlayerActivity.this; }
+            @Override public void onPickerChanged(boolean open) {
+                if (!open) return;
+                handler.removeCallbacks(hideC);
+                ctrlVis = false;
+                controller.setVisibility(View.INVISIBLE);
+                topBar.setVisibility(View.INVISIBLE);
+                btnLock.setVisibility(View.INVISIBLE);
+                btnDanmu.setVisibility(View.INVISIBLE);
+            }
             @Override public void onSwitchEpisode(String guid, String title) {
                 saveProgress(true);
                 lastProgressMs = 0;
@@ -911,6 +958,51 @@ public class PlayerActivity extends AppCompatActivity {
         if (danmuManager != null) danmuManager.onSeekTo(p);
     }
 
+    /** 横向拖动画面：一整屏大约快进或快退 10 分钟，短片则对应整段时长。 */
+    private void applyScreenDrag(float dx, long originMs) {
+        if (player == null || tvSeekOverlay == null) return;
+        long dur = player.getDuration();
+        if (dur <= 0) return;
+        int width = Math.max(1, getResources().getDisplayMetrics().widthPixels);
+        long span = Math.min(dur, 10 * 60 * 1000L);
+        long delta = (long) (dx / width * span);
+        long target = Math.max(0, Math.min(dur, originMs + delta));
+        pendingSeekMs = target;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tvSeekOverlay.getLayoutParams();
+        if (lp.gravity != Gravity.CENTER) {
+            lp.gravity = Gravity.CENTER;
+            tvSeekOverlay.setLayoutParams(lp);
+        }
+        String label = (delta >= 0 ? "快进  " : "快退  ") + FormatUtils.fmt(target) + " / " + FormatUtils.fmt(dur);
+        tvSeekOverlay.setText(label);
+        tvSeekOverlay.setVisibility(View.VISIBLE);
+        tvTime.setText(FormatUtils.fmt(target) + " / " + FormatUtils.fmt(dur));
+        if (dur <= Integer.MAX_VALUE) {
+            seekBar.setMax((int) dur);
+            seekBar.setProgress((int) target);
+        }
+        handler.removeCallbacks(hideSeekOverlayR);
+    }
+
+    private void finishScreenDrag(boolean commit) {
+        long target = pendingSeekMs;
+        pendingSeekMs = -1;
+        if (seekCommitR != null) handler.removeCallbacks(seekCommitR);
+        if (commit && player != null && target >= 0) {
+            player.seekTo(target);
+            if (danmuManager != null) danmuManager.onSeekTo(target);
+        } else {
+            updateTime();
+        }
+        if (tvSeekOverlay != null) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tvSeekOverlay.getLayoutParams();
+            lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            tvSeekOverlay.setLayoutParams(lp);
+        }
+        handler.removeCallbacks(hideSeekOverlayR);
+        handler.postDelayed(hideSeekOverlayR, commit ? 700 : 0);
+    }
+
     private DefaultLoadControl createLoadControl() {
         return new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
@@ -1563,6 +1655,26 @@ public class PlayerActivity extends AppCompatActivity {
     // ========== 按键 ==========
 
     @Override public boolean onKeyDown(int k, KeyEvent e) {
+        if (episodeManager != null && episodeManager.isPickerShowing()) {
+            if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_ESCAPE) {
+                episodeManager.dismissPicker();
+                return true;
+            }
+            if (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER
+                    || k == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                View focused = getCurrentFocus();
+                if (focused != null && focused.isClickable()) focused.performClick();
+                return true;
+            }
+            if (k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN
+                    || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                if (!TvFocus.move(getCurrentFocus(), k)) {
+                    View focused = getCurrentFocus();
+                    if (focused != null) focused.requestFocus();
+                }
+                return true;
+            }
+        }
         if (isLocked) {
             if (k == KeyEvent.KEYCODE_BACK) {
                 if (btnLock.hasFocus() || controller.hasFocus()) {

@@ -42,8 +42,6 @@ public class HomeActivity extends AppCompatActivity {
     private EditText etSearch;
     private TextView tvLibraryPageTitle;
     private boolean isSearching = false;
-    /** 打开搜索时所在的标签，返回时回到这一页。-1 表示没在搜索。 */
-    private int searchFromTab = -1;
     private TextView tvSettingUsername, tvSettingServer, tvDecoderValue, tvDanmuUrl;
     private Button btnLogout, btnFeedback;
     private UpdateManager updateManager;
@@ -73,7 +71,6 @@ public class HomeActivity extends AppCompatActivity {
     private String baseUrl = "";
     private SharedPreferences prefs;
     private static final String PREF_DECODER = "decoder_mode";
-    private static final String GITHUB_ISSUES = "https://github.com/lxlry/fnos_tv_danmu/issues";
 
     private long t0;
     private boolean overviewBuilt = false;
@@ -105,8 +102,14 @@ public class HomeActivity extends AppCompatActivity {
     private int lastFocusIndexInSection;
     private Button detailPlayBtn;
     private TextView detailOverview;
+    private ViewGroup detailSeasonRow;
     private ViewGroup detailChipRow;
+    private ViewGroup detailRangeRow;
+    private View detailRangeScroll;
+    private TextView detailEpCount;
     private ViewGroup detailEpisodeBox;
+    private LinearLayout detailEpisodeHost;
+    private static final int EPISODE_PAGE = 30;
 
     @Override
 
@@ -206,9 +209,13 @@ public class HomeActivity extends AppCompatActivity {
         tvDanmuUrl = findViewById(R.id.tvDanmuUrl);
         tvSettingServer.setText(prefs.getString("host", ""));
 
-        View btnHomeSearch = findViewById(R.id.btnHomeSearch);
+        Button btnHomeSearch = findViewById(R.id.btnHomeSearch);
         if (btnHomeSearch != null) {
-            btnHomeSearch.setOnClickListener(v -> openHomeSearch());
+            btnHomeSearch.setOnClickListener(v -> {
+                switchTab(1);
+                loadMediaLibraries();
+                if (etSearch != null) etSearch.post(this::focusLibrarySearch);
+            });
         }
 
         TextView tvVersion = findViewById(R.id.tvVersionName);
@@ -256,8 +263,8 @@ public class HomeActivity extends AppCompatActivity {
     private void switchTab(int index) {
         int prevTab = currentTab;
         currentTab = index;
-        // 从媒体库切走时收起搜索，避免返回落在媒体库
-        if (prevTab == 1 && index != 1) dismissSearchUi();
+        // 从媒体库切换到其他标签时清除搜索状态
+        if (prevTab == 1 && isSearching) clearSearch();
         // 切换标签时清除保存的页面状态，防止横竖屏切回时错误恢复
         savedBrowseList = null; savedBrowseGuid = null;
         panelMovies.setVisibility(index == 0 ? View.VISIBLE : View.GONE);
@@ -381,8 +388,13 @@ public class HomeActivity extends AppCompatActivity {
         initialFocusPlaced = false;
         detailPlayBtn = null;
         detailOverview = null;
+        detailSeasonRow = null;
         detailChipRow = null;
+        detailRangeRow = null;
+        detailRangeScroll = null;
+        detailEpCount = null;
         detailEpisodeBox = null;
+        detailEpisodeHost = null;
 
         LinearLayout continueWatchingBox = new LinearLayout(this);
         continueWatchingBox.setLayoutParams(new LinearLayout.LayoutParams(
@@ -514,9 +526,9 @@ public class HomeActivity extends AppCompatActivity {
     private LinearLayout makeLibHeader(String libGuid, String libTitle, int count) {
         LinearLayout headerRow = new LinearLayout(this);
         headerRow.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setPadding(dp(8), dp(16), dp(8), dp(8));
+        headerRow.setPadding(dp(4), dp(16), dp(4), dp(8));
         headerRow.setGravity(Gravity.CENTER_VERTICAL);
         headerRow.setMinimumHeight(dp(40));
         headerRow.setId(View.generateViewId());
@@ -1490,8 +1502,13 @@ public class HomeActivity extends AppCompatActivity {
         showingEpisodes = false;
         detailPlayBtn = null;
         detailOverview = null;
+        detailSeasonRow = null;
         detailChipRow = null;
+        detailRangeRow = null;
+        detailRangeScroll = null;
+        detailEpCount = null;
         detailEpisodeBox = null;
+        detailEpisodeHost = null;
         setDetailChrome(true);
 
         boolean land = getResources().getConfiguration().orientation
@@ -1696,7 +1713,8 @@ public class HomeActivity extends AppCompatActivity {
         playBtn.setTextColor(color(R.color.text_white));
         playBtn.setTextSize(16);
         playBtn.setTypeface(Typeface.DEFAULT_BOLD);
-        playBtn.setText(pTs > 0 ? "继续播放" : "播放");
+        if (isSeries && epNum > 0) playBtn.setText("第" + epNum + "集");
+        else playBtn.setText(pTs > 0 ? "继续播放" : "播放");
         playBtn.setOnClickListener(v -> {
             Object tag = playBtn.getTag();
             long finalDur = tag instanceof Long ? (Long) tag : pDur;
@@ -1784,8 +1802,13 @@ public class HomeActivity extends AppCompatActivity {
 
         moviesContainer.addView(below);
         detailPlayBtn = playBtn;
+        detailSeasonRow = null;
         detailChipRow = null;
+        detailRangeRow = null;
+        detailRangeScroll = null;
+        detailEpCount = null;
         detailEpisodeBox = null;
+        detailEpisodeHost = null;
         wireDetailNav();
         playBtn.post(playBtn::requestFocus);
     }
@@ -1819,7 +1842,7 @@ public class HomeActivity extends AppCompatActivity {
         });
     }
 
-    /** 加载季列表，并在详情页内横滑展示剧集封面 */
+    /** 加载季列表：多季用海报卡片，下面再横滑剧集。 */
     private void loadSeasons(final LinearLayout content, final String itemGuid, final PlayListItem item,
                               final Button playBtn, final long pTs, final int preferSeason,
                               final String fallbackSeasonGuid) {
@@ -1832,28 +1855,11 @@ public class HomeActivity extends AppCompatActivity {
                         && response.body().code == 0) ? response.body().data : null;
                 if (seasons == null || seasons.isEmpty()) {
                     if (fallbackSeasonGuid != null && !fallbackSeasonGuid.isEmpty()) {
-                        content.addView(makeSectionLabel("剧集"));
-                        LinearLayout epBox = newEpisodeBox();
-                        content.addView(epBox);
-                        fillSeasonEpisodes(epBox, fallbackSeasonGuid, item, playBtn, pTs);
+                        LinearLayout epBox = prepareEpisodeSection(content);
+                        fillSeasonEpisodes(epBox, fallbackSeasonGuid, item, playBtn, pTs, 1, preferSeason);
                     }
                     return;
                 }
-
-                content.addView(makeSectionLabel("剧集"));
-
-                HorizontalScrollView hsv = makeHsv();
-                LinearLayout chipRow = new LinearLayout(HomeActivity.this);
-                chipRow.setOrientation(LinearLayout.HORIZONTAL);
-                chipRow.setPadding(0, 0, 0, dp(4));
-                hsv.addView(chipRow);
-                content.addView(hsv);
-                content.addView(makeSpacer(dp(8)));
-
-                final LinearLayout epBox = newEpisodeBox();
-                content.addView(epBox);
-                detailChipRow = chipRow;
-                detailEpisodeBox = epBox;
 
                 PlayListItem selected = seasons.get(0);
                 for (PlayListItem s : seasons) {
@@ -1862,31 +1868,30 @@ public class HomeActivity extends AppCompatActivity {
                         break;
                     }
                 }
-
-                final List<TextView> chips = new ArrayList<>();
-                for (final PlayListItem season : seasons) {
-                    TextView chip = makeSeasonChip(season);
-                    chip.setId(View.generateViewId());
-                    chip.setOnClickListener(v -> {
-                        for (TextView c : chips) c.setSelected(false);
-                        chip.setSelected(true);
-                        fillSeasonEpisodes(epBox, season.guid, item, playBtn, pTs);
-                    });
-                    if (season.guid != null && season.guid.equals(selected.guid)) chip.setSelected(true);
-                    chips.add(chip);
-                    chipRow.addView(chip);
+                final int seasonCount = seasons.size();
+                if (seasonCount > 1) {
+                    content.addView(makePlainLabel("共" + seasonCount + "季"));
+                    content.addView(makeSeasonPosterRow(seasons, selected, item, playBtn, pTs));
+                    content.addView(makeSpacer(dp(6)));
                 }
+                final LinearLayout epBox = prepareEpisodeSection(content);
+                if (seasonCount > 1 && detailRangeScroll != null) {
+                    content.addView(makeSeasonTabRow(seasons, selected, epBox, item, playBtn, pTs),
+                            content.indexOfChild(detailRangeScroll));
+                }
+                applySeriesPlayLabel(playBtn, seasonCount,
+                        selected.seasonNumber > 0 ? selected.seasonNumber : preferSeason,
+                        item.episodeNumber);
                 wireDetailNav();
-                fillSeasonEpisodes(epBox, selected.guid, item, playBtn, pTs);
+                fillSeasonEpisodes(epBox, selected.guid, item, playBtn, pTs, seasonCount,
+                        selected.seasonNumber);
             }
             @Override public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
                 if (fallbackSeasonGuid != null && !fallbackSeasonGuid.isEmpty()
                         && savedDetailItem != null && item.guid != null
                         && item.guid.equals(savedDetailItem.guid)) {
-                    content.addView(makeSectionLabel("剧集"));
-                    LinearLayout epBox = newEpisodeBox();
-                    content.addView(epBox);
-                    fillSeasonEpisodes(epBox, fallbackSeasonGuid, item, playBtn, pTs);
+                    LinearLayout epBox = prepareEpisodeSection(content);
+                    fillSeasonEpisodes(epBox, fallbackSeasonGuid, item, playBtn, pTs, 1, preferSeason);
                 }
             }
         });
@@ -1900,34 +1905,245 @@ public class HomeActivity extends AppCompatActivity {
         return epBox;
     }
 
-    private TextView makeSeasonChip(PlayListItem season) {
-        TextView chip = new TextView(this);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
-        lp.rightMargin = dp(8);
-        chip.setLayoutParams(lp);
-        chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(14), 0, dp(14), 0);
-        chip.setTextSize(13);
-        chip.setTextColor(color(R.color.text_primary));
+    private TextView makePlainLabel(String text) {
+        TextView h = new TextView(this);
+        h.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        h.setPadding(0, dp(10), 0, dp(8));
+        h.setText(text);
+        h.setTextColor(color(R.color.text_primary));
+        h.setTextSize(15);
+        return h;
+    }
+
+    private void applySeriesPlayLabel(Button playBtn, int seasonCount, int seasonNum, int epNum) {
+        if (playBtn == null || epNum <= 0) return;
+        if (seasonCount > 1 && seasonNum > 0) playBtn.setText("季 " + seasonNum + " 集 " + epNum);
+        else playBtn.setText("第" + epNum + "集");
+    }
+
+    /** 选集标题、分段条和剧集横滑区。分段条插在标题和剧集之间。 */
+    private LinearLayout prepareEpisodeSection(LinearLayout content) {
+        LinearLayout header = new LinearLayout(this);
+        header.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(0, dp(8), 0, dp(6));
+
+        TextView title = new TextView(this);
+        title.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        title.setText("选集");
+        title.setTextColor(color(R.color.text_primary));
+        title.setTextSize(16);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(title);
+
+        TextView count = new TextView(this);
+        count.setTextColor(color(R.color.text_secondary));
+        count.setTextSize(14);
+        header.addView(count);
+        detailEpCount = count;
+        content.addView(header);
+
+        HorizontalScrollView rangeScroll = makeHsv();
+        LinearLayout.LayoutParams rangeLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rangeLp.bottomMargin = dp(8);
+        rangeScroll.setLayoutParams(rangeLp);
+        rangeScroll.setVisibility(View.GONE);
+        LinearLayout rangeBar = new LinearLayout(this);
+        rangeBar.setOrientation(LinearLayout.HORIZONTAL);
+        rangeBar.setGravity(Gravity.CENTER_VERTICAL);
+        rangeBar.setMinimumHeight(dp(40));
+        rangeBar.setBackgroundResource(R.drawable.bg_episode_range_bar);
+        rangeBar.setPadding(dp(4), 0, dp(4), 0);
+        rangeScroll.addView(rangeBar);
+        content.addView(rangeScroll);
+        detailRangeScroll = rangeScroll;
+        detailRangeRow = rangeBar;
+
+        LinearLayout epBox = newEpisodeBox();
+        content.addView(epBox);
+        detailEpisodeHost = epBox;
+        detailEpisodeBox = epBox;
+        return epBox;
+    }
+
+    private View makeSeasonPosterRow(List<PlayListItem> seasons, PlayListItem selected,
+                                     PlayListItem item, Button playBtn, long pTs) {
+        HorizontalScrollView hsv = makeHsv();
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, 0, 0, dp(4));
+        final List<View> cards = new ArrayList<>();
+        for (final PlayListItem season : seasons) {
+            View card = makeSeasonPosterCard(season);
+            card.setSelected(season.guid != null && season.guid.equals(selected.guid));
+            card.setOnClickListener(v -> {
+                for (View c : cards) c.setSelected(false);
+                card.setSelected(true);
+                styleSeasonTabs(season);
+                applySeriesPlayLabel(playBtn, seasons.size(), season.seasonNumber, item.episodeNumber);
+                fillSeasonEpisodes(detailEpisodeHost,
+                        season.guid, item, playBtn, pTs, seasons.size(), season.seasonNumber);
+            });
+            cards.add(card);
+            row.addView(card);
+        }
+        hsv.addView(row);
+        detailSeasonRow = row;
+        new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
+        return hsv;
+    }
+
+    private View makeSeasonPosterCard(PlayListItem season) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setFocusable(true);
+        card.setClickable(true);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(112), ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(12);
+        card.setLayoutParams(lp);
+
+        FrameLayout shot = new FrameLayout(this);
+        shot.setLayoutParams(new LinearLayout.LayoutParams(dp(112), dp(158)));
+        shot.setBackgroundResource(R.drawable.bg_season_poster);
+        shot.setDuplicateParentState(true);
+        shot.setPadding(dp(2), dp(2), dp(2), dp(2));
+
+        RoundedImageView poster = new RoundedImageView(this);
+        poster.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        poster.setCornerRadius(8);
+        poster.setBackgroundColor(color(R.color.bg_poster));
+        String img = makePosterUrl(season.poster);
+        if (img != null) poster.setTag(img);
+        shot.addView(poster);
+
+        String rating = itemRating(season);
+        if (!rating.isEmpty()) shot.addView(makeOverlayBadge(rating, Gravity.TOP | Gravity.LEFT));
+        String res = shortResolution(season);
+        if (!res.isEmpty()) shot.addView(makeOverlayBadge(res, Gravity.BOTTOM | Gravity.RIGHT));
+        card.addView(shot);
+
         int sn = season.seasonNumber > 0 ? season.seasonNumber : 1;
-        String label = "第" + sn + "季";
-        if (season.localNumberOfEpisodes > 0) label += " · " + season.localNumberOfEpisodes + "集";
-        chip.setText(label);
-        chip.setBackgroundResource(R.drawable.bg_season_chip);
-        chip.setFocusable(true);
-        chip.setClickable(true);
-        return chip;
+        TextView name = new TextView(this);
+        name.setPadding(0, dp(6), 0, 0);
+        name.setText("第" + sn + "季");
+        name.setTextColor(color(R.color.text_primary));
+        name.setTextSize(14);
+        name.setGravity(Gravity.CENTER);
+        card.addView(name);
+
+        int eps = season.localNumberOfEpisodes > 0 ? season.localNumberOfEpisodes : season.numberOfEpisodes;
+        String year = season.airDate != null && season.airDate.length() >= 4 ? season.airDate.substring(0, 4) : "";
+        String sub = "";
+        if (eps > 0) sub = "共" + eps + "集";
+        if (!year.isEmpty()) sub = sub.isEmpty() ? year : sub + " · " + year;
+        if (!sub.isEmpty()) {
+            TextView meta = new TextView(this);
+            meta.setText(sub);
+            meta.setTextColor(color(R.color.text_hint));
+            meta.setTextSize(12);
+            meta.setGravity(Gravity.CENTER);
+            meta.setPadding(0, dp(2), 0, 0);
+            card.addView(meta);
+        }
+        card.setTag(season.guid);
+        return card;
+    }
+
+    private View makeSeasonTabRow(List<PlayListItem> seasons, PlayListItem selected,
+                                  LinearLayout epBox, PlayListItem item, Button playBtn, long pTs) {
+        HorizontalScrollView hsv = makeHsv();
+        LinearLayout.LayoutParams hsvLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hsvLp.bottomMargin = dp(6);
+        hsv.setLayoutParams(hsvLp);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        final List<TextView> tabs = new ArrayList<>();
+        for (int i = 0; i < seasons.size(); i++) {
+            final PlayListItem season = seasons.get(i);
+            if (i > 0) {
+                TextView slash = new TextView(this);
+                slash.setText("  /  ");
+                slash.setTextColor(color(R.color.text_hint));
+                slash.setTextSize(14);
+                row.addView(slash);
+            }
+            TextView tab = new TextView(this);
+            int sn = season.seasonNumber > 0 ? season.seasonNumber : i + 1;
+            tab.setText("第" + sn + "季");
+            tab.setTextSize(15);
+            tab.setPadding(dp(4), dp(6), dp(4), dp(6));
+            tab.setFocusable(true);
+            tab.setClickable(true);
+            tab.setTag(season.guid);
+            boolean on = season.guid != null && season.guid.equals(selected.guid);
+            styleSeasonTab(tab, on);
+            tab.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus) tab.setTextColor(color(R.color.border_focused));
+                else styleSeasonTab(tab, tab.isSelected());
+            });
+            tab.setOnClickListener(v -> {
+                for (TextView t : tabs) styleSeasonTab(t, false);
+                styleSeasonTab(tab, true);
+                if (detailSeasonRow != null) {
+                    for (int c = 0; c < detailSeasonRow.getChildCount(); c++) {
+                        View child = detailSeasonRow.getChildAt(c);
+                        child.setSelected(season.guid != null && season.guid.equals(child.getTag()));
+                    }
+                }
+                applySeriesPlayLabel(playBtn, seasons.size(), season.seasonNumber, item.episodeNumber);
+                fillSeasonEpisodes(epBox, season.guid, item, playBtn, pTs, seasons.size(), season.seasonNumber);
+            });
+            tabs.add(tab);
+            row.addView(tab);
+        }
+        hsv.addView(row);
+        detailChipRow = row;
+        return hsv;
+    }
+
+    private void styleSeasonTabs(PlayListItem season) {
+        if (detailChipRow == null || season == null) return;
+        for (int i = 0; i < detailChipRow.getChildCount(); i++) {
+            View child = detailChipRow.getChildAt(i);
+            if (child instanceof TextView && child.getTag() instanceof String) {
+                styleSeasonTab((TextView) child, season.guid != null && season.guid.equals(child.getTag()));
+            }
+        }
+        if (detailSeasonRow != null) {
+            for (int i = 0; i < detailSeasonRow.getChildCount(); i++) {
+                View child = detailSeasonRow.getChildAt(i);
+                child.setSelected(season.guid != null && season.guid.equals(child.getTag()));
+            }
+        }
+    }
+
+    private void styleSeasonTab(TextView tab, boolean selected) {
+        tab.setSelected(selected);
+        tab.setTextColor(selected ? color(R.color.colorPrimary) : color(R.color.text_secondary));
+        tab.setTypeface(selected ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
     }
 
     private void fillSeasonEpisodes(final LinearLayout epBox, final String seasonGuid,
-                                    final PlayListItem item, final Button playBtn, final long pTs) {
+                                    final PlayListItem item, final Button playBtn, final long pTs,
+                                    final int seasonCount, final int seasonNum) {
+        if (epBox == null || seasonGuid == null || seasonGuid.isEmpty()) return;
         epBox.removeAllViews();
         TextView loading = new TextView(this);
         loading.setTextColor(color(R.color.text_hint));
         loading.setTextSize(13);
         loading.setText("加载剧集...");
         epBox.addView(loading);
+        if (detailRangeScroll != null) detailRangeScroll.setVisibility(View.GONE);
+        if (detailRangeRow != null) detailRangeRow.setVisibility(View.GONE);
 
         apiManager.getApi().getEpisodeList(seasonGuid).enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
             @Override
@@ -1942,26 +2158,24 @@ public class HomeActivity extends AppCompatActivity {
                     empty.setTextColor(color(R.color.text_hint));
                     empty.setTextSize(13);
                     epBox.addView(empty);
+                    if (detailEpCount != null) detailEpCount.setText("");
                     return;
                 }
-                HorizontalScrollView hsv = makeHsv();
-                LinearLayout row = new LinearLayout(HomeActivity.this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setPadding(0, 0, 0, dp(4));
-                for (PlayListItem ep : response.body().data) {
-                    boolean current = ep.guid != null && ep.guid.equals(item.guid);
-                    View card = makeDetailEpisodeCard(ep, current);
-                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                            dp(176), ViewGroup.LayoutParams.WRAP_CONTENT);
-                    lp.rightMargin = dp(10);
-                    card.setLayoutParams(lp);
-                    row.addView(card);
-                    if (current && ep.duration > 0) playBtn.setTag(ep.duration);
+                final List<PlayListItem> episodes = response.body().data;
+                if (detailEpCount != null) detailEpCount.setText("共" + episodes.size() + " >");
+                int currentPage = 0;
+                int currentEp = item.episodeNumber;
+                for (int i = 0; i < episodes.size(); i++) {
+                    PlayListItem ep = episodes.get(i);
+                    if (ep.guid != null && ep.guid.equals(item.guid)) {
+                        currentPage = episodePageOf(ep, i);
+                        currentEp = episodeDisplayNumber(ep, i);
+                        break;
+                    }
                 }
-                hsv.addView(row);
-                epBox.addView(hsv);
-                new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
-                wireDetailNav();
+                applySeriesPlayLabel(playBtn, seasonCount, seasonNum, currentEp);
+                buildEpisodeRanges(epBox, episodes, currentPage, item, playBtn);
+                showEpisodePage(epBox, episodes, currentPage, item, playBtn);
             }
             @Override public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
                 if (savedDetailItem == null || item.guid == null || !item.guid.equals(savedDetailItem.guid)) return;
@@ -1975,7 +2189,132 @@ public class HomeActivity extends AppCompatActivity {
         });
     }
 
-    private View makeDetailEpisodeCard(PlayListItem ep, boolean isCurrent) {
+    private void buildEpisodeRanges(final LinearLayout epBox, final List<PlayListItem> episodes,
+                                    final int currentPage, final PlayListItem item, final Button playBtn) {
+        if (detailRangeRow == null || !(detailRangeRow instanceof LinearLayout)) return;
+        LinearLayout bar = (LinearLayout) detailRangeRow;
+        bar.removeAllViews();
+        int pages = Math.max(1, (episodeMaxNumber(episodes) + EPISODE_PAGE - 1) / EPISODE_PAGE);
+        if (pages <= 1 || detailRangeScroll == null) {
+            if (detailRangeScroll != null) detailRangeScroll.setVisibility(View.GONE);
+            bar.setVisibility(View.GONE);
+            return;
+        }
+        detailRangeScroll.setVisibility(View.VISIBLE);
+        bar.setVisibility(View.VISIBLE);
+        int maxNum = episodeMaxNumber(episodes);
+        final List<TextView> chips = new ArrayList<>();
+        final int[] pageHolder = {currentPage};
+        for (int p = 0; p < pages; p++) {
+            int start = p * EPISODE_PAGE + 1;
+            int end = Math.min((p + 1) * EPISODE_PAGE, maxNum);
+            TextView chip = new TextView(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+            chip.setLayoutParams(lp);
+            chip.setMinWidth(dp(72));
+            chip.setGravity(Gravity.CENTER);
+            chip.setPadding(dp(12), 0, dp(12), 0);
+            chip.setText(start + "-" + end);
+            chip.setTextSize(13);
+            chip.setFocusable(true);
+            chip.setBackgroundResource(R.drawable.bg_episode_chip);
+            final int page = p;
+            chip.setOnClickListener(v -> {
+                pageHolder[0] = page;
+                styleEpisodeRangeChips(chips, page);
+                showEpisodePage(epBox, episodes, page, item, playBtn);
+            });
+            chips.add(chip);
+            bar.addView(chip);
+        }
+        styleEpisodeRangeChips(chips, currentPage);
+    }
+
+    private void styleEpisodeRangeChips(List<TextView> chips, int page) {
+        for (int i = 0; i < chips.size(); i++) {
+            TextView chip = chips.get(i);
+            boolean on = i == page;
+            chip.setSelected(on);
+            chip.setTextColor(on ? color(R.color.text_primary) : color(R.color.text_secondary));
+        }
+    }
+
+    private void showEpisodePage(LinearLayout epBox, List<PlayListItem> episodes, int page,
+                                 PlayListItem item, Button playBtn) {
+        epBox.removeAllViews();
+        HorizontalScrollView hsv = makeHsv();
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(2), 0, dp(4));
+        View currentView = null;
+        for (int i = 0; i < episodes.size(); i++) {
+            PlayListItem ep = episodes.get(i);
+            if (episodePageOf(ep, i) != page) continue;
+            boolean current = ep.guid != null && ep.guid.equals(item.guid);
+            View card = makeDetailEpisodeCard(ep, i, current);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    dp(200), ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = dp(12);
+            card.setLayoutParams(lp);
+            row.addView(card);
+            if (current) {
+                currentView = card;
+                if (ep.duration > 0 && playBtn != null) playBtn.setTag(ep.duration);
+            }
+        }
+        hsv.addView(row);
+        epBox.addView(hsv);
+        detailEpisodeBox = row;
+        new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
+        if (currentView != null) {
+            View target = currentView;
+            target.post(() -> target.requestRectangleOnScreen(
+                    new android.graphics.Rect(0, 0, Math.max(target.getWidth(), 1), Math.max(target.getHeight(), 1)),
+                    false));
+        }
+        wireDetailNav();
+    }
+
+    private int episodeDisplayNumber(PlayListItem ep, int index) {
+        return ep.episodeNumber > 0 ? ep.episodeNumber : index + 1;
+    }
+
+    private int episodePageOf(PlayListItem ep, int index) {
+        return Math.max(0, (episodeDisplayNumber(ep, index) - 1) / EPISODE_PAGE);
+    }
+
+    private int episodeMaxNumber(List<PlayListItem> episodes) {
+        int max = episodes.size();
+        for (int i = 0; i < episodes.size(); i++) {
+            max = Math.max(max, episodeDisplayNumber(episodes.get(i), i));
+        }
+        return Math.max(1, max);
+    }
+
+    private String shortResolution(PlayListItem item) {
+        if (item == null || item.mediaStream == null || item.mediaStream.resolutions == null
+                || item.mediaStream.resolutions.isEmpty() || item.mediaStream.resolutions.get(0) == null) {
+            return "";
+        }
+        String u = item.mediaStream.resolutions.get(0).toUpperCase();
+        if (u.contains("2160") || u.contains("4K") || u.contains("UHD")) return "4K";
+        if (u.contains("1080")) return "1080";
+        if (u.contains("720")) return "720";
+        return "";
+    }
+
+    private String formatDurationWords(long sec) {
+        if (sec <= 0) return "";
+        long h = sec / 3600;
+        long m = (sec % 3600) / 60;
+        long s = sec % 60;
+        if (h > 0) return h + "小时" + m + "分钟" + s + "秒";
+        if (m > 0) return m + "分钟" + s + "秒";
+        return s + "秒";
+    }
+
+    private View makeDetailEpisodeCard(PlayListItem ep, int index, boolean isCurrent) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.bg_poster_card);
@@ -1984,67 +2323,90 @@ public class HomeActivity extends AppCompatActivity {
 
         FrameLayout shot = new FrameLayout(this);
         shot.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(100)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(112)));
 
         RoundedImageView poster = new RoundedImageView(this);
         poster.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        poster.setCornerRadius(10);
+        poster.setCornerRadius(8);
         poster.setBackgroundColor(color(R.color.bg_poster));
         String imgUrl = makePosterUrl(ep.poster);
         if (imgUrl != null) poster.setTag(imgUrl);
         shot.addView(poster);
 
-        String epLabel = ep.episodeNumber > 0 ? "第" + ep.episodeNumber + "集" : "剧集";
-        shot.addView(makeOverlayBadge(epLabel, Gravity.TOP | Gravity.LEFT));
-        if (isCurrent) {
-            shot.addView(makeOverlayBadge("当前", Gravity.TOP | Gravity.RIGHT));
-        } else if (ep.watched == 1) {
-            shot.addView(makeOverlayBadge("已看", Gravity.TOP | Gravity.RIGHT));
-        }
+        String res = shortResolution(ep);
+        if (!res.isEmpty()) shot.addView(makeOverlayBadge(res, Gravity.BOTTOM | Gravity.RIGHT));
 
-        int pct = ep.duration > 0 ? Math.max(0, Math.min(100, (int) (ep.ts * 100 / ep.duration))) : 0;
-        if (pct > 0) {
-            LinearLayout pBar = new LinearLayout(this);
-            FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
+        if (isCurrent) {
+            View mark = new View(this);
+            FrameLayout.LayoutParams markLp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(3));
-            barLp.gravity = Gravity.BOTTOM;
-            pBar.setLayoutParams(barLp);
-            pBar.setOrientation(LinearLayout.HORIZONTAL);
-            pBar.setWeightSum(100);
-            View fill = new View(this);
-            fill.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, pct));
-            fill.setBackgroundColor(color(R.color.colorPrimary));
-            pBar.addView(fill);
-            View rest = new View(this);
-            rest.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 100 - pct));
-            rest.setBackgroundColor(color(R.color.progress_track));
-            pBar.addView(rest);
-            shot.addView(pBar);
+            markLp.gravity = Gravity.BOTTOM;
+            mark.setLayoutParams(markLp);
+            mark.setBackgroundColor(color(R.color.colorPrimary));
+            shot.addView(mark);
+        } else if (ep.duration > 0 && ep.ts > 0) {
+            int pct = Math.max(0, Math.min(100, (int) (ep.ts * 100 / ep.duration)));
+            if (pct > 0) {
+                LinearLayout pBar = new LinearLayout(this);
+                FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(3));
+                barLp.gravity = Gravity.BOTTOM;
+                pBar.setLayoutParams(barLp);
+                pBar.setOrientation(LinearLayout.HORIZONTAL);
+                pBar.setWeightSum(100);
+                View fill = new View(this);
+                fill.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, pct));
+                fill.setBackgroundColor(color(R.color.colorPrimary));
+                pBar.addView(fill);
+                View rest = new View(this);
+                rest.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 100 - pct));
+                rest.setBackgroundColor(color(R.color.progress_track));
+                pBar.addView(rest);
+                shot.addView(pBar);
+            }
         }
         card.addView(shot);
 
+        int num = episodeDisplayNumber(ep, index);
+        String name = ep.title != null ? ep.title : "";
         TextView title = new TextView(this);
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        titleLp.topMargin = dp(8);
+        titleLp.topMargin = dp(6);
         title.setLayoutParams(titleLp);
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
-        title.setTextSize(13);
-        title.setTextColor(isCurrent ? color(R.color.colorAccent) : color(R.color.text_primary));
-        title.setText(ep.title != null ? ep.title : epLabel);
+        title.setTextSize(14);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(isCurrent ? color(R.color.colorPrimary) : color(R.color.text_primary));
+        title.setText(name.isEmpty() ? String.valueOf(num) : num + "." + name);
         card.addView(title);
 
-        if (ep.duration > 0) {
+        if (ep.overview != null && !ep.overview.isEmpty()) {
+            TextView ov = new TextView(this);
+            ov.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            ov.setText(ep.overview);
+            ov.setTextColor(color(R.color.text_hint));
+            ov.setTextSize(12);
+            ov.setMaxLines(2);
+            ov.setEllipsize(TextUtils.TruncateAt.END);
+            ov.setPadding(0, dp(2), 0, 0);
+            card.addView(ov);
+        }
+
+        long durSec = ep.duration > 0 ? ep.duration : (ep.runtime > 0 ? ep.runtime * 60L : 0);
+        String durText = formatDurationWords(durSec);
+        if (!durText.isEmpty()) {
             TextView dur = new TextView(this);
             dur.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             dur.setTextSize(12);
-            dur.setTextColor(color(R.color.text_hint));
+            dur.setTextColor(color(R.color.text_secondary));
             dur.setPadding(0, dp(2), 0, 0);
-            dur.setText(formatRuntimeLabel(ep.duration));
+            dur.setText(durText);
             card.addView(dur);
         }
 
@@ -2279,7 +2641,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void loadMediaLibraries() {
         isSearching = false;
-        if (etSearch != null) etSearch.setVisibility(View.GONE);
+        if (etSearch != null) etSearch.setVisibility(View.VISIBLE);
         if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.VISIBLE);
         clearContainer(libraryContainer, tvLibraryLoading, tvLibraryEmpty);
         tvLibraryLoading.setVisibility(View.VISIBLE);
@@ -2381,7 +2743,7 @@ public class HomeActivity extends AppCompatActivity {
     private void hideKeyboard() {
         android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-        if (imm != null && etSearch != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
+        if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
     }
 
     private void performSearch(String query) {
@@ -2469,56 +2831,14 @@ public class HomeActivity extends AppCompatActivity {
         libraryContainer.addView(empty);
     }
 
-    /** 首页放大镜：进入搜索，并记住是从哪个标签点进来的。 */
-    private void openHomeSearch() {
-        if (searchFromTab < 0) searchFromTab = currentTab;
-        switchTab(1);
-        loadMediaLibraries();
-        if (etSearch == null) return;
-        etSearch.setText("");
-        etSearch.setVisibility(View.VISIBLE);
-        if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.GONE);
-        etSearch.post(this::focusLibrarySearch);
-    }
-
-    private boolean searchUiOpen() {
-        return currentTab == 1 && (isSearching
-                || (etSearch != null && etSearch.getVisibility() == View.VISIBLE));
-    }
-
-    /** 关掉搜索框。从别的页进来的，回到那一页；本来就在媒体库，则回到媒体库列表。 */
-    private boolean closeSearchToOrigin() {
-        if (!searchUiOpen() && searchFromTab < 0) return false;
-        int backTo = searchFromTab;
-        searchFromTab = -1;
-        isSearching = false;
-        hideKeyboard();
-        if (etSearch != null) {
-            etSearch.setText("");
-            etSearch.setVisibility(View.GONE);
-        }
-        if (backTo >= 0 && backTo != currentTab) {
-            switchTab(backTo);
-            return true;
-        }
-        if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.VISIBLE);
-        loadMediaLibraries();
-        return true;
-    }
-
-    private void dismissSearchUi() {
-        searchFromTab = -1;
-        isSearching = false;
-        hideKeyboard();
-        if (etSearch != null) {
-            etSearch.setText("");
-            etSearch.setVisibility(View.GONE);
-        }
-    }
-
     private void clearSearch() {
-        if (isSearching || (etSearch != null && etSearch.getVisibility() == View.VISIBLE)) {
-            closeSearchToOrigin();
+        if (isSearching) {
+            isSearching = false;
+            if (etSearch != null) {
+                etSearch.setText("");
+                etSearch.setVisibility(View.VISIBLE);
+            }
+            loadMediaLibraries();
         }
     }
 
@@ -2714,64 +3034,78 @@ public class HomeActivity extends AppCompatActivity {
             danmuUrl = "http://" + host + ":9321";
         }
         tvDanmuUrl.setText(danmuUrl);
-        rlDanmuSetting.setOnClickListener(v -> showTextInputDialog(
-                "弹幕服务器地址",
-                tvDanmuUrl.getText().toString(),
-                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI,
-                "重置",
-                value -> {
-                    if (value == null) {
-                        prefs.edit().remove("danmu_url").apply();
-                        String host = prefs.getString("host", "");
-                        host = host.replaceAll("^https?://", "").replaceAll("/.*$", "").replaceAll(":\\d+$", "");
-                        tvDanmuUrl.setText("http://" + host + ":9321");
-                        return;
-                    }
-                    if (!value.isEmpty()) {
-                        prefs.edit().putString("danmu_url", value).apply();
-                        tvDanmuUrl.setText(value);
-                    }
-                }));
+        rlDanmuSetting.setOnClickListener(v -> {
+            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+            b.setTitle("弹幕服务器地址");
+            final android.widget.EditText input = new android.widget.EditText(this);
+            input.setText(tvDanmuUrl.getText());
+            input.setSelection(input.getText().length());
+            b.setView(input);
+            b.setPositiveButton("保存", (dialog, which) -> {
+                String val = input.getText().toString().trim();
+                if (!val.isEmpty()) {
+                    prefs.edit().putString("danmu_url", val).apply();
+                    tvDanmuUrl.setText(val);
+                }
+            });
+            b.setNegativeButton("重置", (dialog, which) -> {
+                prefs.edit().remove("danmu_url").apply();
+                String host = prefs.getString("host", "");
+                host = host.replaceAll("^https?://", "").replaceAll("/.*$", "").replaceAll(":\\d+$", "");
+                tvDanmuUrl.setText("http://" + host + ":9321");
+            });
+            b.show();
+        });
 
         // 快进退步长
         final int[] savedStep = {prefs.getInt("seek_step", 10)};
         tvSeekStepValue.setText(savedStep[0] + "s");
-        rlSeekStep.setOnClickListener(v -> showTextInputDialog(
-                "快进退步长（秒）",
-                String.valueOf(savedStep[0]),
-                android.text.InputType.TYPE_CLASS_NUMBER,
-                "取消",
-                value -> {
-                    if (value == null) return;
-                    try {
-                        int val = Integer.parseInt(value);
-                        if (val < 1) val = 1;
-                        if (val > 300) val = 300;
-                        prefs.edit().putInt("seek_step", val).apply();
-                        tvSeekStepValue.setText(val + "s");
-                        savedStep[0] = val;
-                    } catch (Exception ignored) {}
-                }));
+        rlSeekStep.setOnClickListener(v -> {
+            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+            b.setTitle("快进退步长（秒）");
+            final android.widget.EditText input = new android.widget.EditText(this);
+            input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            input.setText(String.valueOf(savedStep[0]));
+            input.setSelection(input.getText().length());
+            b.setView(input);
+            b.setPositiveButton("保存", (dialog, which) -> {
+                try {
+                    int val = Integer.parseInt(input.getText().toString().trim());
+                    if (val < 1) val = 1;
+                    if (val > 300) val = 300;
+                    prefs.edit().putInt("seek_step", val).apply();
+                    tvSeekStepValue.setText(val + "s");
+                    savedStep[0] = val;
+                } catch (Exception ignored) {}
+            });
+            b.setNegativeButton("取消", null);
+            b.show();
+        });
 
         // 缓冲时间
         final int[] savedBuffer = {prefs.getInt("buffer_time", 30)};
         tvBufferTimeValue.setText(savedBuffer[0] + "s");
-        rlBufferTime.setOnClickListener(v -> showTextInputDialog(
-                "缓冲时间（秒）",
-                String.valueOf(savedBuffer[0]),
-                android.text.InputType.TYPE_CLASS_NUMBER,
-                "取消",
-                value -> {
-                    if (value == null) return;
-                    try {
-                        int val = Integer.parseInt(value);
-                        if (val < 5) val = 5;
-                        if (val > 300) val = 300;
-                        prefs.edit().putInt("buffer_time", val).apply();
-                        tvBufferTimeValue.setText(val + "s");
-                        savedBuffer[0] = val;
-                    } catch (Exception ignored) {}
-                }));
+        rlBufferTime.setOnClickListener(v -> {
+            android.app.AlertDialog.Builder b2 = new android.app.AlertDialog.Builder(this);
+            b2.setTitle("缓冲时间（秒）");
+            final android.widget.EditText input2 = new android.widget.EditText(this);
+            input2.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            input2.setText(String.valueOf(savedBuffer[0]));
+            input2.setSelection(input2.getText().length());
+            b2.setView(input2);
+            b2.setPositiveButton("保存", (dialog, which) -> {
+                try {
+                    int val = Integer.parseInt(input2.getText().toString().trim());
+                    if (val < 5) val = 5;
+                    if (val > 300) val = 300;
+                    prefs.edit().putInt("buffer_time", val).apply();
+                    tvBufferTimeValue.setText(val + "s");
+                    savedBuffer[0] = val;
+                } catch (Exception ignored) {}
+            });
+            b2.setNegativeButton("取消", null);
+            b2.show();
+        });
 
         apiManager.getApi().getUserInfo().enqueue(new Callback<ApiResponse<UserInfoResponse>>() {
             @Override
@@ -2786,59 +3120,6 @@ public class HomeActivity extends AppCompatActivity {
         });
     }
 
-
-    /** 负按钮回传 null；保存回传输入内容。 */
-    private interface DialogInputCallback {
-        void onResult(String value);
-    }
-
-    private void showTextInputDialog(String title, String value, int inputType,
-                                     String negativeLabel, DialogInputCallback callback) {
-        int screenW = getResources().getDisplayMetrics().widthPixels;
-        int dialogW = Math.min((int) (screenW * 0.9f), dp(560));
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setMinimumWidth(dialogW);
-        box.setPadding(dp(20), dp(8), dp(20), dp(6));
-
-        androidx.appcompat.widget.AppCompatEditText input = new androidx.appcompat.widget.AppCompatEditText(this);
-        input.setBackgroundResource(R.drawable.bg_input);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            input.setBackgroundTintList(null);
-        }
-        input.setTextColor(color(R.color.text_primary));
-        input.setHintTextColor(color(R.color.text_hint));
-        input.setTextSize(15);
-        input.setSingleLine(true);
-        input.setMinHeight(dp(48));
-        input.setPadding(dp(14), dp(12), dp(14), dp(12));
-        input.setInputType(inputType);
-        input.setText(value != null ? value : "");
-        input.setSelection(input.getText().length());
-        input.setFocusable(true);
-        input.setFocusableInTouchMode(true);
-        box.addView(input, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
-                .setTitle(title)
-                .setView(box)
-                .setPositiveButton("保存", (d, which) -> {
-                    if (callback != null) callback.onResult(input.getText().toString().trim());
-                })
-                .setNegativeButton(negativeLabel, (d, which) -> {
-                    if (callback != null && "重置".equals(negativeLabel)) callback.onResult(null);
-                })
-                .create();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawableResource(R.drawable.bg_card);
-        }
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setLayout(dialogW, ViewGroup.LayoutParams.WRAP_CONTENT);
-        }
-        input.requestFocus();
-    }
 
     private void toggleDecoder() {
         String cur = prefs.getString(PREF_DECODER, "hardware");
@@ -2859,23 +3140,17 @@ public class HomeActivity extends AppCompatActivity {
 
     private void setupFeedback() {
         btnFeedback.setOnClickListener(v -> {
-            android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+            new android.app.AlertDialog.Builder(this)
                     .setTitle("问题反馈")
-                    .setMessage("到 GitHub 提交 Issue：\n" + GITHUB_ISSUES)
-                    .setPositiveButton("复制地址", (d, which) -> {
+                    .setMessage("如有问题或建议，请加 QQ群：\n693516430")
+                    .setPositiveButton("复制群号", (dialog, which) -> {
                         android.content.ClipboardManager cm = (android.content.ClipboardManager)
                                 getSystemService(CLIPBOARD_SERVICE);
-                        if (cm != null) {
-                            cm.setPrimaryClip(android.content.ClipData.newPlainText("github", GITHUB_ISSUES));
-                        }
-                        Toast.makeText(this, "地址已复制", Toast.LENGTH_SHORT).show();
+                        cm.setText("693516430");
+                        Toast.makeText(this, "群号已复制", Toast.LENGTH_SHORT).show();
                     })
                     .setNegativeButton("关闭", null)
-                    .create();
-            if (dialog.getWindow() != null) {
-                dialog.getWindow().setBackgroundDrawableResource(R.drawable.bg_card);
-            }
-            dialog.show();
+                    .show();
         });
     }
 
@@ -3446,7 +3721,7 @@ public class HomeActivity extends AppCompatActivity {
     private void bindOverviewFocusNow() {
         if (!showingOverview || moviesContainer == null || currentTab != 0) return;
         List<List<View>> lanes = new ArrayList<>();
-        View searchBtn = findViewById(R.id.btnHomeSearch);
+        Button searchBtn = findViewById(R.id.btnHomeSearch);
         if (searchBtn != null && searchBtn.getVisibility() == View.VISIBLE) {
             TvFocus.stay(searchBtn);
             lanes.add(TvFocus.listOf(searchBtn));
@@ -3643,7 +3918,7 @@ public class HomeActivity extends AppCompatActivity {
     private void restoreOverviewFocus() {
         if (currentTab != 0 || !showingOverview) return;
         View focused = getCurrentFocus();
-        View searchBtn = findViewById(R.id.btnHomeSearch);
+        Button searchBtn = findViewById(R.id.btnHomeSearch);
         List<View> continueCards = continueCards();
         List<View> shortcuts = shortcutCards();
         boolean onSearch = focused == searchBtn;
@@ -3703,15 +3978,21 @@ public class HomeActivity extends AppCompatActivity {
         if (showingOverview || showingEpisodes || currentTab != 0) return;
         List<View> play = detailPlayBtn != null ? TvFocus.listOf(detailPlayBtn) : Collections.emptyList();
         List<View> ov = detailOverview != null ? TvFocus.listOf(detailOverview) : Collections.emptyList();
+        List<View> seasons = detailSeasonRow != null
+                ? TvFocus.collectVisibleFocusables(detailSeasonRow) : Collections.emptyList();
         List<View> chips = detailChipRow != null
                 ? TvFocus.collectVisibleFocusables(detailChipRow) : Collections.emptyList();
+        List<View> ranges = detailRangeRow != null
+                ? TvFocus.collectVisibleFocusables(detailRangeRow) : Collections.emptyList();
         List<View> eps = detailEpisodeBox != null
                 ? TvFocus.collectVisibleFocusables(detailEpisodeBox) : Collections.emptyList();
 
         List<List<View>> rows = new ArrayList<>();
         if (!play.isEmpty()) rows.add(play);
         if (!ov.isEmpty()) rows.add(ov);
+        if (!seasons.isEmpty()) rows.add(seasons);
         if (!chips.isEmpty()) rows.add(chips);
+        if (!ranges.isEmpty()) rows.add(ranges);
         if (!eps.isEmpty()) rows.add(eps);
 
         for (List<View> row : rows) TvFocus.bindRow(row);
@@ -3831,7 +4112,16 @@ public class HomeActivity extends AppCompatActivity {
 
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            if (closeSearchToOrigin()) return true;
+            // 搜索框有焦点 → 隐藏键盘并清除搜索
+            if (etSearch != null && etSearch.isFocused()) {
+                hideKeyboard();
+                etSearch.clearFocus();
+            }
+            // 搜索模式 → 清除搜索
+            if (isSearching) {
+                clearSearch();
+                return true;
+            }
             // 媒体库浏览中 → 返回媒体库首页
             if (currentTab == 1 && savedBrowseGuid != null) {
                 savedBrowseGuid = null; savedBrowseList = null;

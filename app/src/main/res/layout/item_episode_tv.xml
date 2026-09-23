@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="168dp"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingRight="12dp">
+
+    <FrameLayout
+        android:id="@+id/epThumbWrap"
+        android:layout_width="156dp"
+        android:layout_height="88dp"
+        android:background="@drawable/bg_episode_thumb"
+        android:duplicateParentState="true"
+        android:padding="2dp">
+
+        <com.fntv.app.RoundedImageView
+            android:id="@+id/epThumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#FF252D38"
+            android:scaleType="centerCrop" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/epTitle"
+        android:layout_width="156dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="#FFF4F6F8"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/epDuration"
+        android:layout_width="156dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="#FF8E96A3"
+        android:textSize="12sp" />
+</LinearLayout>

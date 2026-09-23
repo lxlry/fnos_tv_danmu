@@ -469,4 +469,12 @@
             android:nextFocusUp="@+id/btnHdrToggle" />
     </LinearLayout>
 
+    <FrameLayout
+        android:id="@+id/episodePanel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:elevation="24dp"
+        android:visibility="gone" />
+
 </FrameLayout>
