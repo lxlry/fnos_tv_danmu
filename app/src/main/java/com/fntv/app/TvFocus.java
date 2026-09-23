@@ -22,6 +22,8 @@ final class TvFocus {
     private static final Map<View, List<View>> upLanes = new WeakHashMap<>();
     private static final Map<View, List<View>> downLanes = new WeakHashMap<>();
     private static final Map<View, View> cornerUp = new WeakHashMap<>();
+    /** 同一行共用一个槽，记住这行上次落点。 */
+    private static final Map<View, View[]> rowMemory = new WeakHashMap<>();
     private static int lastNarrowCx = -1;
 
     private TvFocus() {}
@@ -54,9 +56,12 @@ final class TvFocus {
         return 0;
     }
 
-    /** 记住最近一个非全宽焦点的屏幕横坐标，供全宽控件按列回落。 */
+    /** 记住最近一个非全宽焦点的屏幕横坐标，并记下它所在行的落点。 */
     static void remember(View v) {
-        if (v == null || v.getWidth() <= 0) return;
+        if (v == null) return;
+        View[] slot = rowMemory.get(v);
+        if (slot != null) slot[0] = v;
+        if (v.getWidth() <= 0) return;
         int screenW = v.getResources().getDisplayMetrics().widthPixels;
         if (v.getWidth() > screenW * 4 / 5) return;
         int[] loc = new int[2];
@@ -107,12 +112,58 @@ final class TvFocus {
 
     static void bindRow(List<View> items) {
         if (items == null || items.isEmpty()) return;
+        View[] slot = null;
+        for (View v : items) {
+            if (v == null) continue;
+            View[] existing = rowMemory.get(v);
+            if (existing != null) {
+                slot = existing;
+                break;
+            }
+        }
+        if (slot == null) slot = new View[1];
+        boolean keep = false;
+        if (slot[0] != null) {
+            for (View v : items) {
+                if (v == slot[0]) {
+                    keep = true;
+                    break;
+                }
+            }
+        }
+        if (!keep) slot[0] = null;
         for (int i = 0; i < items.size(); i++) {
             View v = items.get(i);
             if (v == null) continue;
+            rowMemory.put(v, slot);
             point(v, View.FOCUS_LEFT, items.get(Math.max(0, i - 1)));
             point(v, View.FOCUS_RIGHT, items.get(Math.min(items.size() - 1, i + 1)));
         }
+    }
+
+    /**
+     * 进入一行：有上次落点就回到该项，否则落到最左侧第一项。
+     */
+    static View pickEntry(List<View> lane) {
+        if (lane == null || lane.isEmpty()) return null;
+        View[] slot = null;
+        for (View c : lane) {
+            if (c == null) continue;
+            View[] existing = rowMemory.get(c);
+            if (existing != null) {
+                slot = existing;
+                break;
+            }
+        }
+        if (slot != null && slot[0] != null) {
+            for (View c : lane) {
+                if (c == slot[0] && usable(c)) return c;
+            }
+        }
+        for (View c : lane) {
+            if (usable(c)) return c;
+        }
+        return null;
     }
 
     /**
@@ -187,7 +238,7 @@ final class TvFocus {
     static void bindCornerAbove(View corner, List<View> lower) {
         if (corner == null || lower == null || lower.isEmpty()) return;
         setLane(corner, View.FOCUS_DOWN, lower);
-        View down = nearestX(corner, lower);
+        View down = pickEntry(lower);
         point(corner, View.FOCUS_DOWN, down != null ? down : lower.get(0));
         for (View v : lower) {
             if (v == null) continue;
@@ -206,6 +257,16 @@ final class TvFocus {
         for (View v : items) {
             setLane(v, View.FOCUS_DOWN, lane);
             point(v, View.FOCUS_DOWN, target);
+        }
+    }
+
+    /** 下键进入一整行（底栏 Tab），按该行记忆或最左侧落点。 */
+    static void bindDownToRow(List<View> items, List<View> row) {
+        if (items == null || row == null || row.isEmpty()) return;
+        for (View v : items) {
+            setLane(v, View.FOCUS_DOWN, row);
+            View to = pickEntry(row);
+            point(v, View.FOCUS_DOWN, to != null ? to : row.get(0));
         }
     }
 
@@ -411,6 +472,32 @@ final class TvFocus {
         View root = from.getRootView();
         View next = root != null ? root.findViewById(nextId) : null;
         return next;
+    }
+
+    /**
+     * 首页上下进入一行：回到该行上次焦点，没有则最左侧。
+     * 左右仍走显式 next 链。播放器继续用 {@link #resolve} 按列对齐。
+     */
+    static View resolveEntry(View from, int dir) {
+        if (from == null || dir == 0) return null;
+        if (dir == View.FOCUS_UP) {
+            View corner = cornerUp.get(from);
+            if (corner != null) {
+                return underCorner(from, corner) && usable(corner) ? corner : from;
+            }
+        }
+        List<View> lane = dir == View.FOCUS_UP ? upLanes.get(from)
+                : dir == View.FOCUS_DOWN ? downLanes.get(from) : null;
+        if (lane != null && !lane.isEmpty()) {
+            View pick = pickEntry(lane);
+            if (usable(pick)) return pick;
+            return from;
+        }
+        int nextId = nextFocusId(from, dir);
+        if (nextId == View.NO_ID) return null;
+        if (nextId == from.getId()) return from;
+        View root = from.getRootView();
+        return root != null ? root.findViewById(nextId) : null;
     }
 
     static boolean move(View focused, int keyCode) {

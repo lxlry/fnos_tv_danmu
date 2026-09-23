@@ -2924,23 +2924,20 @@ public class HomeActivity extends AppCompatActivity {
             TvFocus.bindUpToNearest(tabs, enterLane);
         }
         if (exitLane != null && !exitLane.isEmpty()) {
-            TvFocus.bindDown(exitLane, currentTabView());
+            TvFocus.bindDownToRow(exitLane, tabs);
         }
     }
 
     private boolean moveExplicitFocus(View focused, int keyCode) {
         if (focused == null) return false;
-        View next = TvFocus.resolve(focused, TvFocus.dirFromKey(keyCode));
+        View next = TvFocus.resolveEntry(focused, TvFocus.dirFromKey(keyCode));
         if (next == null) return false;
         if (next == focused) return true;
         if (!isUsableFocus(next)) return true;
         if (!isTabBar(next) && !isInCurrentPanel(next) && next != findViewById(R.id.btnHomeSearch)) {
             return true;
         }
-        next.requestFocus();
-        next.requestRectangleOnScreen(
-                new android.graphics.Rect(0, 0, Math.max(next.getWidth(), 1), Math.max(next.getHeight(), 1)),
-                false);
+        focusOn(next);
         return true;
     }
 
@@ -3310,35 +3307,56 @@ public class HomeActivity extends AppCompatActivity {
     // ==================== 按键 ====================
 
     @Override
-
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_DPAD_UP
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        int keyCode = event.getKeyCode();
+        boolean dpad = keyCode == KeyEvent.KEYCODE_DPAD_UP
                 || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
                 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
-                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            View focused = getCurrentFocus();
-            if (isTabBar(focused)) {
-                if (keyCode == KeyEvent.KEYCODE_DPAD_UP
-                        && isUsableFocus(lastContentFocus) && isInCurrentPanel(lastContentFocus)) {
-                    lastContentFocus.requestFocus();
-                    lastContentFocus.requestRectangleOnScreen(
-                            new android.graphics.Rect(0, 0,
-                                    Math.max(lastContentFocus.getWidth(), 1),
-                                    Math.max(lastContentFocus.getHeight(), 1)),
-                            false);
-                    return true;
-                }
-                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                    return true;
-                }
-            }
-            if (focused instanceof EditText
-                    && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
-                    || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
-                return super.onKeyDown(keyCode, event);
-            }
-            if (moveExplicitFocus(focused, keyCode)) return true;
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
+        if (dpad && event.getAction() == KeyEvent.ACTION_DOWN && handleDpad(keyCode)) {
+            return true;
         }
+        return super.dispatchKeyEvent(event);
+    }
+
+    /** 在滚动容器吃掉方向键之前移动焦点，底部 Tab 才能被按到。 */
+    private boolean handleDpad(int keyCode) {
+        View focused = getCurrentFocus();
+        if (isTabBar(focused)) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                View back = isUsableFocus(lastContentFocus) && isInCurrentPanel(lastContentFocus)
+                        ? lastContentFocus : null;
+                if (back == null) {
+                    View next = TvFocus.resolveEntry(focused, View.FOCUS_UP);
+                    if (isUsableFocus(next) && next != focused) back = next;
+                }
+                if (back != null) {
+                    focusOn(back);
+                    return true;
+                }
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) return true;
+        }
+        if (focused instanceof EditText
+                && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            return false;
+        }
+        return moveExplicitFocus(focused, keyCode);
+    }
+
+    private void focusOn(View target) {
+        target.requestFocus();
+        target.requestRectangleOnScreen(
+                new android.graphics.Rect(0, 0,
+                        Math.max(target.getWidth(), 1),
+                        Math.max(target.getHeight(), 1)),
+                false);
+    }
+
+    @Override
+
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
             // 搜索框有焦点 → 隐藏键盘并清除搜索
             if (etSearch.isFocused()) {
