@@ -182,6 +182,7 @@ public class HomeActivity extends AppCompatActivity {
                 moviesContainer.getPaddingBottom()
         };
         libraryContainer = findViewById(R.id.libraryGridContainer);
+        etSearch = findViewById(R.id.etSearch);
         tvLibraryPageTitle = findViewById(R.id.tvLibraryPageTitle);
         tvMoviesLoading = findViewById(R.id.tvMoviesLoading);
         tvLibraryLoading = findViewById(R.id.tvLibraryLoading);
@@ -202,13 +203,9 @@ public class HomeActivity extends AppCompatActivity {
         tvDanmuUrl = findViewById(R.id.tvDanmuUrl);
         tvSettingServer.setText(prefs.getString("host", ""));
 
-        Button btnHomeSearch = findViewById(R.id.btnHomeSearch);
+        View btnHomeSearch = findViewById(R.id.btnHomeSearch);
         if (btnHomeSearch != null) {
-            btnHomeSearch.setOnClickListener(v -> {
-                switchTab(1);
-                loadMediaLibraries();
-                if (etSearch != null) etSearch.post(this::focusLibrarySearch);
-            });
+            btnHomeSearch.setOnClickListener(v -> openHomeSearch());
         }
 
         TextView tvVersion = findViewById(R.id.tvVersionName);
@@ -514,9 +511,9 @@ public class HomeActivity extends AppCompatActivity {
     private LinearLayout makeLibHeader(String libGuid, String libTitle, int count) {
         LinearLayout headerRow = new LinearLayout(this);
         headerRow.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setPadding(dp(4), dp(16), dp(4), dp(8));
+        headerRow.setPadding(dp(8), dp(16), dp(8), dp(8));
         headerRow.setGravity(Gravity.CENTER_VERTICAL);
         headerRow.setMinimumHeight(dp(40));
         headerRow.setId(View.generateViewId());
@@ -2279,7 +2276,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void loadMediaLibraries() {
         isSearching = false;
-        if (etSearch != null) etSearch.setVisibility(View.VISIBLE);
+        if (etSearch != null) etSearch.setVisibility(View.GONE);
         if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.VISIBLE);
         clearContainer(libraryContainer, tvLibraryLoading, tvLibraryEmpty);
         tvLibraryLoading.setVisibility(View.VISIBLE);
@@ -2469,13 +2466,21 @@ public class HomeActivity extends AppCompatActivity {
         libraryContainer.addView(empty);
     }
 
+    /** 首页放大镜：进入媒体库并只在这里展开搜索框。 */
+    private void openHomeSearch() {
+        switchTab(1);
+        loadMediaLibraries();
+        if (etSearch == null) return;
+        etSearch.setText("");
+        etSearch.setVisibility(View.VISIBLE);
+        if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.GONE);
+        etSearch.post(this::focusLibrarySearch);
+    }
+
     private void clearSearch() {
         if (isSearching) {
             isSearching = false;
-            if (etSearch != null) {
-                etSearch.setText("");
-                etSearch.setVisibility(View.VISIBLE);
-            }
+            if (etSearch != null) etSearch.setText("");
             loadMediaLibraries();
         }
     }
@@ -3359,7 +3364,7 @@ public class HomeActivity extends AppCompatActivity {
     private void bindOverviewFocusNow() {
         if (!showingOverview || moviesContainer == null || currentTab != 0) return;
         List<List<View>> lanes = new ArrayList<>();
-        Button searchBtn = findViewById(R.id.btnHomeSearch);
+        View searchBtn = findViewById(R.id.btnHomeSearch);
         if (searchBtn != null && searchBtn.getVisibility() == View.VISIBLE) {
             TvFocus.stay(searchBtn);
             lanes.add(TvFocus.listOf(searchBtn));
@@ -3556,7 +3561,7 @@ public class HomeActivity extends AppCompatActivity {
     private void restoreOverviewFocus() {
         if (currentTab != 0 || !showingOverview) return;
         View focused = getCurrentFocus();
-        Button searchBtn = findViewById(R.id.btnHomeSearch);
+        View searchBtn = findViewById(R.id.btnHomeSearch);
         List<View> continueCards = continueCards();
         List<View> shortcuts = shortcutCards();
         boolean onSearch = focused == searchBtn;
