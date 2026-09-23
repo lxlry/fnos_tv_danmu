@@ -188,7 +188,7 @@ public class HomeActivity extends AppCompatActivity {
                 moviesContainer.getPaddingBottom()
         };
         libraryContainer = findViewById(R.id.libraryGridContainer);
-        etSearch = findViewById(R.id.etSearch);
+        etSearch = null;
         tvLibraryPageTitle = findViewById(R.id.tvLibraryPageTitle);
         tvMoviesLoading = findViewById(R.id.tvMoviesLoading);
         tvLibraryLoading = findViewById(R.id.tvLibraryLoading);
@@ -2010,7 +2010,7 @@ public class HomeActivity extends AppCompatActivity {
         FrameLayout shot = new FrameLayout(this);
         shot.setLayoutParams(new LinearLayout.LayoutParams(dp(112), dp(158)));
         shot.setBackgroundResource(R.drawable.bg_season_poster);
-        shot.setDuplicateParentState(true);
+        shot.setDuplicateParentStateEnabled(true);
         shot.setPadding(dp(2), dp(2), dp(2), dp(2));
 
         RoundedImageView poster = new RoundedImageView(this);
