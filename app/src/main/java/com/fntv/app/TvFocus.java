@@ -234,21 +234,14 @@ final class TvFocus {
         }
     }
 
-    /** 右上角搜索：按下到最近磁贴；只有正下方附近的磁贴按上才回搜索。 */
-    static void bindCornerAbove(View corner, List<View> lower) {
-        if (corner == null || lower == null || lower.isEmpty()) return;
-        setLane(corner, View.FOCUS_DOWN, lower);
-        View down = pickEntry(lower);
-        point(corner, View.FOCUS_DOWN, down != null ? down : lower.get(0));
-        for (View v : lower) {
-            if (v == null) continue;
-            cornerUp.put(v, corner);
-            if (underCorner(v, corner)) {
-                point(v, View.FOCUS_UP, corner);
-            } else {
-                point(v, View.FOCUS_UP, v);
-            }
+    /** 顶部固定项按下进入下一行；这一行的每一项按上都能回到顶部项。 */
+    static void bindAbove(View top, List<View> row) {
+        if (top == null || row == null || row.isEmpty()) return;
+        cornerUp.remove(top);
+        for (View v : row) {
+            if (v != null) cornerUp.remove(v);
         }
+        bindVertical(listOf(top), row);
     }
 
     static void bindDown(List<View> items, View target) {

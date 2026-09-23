@@ -94,6 +94,7 @@ public class HomeActivity extends AppCompatActivity {
     private int[] savedMoviesPad;
     private View lastContentFocus;
     private boolean homeEntryFocused;
+    private boolean initialFocusPlaced;
     private String lastFocusSectionTag;
     private int lastFocusIndexInSection;
     private Button detailPlayBtn;
@@ -374,6 +375,7 @@ public class HomeActivity extends AppCompatActivity {
         showingOverview = true;
         overviewBuilt = true;
         homeEntryFocused = false;
+        initialFocusPlaced = false;
         detailPlayBtn = null;
         detailOverview = null;
         detailChipRow = null;
@@ -659,7 +661,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void addContinueWatchingApi(LinearLayout cont, List<PlayListItem> items, int viewAllId) {
         if (items == null || items.isEmpty()) {
-            cont.setVisibility(View.GONE);
+            hideContinueWatching(cont);
             return;
         }
         cont.removeAllViews();
@@ -796,6 +798,12 @@ public class HomeActivity extends AppCompatActivity {
         return null;
     }
 
+    private void hideContinueWatching(LinearLayout box) {
+        if (box == null) return;
+        box.removeAllViews();
+        box.setVisibility(View.GONE);
+    }
+
     private int firstLibHeaderId() {
         for (int j = 0; j < moviesContainer.getChildCount(); j++) {
             View cv = moviesContainer.getChildAt(j);
@@ -838,8 +846,7 @@ public class HomeActivity extends AppCompatActivity {
                     LinearLayout box = findContinueWatchingBox();
                     if (box != null) {
                         if (cachedContinueWatching == null || cachedContinueWatching.isEmpty()) {
-                            box.removeAllViews();
-                            box.setVisibility(View.GONE);
+                            hideContinueWatching(box);
                         } else {
                             addContinueWatchingApi(box, cachedContinueWatching, firstLibHeaderId());
                         }
@@ -2301,13 +2308,35 @@ public class HomeActivity extends AppCompatActivity {
                     || actionId == EditorInfo.IME_ACTION_GO
                     || actionId == EditorInfo.IME_ACTION_UNSPECIFIED
                     || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
-                String q = v.getText().toString().trim();
-                performSearch(q);
-                hideKeyboard();
+                submitLibrarySearch();
                 return true;
             }
             return false;
         });
+        etSearch.setOnClickListener(v -> submitLibrarySearch());
+        etSearch.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                    || keyCode == KeyEvent.KEYCODE_ENTER
+                    || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                submitLibrarySearch();
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void submitLibrarySearch() {
+        String q = etSearch.getText().toString().trim();
+        if (q.isEmpty()) {
+            etSearch.requestFocus();
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(etSearch, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            return;
+        }
+        performSearch(q);
+        hideKeyboard();
     }
 
     private void hideKeyboard() {
@@ -3190,7 +3219,7 @@ public class HomeActivity extends AppCompatActivity {
 
         int start = 0;
         if (searchBtn != null && !lanes.isEmpty() && lanes.get(0).get(0) == searchBtn && lanes.size() > 1) {
-            TvFocus.bindCornerAbove(searchBtn, lanes.get(1));
+            TvFocus.bindAbove(searchBtn, lanes.get(1));
             start = 1;
         }
         for (int i = start; i < lanes.size() - 1; i++) {
@@ -3298,7 +3327,7 @@ public class HomeActivity extends AppCompatActivity {
             }
             return null;
         }
-        View section = moviesContainer.findViewWithTag(lastFocusSectionTag);
+        View section = findTaggedSection(lastFocusSectionTag);
         if (section == null) return null;
         List<View> items = TvFocus.collectAllFocusables(section);
         if (items.isEmpty()) return null;
@@ -3306,45 +3335,73 @@ public class HomeActivity extends AppCompatActivity {
         return isUsableFocus(pick) ? pick : null;
     }
 
+    private View findTaggedSection(String tag) {
+        return moviesContainer != null ? moviesContainer.findViewWithTag(tag) : null;
+    }
+
+    private List<View> continueCards() {
+        LinearLayout box = findContinueWatchingBox();
+        if (box == null || box.getVisibility() != View.VISIBLE) return Collections.emptyList();
+        return TvFocus.collectVisibleFocusables(box);
+    }
+
+    private List<View> shortcutCards() {
+        if (moviesContainer == null) return Collections.emptyList();
+        View shortcuts = moviesContainer.findViewWithTag("lib_shortcuts");
+        if (!(shortcuts instanceof ViewGroup) || shortcuts.getVisibility() != View.VISIBLE) {
+            return Collections.emptyList();
+        }
+        return TvFocus.collectVisibleFocusables(shortcuts);
+    }
+
     private void restoreOverviewFocus() {
         if (currentTab != 0 || !showingOverview) return;
         View focused = getCurrentFocus();
-        if (isUsableFocus(focused) && isInCurrentPanel(focused) && !isTabBar(focused)) {
+        Button searchBtn = findViewById(R.id.btnHomeSearch);
+        List<View> continueCards = continueCards();
+        List<View> shortcuts = shortcutCards();
+        boolean onSearch = focused == searchBtn;
+        boolean onRealContent = isUsableFocus(focused) && !onSearch && !isTabBar(focused)
+                && isInCurrentPanel(focused);
+
+        if (!initialFocusPlaced && !continueCards.isEmpty()) {
+            boolean stillAtStart = !onRealContent
+                    || (!shortcuts.isEmpty() && focused == shortcuts.get(0));
+            if (stillAtStart) {
+                focusOn(continueCards.get(0));
+                initialFocusPlaced = true;
+                homeEntryFocused = true;
+                return;
+            }
+            initialFocusPlaced = true;
+        }
+
+        if (onRealContent) {
             homeEntryFocused = true;
             return;
         }
         if (isTabBar(focused) && homeEntryFocused) return;
 
         View restore = restoreInRememberedSection();
-        if (isUsableFocus(restore) && isInCurrentPanel(restore)) {
-            restore.requestFocus();
+        if (isUsableFocus(restore) && isInCurrentPanel(restore) && restore != searchBtn) {
+            focusOn(restore);
             homeEntryFocused = true;
             return;
         }
-        if (isUsableFocus(lastContentFocus) && isInCurrentPanel(lastContentFocus)) {
-            lastContentFocus.requestFocus();
+        if (isUsableFocus(lastContentFocus) && isInCurrentPanel(lastContentFocus)
+                && lastContentFocus != searchBtn) {
+            focusOn(lastContentFocus);
             homeEntryFocused = true;
             return;
         }
         if (homeEntryFocused) return;
 
-        Button searchBtn = findViewById(R.id.btnHomeSearch);
-        List<View> continueCards = Collections.emptyList();
-        List<View> shortcuts = Collections.emptyList();
-        for (int i = 0; i < moviesContainer.getChildCount(); i++) {
-            View child = moviesContainer.getChildAt(i);
-            if ("continue_watching".equals(child.getTag()) && child.getVisibility() == View.VISIBLE) {
-                continueCards = TvFocus.collectVisibleFocusables(child);
-            } else if ("lib_shortcuts".equals(child.getTag())) {
-                shortcuts = TvFocus.collectVisibleFocusables(child);
-            }
-        }
         View target = !continueCards.isEmpty() ? continueCards.get(0)
-                : (!shortcuts.isEmpty() ? shortcuts.get(0)
-                : (searchBtn != null ? searchBtn : null));
+                : (!shortcuts.isEmpty() ? shortcuts.get(0) : searchBtn);
         if (isUsableFocus(target)) {
-            target.requestFocus();
+            focusOn(target);
             homeEntryFocused = true;
+            if (!continueCards.isEmpty()) initialFocusPlaced = true;
         }
     }
 
@@ -3429,7 +3486,59 @@ public class HomeActivity extends AppCompatActivity {
                 new android.graphics.Rect(0, 0,
                         Math.max(target.getWidth(), 1),
                         Math.max(target.getHeight(), 1)),
-                false);
+                true);
+        target.post(() -> revealInVerticalScroll(target));
+    }
+
+    /** 滚回上方时把整行拉进可视区域，避免焦点落在屏幕外看起来像这一栏消失了。 */
+    private void revealInVerticalScroll(View target) {
+        ScrollView scroller = findVerticalScroller(target);
+        if (scroller == null || scroller.getChildCount() == 0) return;
+        View block = ancestorTagged(target, "continue_watching");
+        View shown = block != null ? block : target;
+        int top = topWithinContent(shown, scroller);
+        int height = Math.max(shown.getHeight(), 1);
+        int scrollY = scroller.getScrollY();
+        int viewport = scroller.getHeight();
+        if (viewport <= 0) return;
+        if (top >= scrollY && top + height <= scrollY + viewport) return;
+        int dest = height >= viewport || top < scrollY ? top : top + height - viewport;
+        scroller.scrollTo(0, Math.max(0, dest));
+    }
+
+    private ScrollView findVerticalScroller(View target) {
+        ViewParent parent = target.getParent();
+        while (parent instanceof View) {
+            if (parent instanceof ScrollView && !(parent instanceof HorizontalScrollView)) {
+                return (ScrollView) parent;
+            }
+            parent = parent.getParent();
+        }
+        return null;
+    }
+
+    private View ancestorTagged(View target, String tag) {
+        View v = target;
+        while (v != null) {
+            if (tag.equals(v.getTag())) return v;
+            ViewParent parent = v.getParent();
+            if (!(parent instanceof View)) return null;
+            v = (View) parent;
+        }
+        return null;
+    }
+
+    private int topWithinContent(View target, ScrollView scroller) {
+        int y = 0;
+        View v = target;
+        View content = scroller.getChildAt(0);
+        while (v != null && v != content && v != scroller) {
+            y += v.getTop();
+            ViewParent parent = v.getParent();
+            if (!(parent instanceof View)) break;
+            v = (View) parent;
+        }
+        return y;
     }
 
     @Override
