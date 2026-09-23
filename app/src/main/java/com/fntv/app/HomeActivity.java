@@ -50,6 +50,9 @@ public class HomeActivity extends AppCompatActivity {
     private boolean showingOverview = true;
     private boolean showingEpisodes = false;
     private boolean loadingPreviews = false;
+    private boolean overviewLoading = false;
+    private boolean continueLoading = false;
+    private boolean liveLoading = false;
 
     // 媒体库浏览排序状态
     private String currentBrowseGuid;
@@ -67,6 +70,8 @@ public class HomeActivity extends AppCompatActivity {
     private long t0;
     private boolean overviewBuilt = false;
     private List<PlayListItem> cachedContinueWatching;
+    private List<PlayListItem> cachedLivePreview;
+    private int cachedLiveTotal;
     private long backPressedTime = 0;
 
     private int color(int resId) {
@@ -223,7 +228,7 @@ public class HomeActivity extends AppCompatActivity {
                 loadLiveChannels();
             }
             loadContinueWatching();
-        } else if (currentTab == 0 && !overviewBuilt && showingOverview) {
+        } else if (currentTab == 0 && !overviewBuilt && showingOverview && !overviewLoading) {
             loadOverview();
         }
     }
@@ -303,11 +308,17 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void loadOverview() {
+        if (overviewLoading) return;
+        if (apiManager.getApi() == null) return;
+        overviewLoading = true;
         Log.d("Overview", "loadOverview start  t=" + (System.currentTimeMillis() - t0) + "ms");
         showingOverview = true;
         overviewBuilt = false;
         loadingPreviews = false;
         tvMoviesLoading.setVisibility(View.VISIBLE);
+        // 不依赖媒体库名单，和名单并行请求，回来时能直接画上
+        loadContinueWatching();
+        loadLiveChannels();
 
         final int[] retryCount = {1};
         apiManager.getApi().getMediaDbList().enqueue(new Callback<ApiResponse<List<MediaDbItem>>>() {
@@ -319,13 +330,14 @@ public class HomeActivity extends AppCompatActivity {
                 if (response.body() != null && response.body().code != 0) {
                     try { Log.w("Overview", "错误响应: " + new com.google.gson.Gson().toJson(response.body())); } catch (Exception ignored) {}
                 }
-                // Auth Failed 时重试一次
+                // Auth Failed 时重试一次，这次不算结束
                 if (response.body() != null && response.body().code == -2 && retryCount[0] > 0) {
                     retryCount[0]--;
                     Log.d("Overview", "Auth Failed，重试中...");
                     call.clone().enqueue(this);
                     return;
                 }
+                overviewLoading = false;
                 if (response.isSuccessful() && response.body() != null && response.body().code == 0
                         && response.body().data != null && !response.body().data.isEmpty()) {
                     mediaLibraries.clear();
@@ -335,14 +347,13 @@ public class HomeActivity extends AppCompatActivity {
                     Log.d("Overview", "loaded " + mediaLibraries.size() + " libraries");
                     showOverview();
                     loadAllPreviews();
-                    loadContinueWatching();
-                    loadLiveChannels();
                 } else {
                     tvMoviesLoading.setVisibility(View.GONE);
                 }
             }
             @Override
             public void onFailure(Call<ApiResponse<List<MediaDbItem>>> call, Throwable t) {
+                overviewLoading = false;
                 tvMoviesLoading.setVisibility(View.GONE);
                 Log.e("Overview", "getMediaDbList onFailure: " + t.getMessage() + " t=" + (System.currentTimeMillis() - t0) + "ms");
             }
@@ -392,6 +403,14 @@ public class HomeActivity extends AppCompatActivity {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             previewBox.setOrientation(LinearLayout.VERTICAL);
             previewBox.setTag("preview_" + lib.guid);
+            TextView previewLoading = new TextView(this);
+            previewLoading.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            previewLoading.setPadding(dp(8), dp(4), dp(8), dp(8));
+            previewLoading.setText("加载中...");
+            previewLoading.setTextColor(color(R.color.text_hint));
+            previewLoading.setTextSize(13);
+            previewBox.addView(previewLoading);
             moviesContainer.addView(previewBox);
             moviesContainer.addView(makeSpacer(dp(8)));
         }
@@ -405,6 +424,9 @@ public class HomeActivity extends AppCompatActivity {
             e.setTextColor(color(R.color.text_hint));
             e.setTextSize(14);
             moviesContainer.addView(e);
+        }
+        if (cachedLivePreview != null && !cachedLivePreview.isEmpty()) {
+            fillLiveChannelPreview(cachedLivePreview, cachedLiveTotal);
         }
         wireOverviewFocus();
     }
@@ -764,11 +786,13 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void loadContinueWatching() {
-        if (apiManager.getApi() == null) return;
+        if (apiManager.getApi() == null || continueLoading) return;
+        continueLoading = true;
         apiManager.getApi().getPlayList().enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
             @Override
             public void onResponse(Call<ApiResponse<List<PlayListItem>>> call,
                                    Response<ApiResponse<List<PlayListItem>>> response) {
+                continueLoading = false;
                 List<PlayListItem> list = (response.isSuccessful() && response.body() != null
                         && response.body().code == 0) ? response.body().data : null;
                 if (list != null && !list.isEmpty()) {
@@ -788,6 +812,7 @@ public class HomeActivity extends AppCompatActivity {
             }
             @Override
             public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
+                continueLoading = false;
                 if (!showingOverview) return;
                 LinearLayout box = findContinueWatchingBox();
                 if (box == null) return;
@@ -2626,6 +2651,8 @@ public class HomeActivity extends AppCompatActivity {
 
     /** 加载直播频道（total>0 则显示预览区） */
     private void loadLiveChannels() {
+        if (apiManager.getApi() == null || liveLoading) return;
+        liveLoading = true;
         try {
             ItemListRequest liveReq = ItemListRequest.browseLiveChannels();
             Log.d("LiveChannel", "请求体: " + new com.google.gson.Gson().toJson(liveReq));
@@ -2634,6 +2661,7 @@ public class HomeActivity extends AppCompatActivity {
                 @Override
                 public void onResponse(Call<ApiResponse<ItemListResponse>> call,
                                        Response<ApiResponse<ItemListResponse>> response) {
+                    liveLoading = false;
                     try {
                         Log.d("LiveChannel", "响应 code=" + response.code()
                                 + " isSuccessful=" + response.isSuccessful());
@@ -2660,7 +2688,11 @@ public class HomeActivity extends AppCompatActivity {
                         Log.d("LiveChannel", "直播频道: total=" + total + " items=" + items.size());
                         if (total > 0) {
                             List<PlayListItem> preview = items.size() > 20 ? items.subList(0, 20) : items;
-                            fillLiveChannelPreview(preview, total);
+                            cachedLivePreview = new ArrayList<>(preview);
+                            cachedLiveTotal = total;
+                            if (showingOverview && overviewBuilt && moviesContainer != null) {
+                                fillLiveChannelPreview(cachedLivePreview, cachedLiveTotal);
+                            }
                         }
                     } catch (Exception e) {
                         Log.e("LiveChannel", "onResponse 异常", e);
@@ -2668,10 +2700,12 @@ public class HomeActivity extends AppCompatActivity {
                 }
                 @Override
                 public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
+                    liveLoading = false;
                     Log.e("LiveChannel", "请求失败: " + t.getMessage(), t);
                 }
             });
         } catch (Exception e) {
+            liveLoading = false;
             Log.e("LiveChannel", "loadLiveChannels 异常", e);
         }
     }
