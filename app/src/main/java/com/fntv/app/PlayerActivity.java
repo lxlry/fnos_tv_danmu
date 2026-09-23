@@ -407,7 +407,7 @@ public class PlayerActivity extends AppCompatActivity {
                 btnQuality.setVisibility(View.GONE);
             }
         }
-        btnBack.setOnClickListener(v -> { restoreOrientation(); finish(); });
+        btnBack.setOnClickListener(v -> finish());
         btnDanmu.setOnClickListener(v -> danmuManager.showSettings());
         btnLock.setOnClickListener(v -> {
             isLocked = !isLocked;
@@ -1959,7 +1959,6 @@ public class PlayerActivity extends AppCompatActivity {
             switch (k) {
                 case KeyEvent.KEYCODE_BACK:
                     if (backPressedTime + 2000 > System.currentTimeMillis()) {
-                        restoreOrientation();
                         finish();
                     } else {
                         backPressedTime = System.currentTimeMillis();
