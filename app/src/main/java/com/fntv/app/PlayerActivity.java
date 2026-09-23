@@ -38,14 +38,17 @@ public class PlayerActivity extends AppCompatActivity {
     private SimpleExoPlayer player;
     private TextView tvBuffering, tvTime, infoText;
     private SeekBar seekBar;
-    private Button btnPlayPause, btnRewind, btnForward, btnSpeed, btnRatio, btnInfo, btnCloseInfo, btnEpisodeList, btnNextEp, btnBack, btnDanmu, btnHdrToggle, btnQuality;
+    private Button btnPlayPause, btnRewind, btnForward, btnSpeed, btnInfo, btnCloseInfo, btnEpisodeList, btnNextEp, btnBack, btnMore, btnDanmu, btnHdrToggle, btnHdrRow, btnQuality;
+    private Button[] ratioChips;
     private ImageView btnLock;
     private TextView tvTitle, tvDanmuStatus, tvDanmuMatch, tvSpeedHint, infoTextAudio, infoTextExtra;
     private Button btnCloudMode, btnBrightness, btnSkip;
     private boolean introSkipped = false, outroSkipped = false;
     private float speedBeforeLongPress = 1.0f;
     private DanmuView danmuView;
-    private View controller, infoPanel, topBar;
+    private View controller, infoPanel, topBar, moreScrim;
+    private boolean moreOpen;
+    private float naturalAspect;
     private boolean isLocked = false;
     private DanmuManager danmuManager;
     private QualitySelectHelper qualityHelper;
@@ -77,8 +80,7 @@ public class PlayerActivity extends AppCompatActivity {
     private String customPlayLink = "";     // 非原画时的 play_link
     private static final String TAG = "Player";
 
-    private static final int[] RATIO_MODES = {0, 1, 2};
-    private static final String[] RATIO_LABELS = {"适应", "拉伸", "缩放"};
+    private static final String[] RATIO_LABELS = {"适应", "填充", "4:3", "16:9", "21:9"};
     private String actualVideoDecoder = "";
     private String actualAudioDecoder = "";
     // 流 API 探测数据
@@ -133,14 +135,23 @@ public class PlayerActivity extends AppCompatActivity {
         btnRewind = findViewById(R.id.btnRewind);
         btnForward = findViewById(R.id.btnForward);
         btnSpeed = findViewById(R.id.btnSpeed);
-        btnRatio = findViewById(R.id.btnRatio);
         btnInfo = findViewById(R.id.btnInfo);
         btnQuality = findViewById(R.id.btnQuality);
         btnCloseInfo = findViewById(R.id.btnCloseInfo);
         btnEpisodeList = findViewById(R.id.btnEpisodeList);
         btnNextEp = findViewById(R.id.btnNextEp);
         btnBack = findViewById(R.id.btnBack);
+        btnMore = findViewById(R.id.btnMore);
         btnDanmu = findViewById(R.id.btnDanmu);
+        moreScrim = findViewById(R.id.moreScrim);
+        btnHdrRow = findViewById(R.id.btnHdrRow);
+        ratioChips = new Button[] {
+                findViewById(R.id.btnRatioFit),
+                findViewById(R.id.btnRatioFill),
+                findViewById(R.id.btnRatio43),
+                findViewById(R.id.btnRatio169),
+                findViewById(R.id.btnRatio219)
+        };
         danmuView = findViewById(R.id.danmuView);
         btnLock = (ImageView) findViewById(R.id.btnLock);
         tvTitle = findViewById(R.id.tvTitle);
@@ -290,11 +301,13 @@ public class PlayerActivity extends AppCompatActivity {
             @Override public void onPickerChanged(boolean open) {
                 if (!open) return;
                 handler.removeCallbacks(hideC);
+                moreOpen = false;
+                if (moreScrim != null) moreScrim.setVisibility(View.GONE);
                 ctrlVis = false;
                 controller.setVisibility(View.INVISIBLE);
                 topBar.setVisibility(View.INVISIBLE);
                 btnLock.setVisibility(View.INVISIBLE);
-                btnDanmu.setVisibility(View.INVISIBLE);
+                applyChromeSystemUi(false);
             }
             @Override public void onSwitchEpisode(String guid, String title) {
                 saveProgress(true);
@@ -318,14 +331,26 @@ public class PlayerActivity extends AppCompatActivity {
         btnRewind.setText("-" + (seekStep / 1000) + "秒");
         btnForward.setText("+" + (seekStep / 1000) + "秒");
         btnSpeed.setOnClickListener(v -> cycleSpeed());
-        btnRatio.setOnClickListener(v -> cycleRatio());
-        btnInfo.setOnClickListener(v -> toggleInfo());
+        btnMore.setOnClickListener(v -> showMore(true));
+        if (moreScrim != null) moreScrim.setOnClickListener(v -> showMore(false));
+        View morePanel = findViewById(R.id.morePanel);
+        if (morePanel != null) morePanel.setOnClickListener(v -> { });
+        for (int i = 0; i < ratioChips.length; i++) {
+            final int index = i;
+            if (ratioChips[i] != null) ratioChips[i].setOnClickListener(v -> setRatio(index));
+        }
+        setRatio(0);
+        btnInfo.setOnClickListener(v -> {
+            showMore(false);
+            if (!infoVis) toggleInfo();
+        });
         qualityHelper = new QualitySelectHelper(this, apiManager, getSharedPreferences("fntv_prefs", MODE_PRIVATE),
                 new QualitySelectHelper.QualityCallback() {
                     @Override public void onQualityChanged(int level) {
                         customQualityRes = "";
                         customQualityBitrate = 0;
                         customPlayLink = "";
+                        refreshQualityLabel();
                         if (cloudStreamManager != null) {
                             getSharedPreferences("fntv_prefs", MODE_PRIVATE)
                                     .edit().putInt("stream_quality_level", level).apply();
@@ -336,6 +361,7 @@ public class PlayerActivity extends AppCompatActivity {
                         customQualityRes = res;
                         customQualityBitrate = bps;
                         customPlayLink = playLink;
+                        refreshQualityLabel();
                         // 记录切换前的播放位置（秒）
                         final long seekPosMs = player != null ? Math.max(0, player.getCurrentPosition()) : 0;
                         String fullUrl = baseUrl + playLink;
@@ -499,8 +525,11 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (btnHdrToggle != null) {
             btnHdrToggle.setOnClickListener(v -> toggleHdr());
-            updateHdrButtonText();
         }
+        if (btnHdrRow != null) {
+            btnHdrRow.setOnClickListener(v -> toggleHdr());
+        }
+        updateHdrButtonText();
 
         setupFocusAutoHide();
 
@@ -508,9 +537,9 @@ public class PlayerActivity extends AppCompatActivity {
             @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
                 if (fromUser && player != null) {
                     // 立即更新 UI（时间显示）
-                    tvTime.setText(FormatUtils.fmt(p) + " / " + FormatUtils.fmt(player.getDuration()));
+                    tvTime.setText(playClock(p, player.getDuration()));
                     if (tvSeekOverlay.getVisibility() == View.VISIBLE) {
-                        tvSeekOverlay.setText(FormatUtils.fmt(p) + " / " + FormatUtils.fmt(player.getDuration()));
+                        tvSeekOverlay.setText(playClock(p, player.getDuration()));
                     }
                     // 防抖：停止操作 1s 后才真正 seek，避免按住时大量请求
                     if (seekCommitR != null) handler.removeCallbacks(seekCommitR);
@@ -540,7 +569,6 @@ public class PlayerActivity extends AppCompatActivity {
         showCtrl(true);
         loadPlayInfo();
         setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        hideSystemUi();
 
         // 控制栏隐藏时的进度时间浮层
         tvSeekOverlay = new TextView(this);
@@ -625,6 +653,13 @@ public class PlayerActivity extends AppCompatActivity {
         });
 
         player.addListener(new Player.Listener() {
+            @Override public void onVideoSizeChanged(com.google.android.exoplayer2.video.VideoSize videoSize) {
+                if (videoSize != null && videoSize.height > 0) {
+                    float ratio = videoSize.width * videoSize.pixelWidthHeightRatio / (float) videoSize.height;
+                    if (ratio > 0f) naturalAspect = ratio;
+                }
+                handler.post(() -> applyAspectRatio());
+            }
             @Override public void onPlaybackStateChanged(int s) {
                 tvBuffering.setVisibility(s == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 if (s == Player.STATE_READY) {
@@ -632,7 +667,7 @@ public class PlayerActivity extends AppCompatActivity {
                     if (!seeked && seekTs > 0) { player.seekTo(seekTs); seeked = true; }
                     ensureSaveLoop(); updateTime();
                     if (firstReady) { scheduleInitialSave(); showCtrl(true); firstReady = false; }
-                    btnPlayPause.setText(player.isPlaying() ? "暂停" : "播放");
+                    syncPlayButton();
                     if (danmuManager != null) danmuManager.onPlayerReady();
                     // HDR 检测（延时等格式就绪）
                     checkHdr();
@@ -892,7 +927,7 @@ public class PlayerActivity extends AppCompatActivity {
                     if (!seeked && seekTs > 0) { player.seekTo(seekTs); seeked = true; }
                     ensureSaveLoop();
                     if (firstReady) { scheduleInitialSave(); showCtrl(true); firstReady = false; }
-                    btnPlayPause.setText(player.isPlaying() ? "暂停" : "播放");
+                    syncPlayButton();
                 } else if (s == Player.STATE_ENDED) {
                     noteProgress();
                     saveProgress(true);
@@ -941,11 +976,11 @@ public class PlayerActivity extends AppCompatActivity {
         if (player == null) return;
         if (player.isPlaying()) {
             player.pause();
-            btnPlayPause.setText("播放");
+            syncPlayButton();
             if (danmuManager != null) danmuManager.onPlayerPause();
         } else {
             player.play();
-            btnPlayPause.setText("暂停");
+            syncPlayButton();
             updateTime();
             if (danmuManager != null) danmuManager.onPlayerReady();
         }
@@ -973,10 +1008,10 @@ public class PlayerActivity extends AppCompatActivity {
             lp.gravity = Gravity.CENTER;
             tvSeekOverlay.setLayoutParams(lp);
         }
-        String label = (delta >= 0 ? "快进  " : "快退  ") + FormatUtils.fmt(target) + " / " + FormatUtils.fmt(dur);
+        String label = (delta >= 0 ? "快进  " : "快退  ") + playClock(target, dur);
         tvSeekOverlay.setText(label);
         tvSeekOverlay.setVisibility(View.VISIBLE);
-        tvTime.setText(FormatUtils.fmt(target) + " / " + FormatUtils.fmt(dur));
+        tvTime.setText(playClock(target, dur));
         if (dur <= Integer.MAX_VALUE) {
             seekBar.setMax((int) dur);
             seekBar.setProgress((int) target);
@@ -1017,28 +1052,80 @@ public class PlayerActivity extends AppCompatActivity {
     private void cycleSpeed() {
         speedIdx = (speedIdx + 1) % speeds.length;
         float s = speeds[speedIdx];
-        btnSpeed.setText((s == (int)s ? String.valueOf((int)s) : String.valueOf(s)) + "x");
+        btnSpeed.setText(speedText(s));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) player.setPlaybackSpeed(s);
         if (danmuManager != null) danmuView.setPlaybackSpeed(s);
     }
 
-    private void cycleRatio() {
-        ratioIdx = (ratioIdx + 1) % RATIO_MODES.length;
-        btnRatio.setText(RATIO_LABELS[ratioIdx]);
-        if (playerView != null) {
-            playerView.setResizeMode(RATIO_MODES[ratioIdx]);
-            // 拉伸/缩放时把字幕上移，避免被裁切
-            if (playerView.getSubtitleView() != null) {
-                ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) playerView.getSubtitleView().getLayoutParams();
-                if (lp != null) {
-                    int bottom = RATIO_MODES[ratioIdx] == 0 ? 0 : (int)(55 * getResources().getDisplayMetrics().density);
-                    if (lp.bottomMargin != bottom) {
-                        lp.bottomMargin = bottom;
-                        playerView.getSubtitleView().setLayoutParams(lp);
-                    }
+    private String speedText(float s) {
+        String n = s == (int) s ? String.valueOf((int) s) : String.valueOf(s);
+        return n + "X";
+    }
+
+    private String playClock(long cur, long dur) {
+        return FormatUtils.fmt(cur) + "/" + FormatUtils.fmt(dur);
+    }
+
+    private void refreshQualityLabel() {
+        if (btnQuality == null || qualityHelper == null) return;
+        btnQuality.setText(qualityHelper.getCurrentLabel());
+    }
+
+    private void syncPlayButton() {
+        if (btnPlayPause == null) return;
+        boolean playing = player != null && player.isPlaying();
+        btnPlayPause.setText(playing ? "Ⅱ" : "▶");
+    }
+
+    private void setRatio(int index) {
+        if (index < 0 || index >= RATIO_LABELS.length) return;
+        ratioIdx = index;
+        if (ratioChips != null) {
+            for (int i = 0; i < ratioChips.length; i++) {
+                if (ratioChips[i] != null) ratioChips[i].setSelected(i == index);
+            }
+        }
+        applyAspectRatio();
+    }
+
+    private void applyAspectRatio() {
+        if (playerView == null) return;
+        com.google.android.exoplayer2.ui.AspectRatioFrameLayout frame = findAspectFrame(playerView);
+        if (ratioIdx == 1) {
+            playerView.setResizeMode(com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+            if (frame != null && naturalAspect > 0f) frame.setAspectRatio(naturalAspect);
+        } else if (ratioIdx >= 2) {
+            float forced = ratioIdx == 2 ? 4f / 3f : ratioIdx == 3 ? 16f / 9f : 21f / 9f;
+            playerView.setResizeMode(com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
+            if (frame != null) frame.setAspectRatio(forced);
+        } else {
+            playerView.setResizeMode(com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
+            if (frame != null && naturalAspect > 0f) frame.setAspectRatio(naturalAspect);
+        }
+        if (playerView.getSubtitleView() != null) {
+            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) playerView.getSubtitleView().getLayoutParams();
+            if (lp != null) {
+                int bottom = ratioIdx == 0 ? 0 : (int) (55 * getResources().getDisplayMetrics().density);
+                if (lp.bottomMargin != bottom) {
+                    lp.bottomMargin = bottom;
+                    playerView.getSubtitleView().setLayoutParams(lp);
                 }
             }
         }
+    }
+
+    private com.google.android.exoplayer2.ui.AspectRatioFrameLayout findAspectFrame(View v) {
+        if (v instanceof com.google.android.exoplayer2.ui.AspectRatioFrameLayout) {
+            return (com.google.android.exoplayer2.ui.AspectRatioFrameLayout) v;
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) v;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                com.google.android.exoplayer2.ui.AspectRatioFrameLayout found = findAspectFrame(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private void checkHdr() {
@@ -1198,15 +1285,17 @@ public class PlayerActivity extends AppCompatActivity {
 
     /** 更新 HDR 按钮文字 */
     private void updateHdrButtonText() {
-        if (btnHdrToggle == null) return;
         boolean enabled = getSharedPreferences("fntv_prefs", MODE_PRIVATE).getBoolean("hdr_enabled", false);
         boolean videoHdr = isHdrVideo();
-        if (videoHdr) {
-            btnHdrToggle.setText(enabled ? "HDR:开" : "HDR:关");
-            btnHdrToggle.setTextColor(enabled ? 0xFF81C784 : 0xFFE57373);
-        } else {
-            btnHdrToggle.setText("HDR");
-            btnHdrToggle.setTextColor(0xFF808080);
+        String label = videoHdr ? (enabled ? "HDR:开" : "HDR:关") : "HDR";
+        int color = videoHdr ? (enabled ? 0xFF81C784 : 0xFFE57373) : 0xFFB0B0B0;
+        if (btnHdrToggle != null) {
+            btnHdrToggle.setText(label);
+            btnHdrToggle.setTextColor(color);
+        }
+        if (btnHdrRow != null) {
+            btnHdrRow.setText(label);
+            btnHdrRow.setTextColor(color);
         }
     }
 
@@ -1311,32 +1400,112 @@ public class PlayerActivity extends AppCompatActivity {
     private void showCtrl(boolean show) {
         if (show && isLocked) {
             btnLock.setVisibility(View.VISIBLE);
+            applyChromeSystemUi(true);
             return;
+        }
+        if (show && moreOpen) {
+            ctrlVis = true;
+            applyChromeSystemUi(true);
+            return;
+        }
+        if (!show) {
+            moreOpen = false;
+            if (moreScrim != null) moreScrim.setVisibility(View.GONE);
         }
         ctrlVis = show;
         controller.setVisibility(show ? View.VISIBLE : View.INVISIBLE);
         topBar.setVisibility(show ? View.VISIBLE : View.INVISIBLE);
         btnLock.setVisibility(show ? View.VISIBLE : View.INVISIBLE);
-        btnDanmu.setVisibility(show ? View.VISIBLE : View.INVISIBLE);
         if (show) {
             updateTitle();
+            syncPlayButton();
             resetHideTimer();
             controller.post(this::wirePlayerFocus);
         }
-        else hideSystemUi();
+        applyChromeSystemUi(show);
     }
+
+    /** 手机弹出控制栏时露出状态栏。电视保持全屏。 */
+    private void applyChromeSystemUi(boolean controlsVisible) {
+        if (isTvDevice() || !controlsVisible) {
+            hideSystemUi();
+            if (topBar != null) topBar.setPadding(0, 0, 0, topBar.getPaddingBottom());
+            return;
+        }
+        View decor = getWindow().getDecorView();
+        int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+        decor.setSystemUiVisibility(flags);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().setDecorFitsSystemWindows(false);
+            android.view.WindowInsetsController insets = decor.getWindowInsetsController();
+            if (insets != null) {
+                insets.show(android.view.WindowInsets.Type.statusBars());
+                insets.hide(android.view.WindowInsets.Type.navigationBars());
+                insets.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().setStatusBarColor(Color.TRANSPARENT);
+        }
+        try {
+            new androidx.core.view.WindowInsetsControllerCompat(getWindow(), decor)
+                    .setAppearanceLightStatusBars(false);
+        } catch (Exception ignored) {}
+        int inset = 0;
+        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (resId > 0) inset = getResources().getDimensionPixelSize(resId);
+        if (topBar != null) topBar.setPadding(0, inset, 0, topBar.getPaddingBottom());
+    }
+
+    private void showMore(boolean show) {
+        moreOpen = show;
+        if (moreScrim != null) moreScrim.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            controller.setVisibility(View.INVISIBLE);
+            topBar.setVisibility(View.INVISIBLE);
+            btnLock.setVisibility(View.INVISIBLE);
+            View panel = findViewById(R.id.morePanel);
+            if (panel != null) {
+                int pad = (int) (18 * getResources().getDisplayMetrics().density);
+                int top = pad;
+                if (!isTvDevice()) {
+                    int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+                    if (resId > 0) top += getResources().getDimensionPixelSize(resId);
+                }
+                panel.setPadding(pad, top, pad, pad);
+            }
+            applyChromeSystemUi(true);
+            handler.removeCallbacks(hideC);
+            if (moreScrim != null) {
+                moreScrim.post(() -> {
+                    wireMoreFocus();
+                    if (btnDanmu != null) btnDanmu.requestFocus();
+                });
+            }
+        } else if (ctrlVis && !isLocked) {
+            controller.setVisibility(View.VISIBLE);
+            topBar.setVisibility(View.VISIBLE);
+            btnLock.setVisibility(View.VISIBLE);
+            resetHideTimer();
+            controller.post(this::wirePlayerFocus);
+        }
+    }
+
     private void resetHideTimer() {
         handler.removeCallbacks(hideC);
         handler.postDelayed(hideC, 5000);
     }
     private final Runnable hideC = () -> {
-        // 焦点在控制器按钮上时推迟隐藏，infoPanel/顶栏/无焦点时正常隐藏
-        if (controller.hasFocus() || btnDanmu.hasFocus() || btnLock.hasFocus()
-                || btnCloudMode.hasFocus() || btnBrightness.hasFocus() || btnSkip.hasFocus()
-                || btnInfo.hasFocus() || btnBack.hasFocus()
-                || (findViewById(R.id.btnSubtitleTrack) != null && findViewById(R.id.btnSubtitleTrack).hasFocus())
-                || (btnHdrToggle != null && btnHdrToggle.hasFocus())
-                || (btnQuality != null && btnQuality.hasFocus())) {
+        if (moreOpen || infoVis) {
+            resetHideTimer();
+            return;
+        }
+        if (controller.hasFocus() || topBar.hasFocus() || btnLock.hasFocus()
+                || (infoPanel != null && infoPanel.hasFocus())) {
             resetHideTimer();
             return;
         }
@@ -1344,19 +1513,20 @@ public class PlayerActivity extends AppCompatActivity {
     };
 
     private void wirePlayerFocus() {
-        List<View> top = TvFocus.present(btnBack, btnCloudMode);
-        List<View> sides = TvFocus.present(btnDanmu, btnLock);
+        List<View> top = TvFocus.present(btnBack, btnMore);
+        List<View> sides = TvFocus.present(btnLock);
         List<View> seek = TvFocus.present(seekBar);
         View btnSubtitleTrack = findViewById(R.id.btnSubtitleTrack);
         View btnAudioTrack = findViewById(R.id.btnAudioTrack);
-        List<View> bottom = TvFocus.present(btnPlayPause, btnRewind, btnForward, btnSpeed, btnRatio,
-                btnEpisodeList, btnNextEp, btnSubtitleTrack, btnAudioTrack, btnSkip, btnInfo, btnQuality, btnBrightness);
+        List<View> bottom = TvFocus.present(btnPlayPause, btnNextEp, btnEpisodeList, btnSpeed,
+                btnAudioTrack, btnSubtitleTrack, btnQuality, btnSkip);
         TvFocus.bindRow(top);
         TvFocus.bindRow(sides);
         TvFocus.bindRow(bottom);
         if (!top.isEmpty() && !sides.isEmpty()) TvFocus.bindVertical(top, sides);
         else if (!top.isEmpty() && !seek.isEmpty()) TvFocus.bindVertical(top, seek);
         if (!sides.isEmpty() && !seek.isEmpty()) TvFocus.bindVertical(sides, seek);
+        else if (!top.isEmpty() && !seek.isEmpty()) TvFocus.bindVertical(top, seek);
         if (!seek.isEmpty() && !bottom.isEmpty()) TvFocus.bindVertical(seek, bottom);
         for (View v : top) TvFocus.point(v, View.FOCUS_UP, v);
         for (View v : bottom) TvFocus.point(v, View.FOCUS_DOWN, v);
@@ -1364,6 +1534,35 @@ public class PlayerActivity extends AppCompatActivity {
         TvFocus.sealAll(sides);
         TvFocus.sealAll(seek);
         TvFocus.sealAll(bottom);
+    }
+
+    private void wireMoreFocus() {
+        List<View> rows = TvFocus.present(btnDanmu, btnCloudMode, btnRewind, btnForward, btnInfo, btnBrightness, btnHdrRow);
+        List<View> ratios = new java.util.ArrayList<>();
+        if (ratioChips != null) {
+            for (Button chip : ratioChips) {
+                if (chip != null && chip.getVisibility() == View.VISIBLE) ratios.add(chip);
+            }
+        }
+        for (int i = 0; i < rows.size(); i++) {
+            List<View> one = java.util.Collections.singletonList(rows.get(i));
+            if (i + 1 < rows.size()) {
+                TvFocus.bindVertical(one, java.util.Collections.singletonList(rows.get(i + 1)));
+            } else if (!ratios.isEmpty()) {
+                TvFocus.bindVertical(one, ratios);
+            }
+            TvFocus.point(rows.get(i), View.FOCUS_LEFT, rows.get(i));
+            TvFocus.point(rows.get(i), View.FOCUS_RIGHT, rows.get(i));
+        }
+        if (!rows.isEmpty()) TvFocus.point(rows.get(0), View.FOCUS_UP, rows.get(0));
+        if (!ratios.isEmpty()) {
+            TvFocus.bindRow(ratios);
+            for (View chip : ratios) TvFocus.point(chip, View.FOCUS_DOWN, chip);
+            TvFocus.sealAll(ratios);
+        } else if (!rows.isEmpty()) {
+            TvFocus.point(rows.get(rows.size() - 1), View.FOCUS_DOWN, rows.get(rows.size() - 1));
+        }
+        TvFocus.sealAll(rows);
     }
 
     private void setupFocusAutoHide() {
@@ -1374,17 +1573,23 @@ public class PlayerActivity extends AppCompatActivity {
         btnRewind.setOnFocusChangeListener(l);
         btnForward.setOnFocusChangeListener(l);
         btnSpeed.setOnFocusChangeListener(l);
-        btnRatio.setOnFocusChangeListener(l);
         btnInfo.setOnFocusChangeListener(l);
         if (btnQuality != null) btnQuality.setOnFocusChangeListener(l);
         btnEpisodeList.setOnFocusChangeListener(l);
         btnNextEp.setOnFocusChangeListener(l);
         btnBack.setOnFocusChangeListener(l);
+        if (btnMore != null) btnMore.setOnFocusChangeListener(l);
         btnDanmu.setOnFocusChangeListener(l);
         btnLock.setOnFocusChangeListener(l);
         btnCloudMode.setOnFocusChangeListener(l);
         if (btnBrightness != null) btnBrightness.setOnFocusChangeListener(l);
+        if (btnHdrRow != null) btnHdrRow.setOnFocusChangeListener(l);
         if (btnSkip != null) btnSkip.setOnFocusChangeListener(l);
+        if (ratioChips != null) {
+            for (Button chip : ratioChips) {
+                if (chip != null) chip.setOnFocusChangeListener(l);
+            }
+        }
         View btnAudioTrack = findViewById(R.id.btnAudioTrack);
         View btnSubtitleTrack = findViewById(R.id.btnSubtitleTrack);
         if (btnAudioTrack != null) btnAudioTrack.setOnFocusChangeListener(l);
@@ -1401,7 +1606,7 @@ public class PlayerActivity extends AppCompatActivity {
         seekBar.setKeyProgressIncrement(5000); // 方向键每次 5 秒
         // 防抖期间不覆盖 UI，避免抽搐（tvTime 和 seekBar 进度由 onProgressChanged 控制）
         if (pendingSeekMs < 0) {
-            tvTime.setText(FormatUtils.fmt(cur) + " / " + FormatUtils.fmt(dur));
+            tvTime.setText(playClock(cur, dur));
             seekBar.setProgress((int) cur);
         }
         // 显示缓冲进度（灰色条）
@@ -1700,12 +1905,13 @@ public class PlayerActivity extends AppCompatActivity {
         if (ctrlVis) {
             switch (k) {
                 case KeyEvent.KEYCODE_BACK:
+                    if (moreOpen) { showMore(false); return true; }
                     if (infoVis) { toggleInfo(); return true; }
                     // 有控件焦点 → 清掉，自动回退到 playerView
-                    if (controller.hasFocus() || btnDanmu.hasFocus() || btnLock.hasFocus() || btnCloudMode.hasFocus() || btnBrightness.hasFocus() || btnSkip.hasFocus() || topBar.hasFocus() || btnBack.hasFocus()) {
+                    if (controller.hasFocus() || btnLock.hasFocus() || topBar.hasFocus()
+                            || (moreScrim != null && moreScrim.hasFocus())) {
                         topBar.clearFocus();
                         controller.clearFocus();
-                        btnDanmu.clearFocus();
                         btnLock.clearFocus();
                         return true;
                     }
@@ -1714,19 +1920,19 @@ public class PlayerActivity extends AppCompatActivity {
                     return true;
                 // LEFT/RIGHT 由 SeekBar 自身处理（已设 keyProgressIncrement=5000）
                 case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:
+                    if (moreOpen) return true;
                     View subtitleBtn = findViewById(R.id.btnSubtitleTrack);
                     View audioBtn = findViewById(R.id.btnAudioTrack);
-                    if (seekBar.hasFocus() || btnRewind.hasFocus() || btnForward.hasFocus()
-                            || btnSpeed.hasFocus() || btnRatio.hasFocus() || btnInfo.hasFocus()
-                            || btnEpisodeList.hasFocus() || btnNextEp.hasFocus() || btnBrightness.hasFocus()
-                            || btnSkip.hasFocus()
+                    if (seekBar.hasFocus() || btnSpeed.hasFocus()
+                            || btnEpisodeList.hasFocus() || btnNextEp.hasFocus()
+                            || btnSkip.hasFocus() || btnQuality.hasFocus() || btnMore.hasFocus()
                             || (subtitleBtn != null && subtitleBtn.hasFocus())
                             || (audioBtn != null && audioBtn.hasFocus())) {
                         return true;
                     }
                     togglePlay(); return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
-                    if (!infoVis && (btnBack.hasFocus() || btnCloudMode.hasFocus())) {
+                    if (!infoVis && !moreOpen && topBar.hasFocus()) {
                         View next = TvFocus.resolve(getCurrentFocus(), View.FOCUS_UP);
                         if (next == null || next == getCurrentFocus()) {
                             showCtrl(false);
@@ -1734,7 +1940,10 @@ public class PlayerActivity extends AppCompatActivity {
                         }
                     }
                     break;
-                case KeyEvent.KEYCODE_INFO: case KeyEvent.KEYCODE_MENU:
+                case KeyEvent.KEYCODE_MENU:
+                    showMore(!moreOpen);
+                    return true;
+                case KeyEvent.KEYCODE_INFO:
                     toggleInfo(); return true;
             }
             if ((k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT)
@@ -1771,7 +1980,7 @@ public class PlayerActivity extends AppCompatActivity {
                     long dur = player != null ? player.getDuration() : 0;
                     long target = Math.max(0, Math.min(dur, cur + step));
                     // 立即更新 UI
-                    String timeText = FormatUtils.fmt(target) + " / " + FormatUtils.fmt(dur);
+                    String timeText = playClock(target, dur);
                     tvSeekOverlay.setText(timeText);
                     tvSeekOverlay.setVisibility(View.VISIBLE);
                     tvTime.setText(timeText);
@@ -1790,7 +1999,11 @@ public class PlayerActivity extends AppCompatActivity {
                     handler.postDelayed(seekCommitR, 1000);
                     return true;
                 }
-                case KeyEvent.KEYCODE_INFO: case KeyEvent.KEYCODE_MENU:
+                case KeyEvent.KEYCODE_MENU:
+                    showCtrl(true);
+                    showMore(true);
+                    return true;
+                case KeyEvent.KEYCODE_INFO:
                     toggleInfo(); return true;
             }
             return super.onKeyDown(k, e);
@@ -1798,7 +2011,16 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void hideSystemUi() {
-        getWindow().getDecorView().setSystemUiVisibility(
+        View decor = getWindow().getDecorView();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().setDecorFitsSystemWindows(false);
+            android.view.WindowInsetsController insets = decor.getWindowInsetsController();
+            if (insets != null) {
+                insets.hide(android.view.WindowInsets.Type.systemBars());
+                insets.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        }
+        decor.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
@@ -1812,7 +2034,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void showSeekOverlay() {
         if (player == null) return;
         updateTime();
-        tvSeekOverlay.setText(FormatUtils.fmt(player.getCurrentPosition()) + " / " + FormatUtils.fmt(player.getDuration()));
+        tvSeekOverlay.setText(playClock(player.getCurrentPosition(), player.getDuration()));
         tvSeekOverlay.setVisibility(View.VISIBLE);
         handler.removeCallbacks(hideSeekOverlayR);
         handler.postDelayed(hideSeekOverlayR, 2000);
@@ -1826,27 +2048,24 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public void finish() {
-        // 退出时恢复系统亮度
+        // 退出时恢复系统亮度，方向交给系统自动旋转，不再强制竖屏
         try {
             android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
-            lp.screenBrightness = -1f; // 恢复系统默认
+            lp.screenBrightness = -1f;
             getWindow().setAttributes(lp);
         } catch (Exception ignored) {}
+        applyExitOrientation();
         super.finish();
     }
 
-    private void restoreOrientation() {
-        if (isTvDevice()) {
-            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        } else {
-            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
-        }
+    /** 电视保持横屏。手机按系统自动旋转：打开就跟设备转，关掉就停在用户锁定的方向。 */
+    private void applyExitOrientation() {
+        int orientation = isTvDevice()
+                ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER;
+        setRequestedOrientation(orientation);
     }
 
-    @Override protected void onPause() {
-        super.onPause();
-        restoreOrientation();
-    }
     @Override protected void onStop() { super.onStop(); saveProgress(true); if (player != null) player.setPlayWhenReady(false); }
     @Override protected void onDestroy() {
         saveProgress(true);

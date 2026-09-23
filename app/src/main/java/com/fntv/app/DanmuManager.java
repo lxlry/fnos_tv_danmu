@@ -109,7 +109,7 @@ public class DanmuManager {
         if (savedDanmuOn) {
             danmuOn = true;
             danmuView.setVisibility(View.VISIBLE);
-            btnDanmu.setText("弹");
+            btnDanmu.setText("弹幕");
             danmuView.setAreaPct(prefs.getInt("danmu_area", 35));
             danmuView.setSpeedMul(prefs.getFloat("danmu_speed", 1.0f));
             danmuView.setOpacity(prefs.getFloat("danmu_opacity", 0.85f));
@@ -123,7 +123,7 @@ public class DanmuManager {
             danmuView.setDanmuOffset(prefs.getInt("danmu_offset", 0));
         } else {
             danmuView.setVisibility(View.GONE);
-            btnDanmu.setText("弹");
+            btnDanmu.setText("弹幕关");
         }
     }
 
@@ -384,7 +384,7 @@ public class DanmuManager {
                 boolean wasOff = !danmuOn;
                 danmuOn = true;
                 danmuView.setVisibility(View.VISIBLE);
-                btnDanmu.setText("弹✕");
+                btnDanmu.setText("弹幕");
                 danmuView.setAreaPct(a);
                 danmuView.setSpeedMul(sp);
                 danmuView.setOpacity(op);
@@ -434,7 +434,7 @@ public class DanmuManager {
             } else {
                 danmuOn = false;
                 danmuView.setVisibility(View.GONE);
-                btnDanmu.setText("弹");
+                btnDanmu.setText("弹幕关");
                 danmuView.stop();
                 danmuView.clear();
             }

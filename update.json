@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527004,
-    "versionName": "9527.004",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.004/FNTV_release_v9527.004.apk",
-    "changelog": "媒体库分组列表；选集飞牛样式；拖动快进快退；详情页季集横滑并分段",
+    "versionCode": 9527005,
+    "versionName": "9527.005",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.005/FNTV_release_v9527.005.apk",
+    "changelog": "详情页分季集两级并加演职人员；第0季显示特别篇；播放器底栏调整，其余功能收进右上角菜单；问题反馈改为 GitHub Issues",
     "forceUpdate": false
 }
