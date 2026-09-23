@@ -467,15 +467,28 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
-    /** 没有片子时去掉「加载中...」，只留标题。 */
+    /** 没有片子时去掉「加载中...」，标题（如「综艺 >」）和下面的间隔一并移除。 */
     private void clearPreview(String libGuid) {
         if (moviesContainer == null) return;
         for (int i = 0; i < moviesContainer.getChildCount(); i++) {
             View v = moviesContainer.getChildAt(i);
-            if (v instanceof LinearLayout && ("preview_" + libGuid).equals(v.getTag())) {
-                ((LinearLayout) v).removeAllViews();
-                break;
+            if (!(v instanceof LinearLayout) || !("preview_" + libGuid).equals(v.getTag())) continue;
+            int start = i;
+            int end = i;
+            if (i > 0 && "lib_header".equals(moviesContainer.getChildAt(i - 1).getTag())) {
+                start = i - 1;
             }
+            if (i + 1 < moviesContainer.getChildCount()) {
+                View next = moviesContainer.getChildAt(i + 1);
+                if (next.getTag() == null && !(next instanceof LinearLayout)) {
+                    end = i + 1;
+                }
+            }
+            for (int r = end; r >= start; r--) {
+                moviesContainer.removeViewAt(r);
+            }
+            if (showingOverview) wireOverviewFocus();
+            return;
         }
     }
 

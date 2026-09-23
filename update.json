@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527001,
-    "versionName": "9527.001",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.001/FNTV_release_v9527.001.apk",
-    "changelog": "首页焦点落到继续观看，滚回后仍显示，媒体库搜索可确认",
+    "versionCode": 9527002,
+    "versionName": "9527.002",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.002/FNTV_release_v9527.002.apk",
+    "changelog": "没有内容的媒体库不再显示标题",
     "forceUpdate": false
 }
