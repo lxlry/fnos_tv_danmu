@@ -71,6 +71,7 @@ public class HomeActivity extends AppCompatActivity {
     private String baseUrl = "";
     private SharedPreferences prefs;
     private static final String PREF_DECODER = "decoder_mode";
+    private static final String GITHUB_ISSUES = "https://github.com/lxlry/fnos_tv_danmu/issues";
 
     private long t0;
     private boolean overviewBuilt = false;
@@ -2677,78 +2678,64 @@ public class HomeActivity extends AppCompatActivity {
             danmuUrl = "http://" + host + ":9321";
         }
         tvDanmuUrl.setText(danmuUrl);
-        rlDanmuSetting.setOnClickListener(v -> {
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-            b.setTitle("弹幕服务器地址");
-            final android.widget.EditText input = new android.widget.EditText(this);
-            input.setText(tvDanmuUrl.getText());
-            input.setSelection(input.getText().length());
-            b.setView(input);
-            b.setPositiveButton("保存", (dialog, which) -> {
-                String val = input.getText().toString().trim();
-                if (!val.isEmpty()) {
-                    prefs.edit().putString("danmu_url", val).apply();
-                    tvDanmuUrl.setText(val);
-                }
-            });
-            b.setNegativeButton("重置", (dialog, which) -> {
-                prefs.edit().remove("danmu_url").apply();
-                String host = prefs.getString("host", "");
-                host = host.replaceAll("^https?://", "").replaceAll("/.*$", "").replaceAll(":\\d+$", "");
-                tvDanmuUrl.setText("http://" + host + ":9321");
-            });
-            b.show();
-        });
+        rlDanmuSetting.setOnClickListener(v -> showTextInputDialog(
+                "弹幕服务器地址",
+                tvDanmuUrl.getText().toString(),
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI,
+                "重置",
+                value -> {
+                    if (value == null) {
+                        prefs.edit().remove("danmu_url").apply();
+                        String host = prefs.getString("host", "");
+                        host = host.replaceAll("^https?://", "").replaceAll("/.*$", "").replaceAll(":\\d+$", "");
+                        tvDanmuUrl.setText("http://" + host + ":9321");
+                        return;
+                    }
+                    if (!value.isEmpty()) {
+                        prefs.edit().putString("danmu_url", value).apply();
+                        tvDanmuUrl.setText(value);
+                    }
+                }));
 
         // 快进退步长
         final int[] savedStep = {prefs.getInt("seek_step", 10)};
         tvSeekStepValue.setText(savedStep[0] + "s");
-        rlSeekStep.setOnClickListener(v -> {
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-            b.setTitle("快进退步长（秒）");
-            final android.widget.EditText input = new android.widget.EditText(this);
-            input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-            input.setText(String.valueOf(savedStep[0]));
-            input.setSelection(input.getText().length());
-            b.setView(input);
-            b.setPositiveButton("保存", (dialog, which) -> {
-                try {
-                    int val = Integer.parseInt(input.getText().toString().trim());
-                    if (val < 1) val = 1;
-                    if (val > 300) val = 300;
-                    prefs.edit().putInt("seek_step", val).apply();
-                    tvSeekStepValue.setText(val + "s");
-                    savedStep[0] = val;
-                } catch (Exception ignored) {}
-            });
-            b.setNegativeButton("取消", null);
-            b.show();
-        });
+        rlSeekStep.setOnClickListener(v -> showTextInputDialog(
+                "快进退步长（秒）",
+                String.valueOf(savedStep[0]),
+                android.text.InputType.TYPE_CLASS_NUMBER,
+                "取消",
+                value -> {
+                    if (value == null) return;
+                    try {
+                        int val = Integer.parseInt(value);
+                        if (val < 1) val = 1;
+                        if (val > 300) val = 300;
+                        prefs.edit().putInt("seek_step", val).apply();
+                        tvSeekStepValue.setText(val + "s");
+                        savedStep[0] = val;
+                    } catch (Exception ignored) {}
+                }));
 
         // 缓冲时间
         final int[] savedBuffer = {prefs.getInt("buffer_time", 30)};
         tvBufferTimeValue.setText(savedBuffer[0] + "s");
-        rlBufferTime.setOnClickListener(v -> {
-            android.app.AlertDialog.Builder b2 = new android.app.AlertDialog.Builder(this);
-            b2.setTitle("缓冲时间（秒）");
-            final android.widget.EditText input2 = new android.widget.EditText(this);
-            input2.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-            input2.setText(String.valueOf(savedBuffer[0]));
-            input2.setSelection(input2.getText().length());
-            b2.setView(input2);
-            b2.setPositiveButton("保存", (dialog, which) -> {
-                try {
-                    int val = Integer.parseInt(input2.getText().toString().trim());
-                    if (val < 5) val = 5;
-                    if (val > 300) val = 300;
-                    prefs.edit().putInt("buffer_time", val).apply();
-                    tvBufferTimeValue.setText(val + "s");
-                    savedBuffer[0] = val;
-                } catch (Exception ignored) {}
-            });
-            b2.setNegativeButton("取消", null);
-            b2.show();
-        });
+        rlBufferTime.setOnClickListener(v -> showTextInputDialog(
+                "缓冲时间（秒）",
+                String.valueOf(savedBuffer[0]),
+                android.text.InputType.TYPE_CLASS_NUMBER,
+                "取消",
+                value -> {
+                    if (value == null) return;
+                    try {
+                        int val = Integer.parseInt(value);
+                        if (val < 5) val = 5;
+                        if (val > 300) val = 300;
+                        prefs.edit().putInt("buffer_time", val).apply();
+                        tvBufferTimeValue.setText(val + "s");
+                        savedBuffer[0] = val;
+                    } catch (Exception ignored) {}
+                }));
 
         apiManager.getApi().getUserInfo().enqueue(new Callback<ApiResponse<UserInfoResponse>>() {
             @Override
@@ -2763,6 +2750,52 @@ public class HomeActivity extends AppCompatActivity {
         });
     }
 
+
+    /** 负按钮回传 null；保存回传输入内容。 */
+    private interface DialogInputCallback {
+        void onResult(String value);
+    }
+
+    private void showTextInputDialog(String title, String value, int inputType,
+                                     String negativeLabel, DialogInputCallback callback) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(6), dp(20), dp(4));
+
+        androidx.appcompat.widget.AppCompatEditText input = new androidx.appcompat.widget.AppCompatEditText(this);
+        input.setBackgroundResource(R.drawable.bg_input);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            input.setBackgroundTintList(null);
+        }
+        input.setTextColor(color(R.color.text_primary));
+        input.setHintTextColor(color(R.color.text_hint));
+        input.setTextSize(15);
+        input.setSingleLine(true);
+        input.setPadding(dp(14), dp(12), dp(14), dp(12));
+        input.setInputType(inputType);
+        input.setText(value != null ? value : "");
+        input.setSelection(input.getText().length());
+        input.setFocusable(true);
+        input.setFocusableInTouchMode(true);
+        box.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(box)
+                .setPositiveButton("保存", (d, which) -> {
+                    if (callback != null) callback.onResult(input.getText().toString().trim());
+                })
+                .setNegativeButton(negativeLabel, (d, which) -> {
+                    if (callback != null && "重置".equals(negativeLabel)) callback.onResult(null);
+                })
+                .create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.bg_card);
+        }
+        dialog.show();
+        input.requestFocus();
+    }
 
     private void toggleDecoder() {
         String cur = prefs.getString(PREF_DECODER, "hardware");
@@ -2783,17 +2816,23 @@ public class HomeActivity extends AppCompatActivity {
 
     private void setupFeedback() {
         btnFeedback.setOnClickListener(v -> {
-            new android.app.AlertDialog.Builder(this)
+            android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
                     .setTitle("问题反馈")
-                    .setMessage("如有问题或建议，请加 QQ群：\n693516430")
-                    .setPositiveButton("复制群号", (dialog, which) -> {
+                    .setMessage("到 GitHub 提交 Issue：\n" + GITHUB_ISSUES)
+                    .setPositiveButton("复制地址", (d, which) -> {
                         android.content.ClipboardManager cm = (android.content.ClipboardManager)
                                 getSystemService(CLIPBOARD_SERVICE);
-                        cm.setText("693516430");
-                        Toast.makeText(this, "群号已复制", Toast.LENGTH_SHORT).show();
+                        if (cm != null) {
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("github", GITHUB_ISSUES));
+                        }
+                        Toast.makeText(this, "地址已复制", Toast.LENGTH_SHORT).show();
                     })
                     .setNegativeButton("关闭", null)
-                    .show();
+                    .create();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawableResource(R.drawable.bg_card);
+            }
+            dialog.show();
         });
     }
 
