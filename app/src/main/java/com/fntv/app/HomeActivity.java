@@ -100,6 +100,9 @@ public class HomeActivity extends AppCompatActivity {
     private View lastContentFocus;
     private boolean homeEntryFocused;
     private boolean initialFocusPlaced;
+    /** 离开首页时，滚动位置落在第几个区块、以及区块顶部之上的偏移。-1 表示不用恢复。 */
+    private int pendingHomeAnchor = -1;
+    private int pendingHomeAnchorOffset;
     private String lastFocusSectionTag;
     private int lastFocusIndexInSection;
     private Button detailPlayBtn;
@@ -289,6 +292,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void switchTab(int index) {
         int prevTab = currentTab;
+        if (prevTab == 0 && index != 0) captureHomeScroll();
         currentTab = index;
         searchEntryTab = -1;
         // 从媒体库切换到其他标签时清除搜索状态
@@ -465,6 +469,10 @@ public class HomeActivity extends AppCompatActivity {
             moviesContainer.addView(makeSpacer(dp(8)));
         }
 
+        if (pendingHomeAnchor >= 0) {
+            initialFocusPlaced = true;
+            homeEntryFocused = true;
+        }
         if (moviesContainer.getChildCount() == 0) {
             TextView e = new TextView(this);
             e.setLayoutParams(new LinearLayout.LayoutParams(
@@ -479,6 +487,7 @@ public class HomeActivity extends AppCompatActivity {
             fillLiveChannelPreview(cachedLivePreview, cachedLiveTotal);
         }
         wireOverviewFocus();
+        applyPendingHomeScroll();
     }
 
     /** 加载各媒体库预览 */
@@ -504,6 +513,7 @@ public class HomeActivity extends AppCompatActivity {
                     if (items.size() > 20) items = items.subList(0, 20);
                     fillPreview(guid, items);
                     updateLibShortcutPoster(guid, items.get(0));
+                    applyPendingHomeScroll();
                 }
                 @Override public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
                     clearPreview(guid);
@@ -533,6 +543,7 @@ public class HomeActivity extends AppCompatActivity {
                 moviesContainer.removeViewAt(r);
             }
             if (showingOverview) wireOverviewFocus();
+            applyPendingHomeScroll();
             return;
         }
     }
@@ -1124,7 +1135,10 @@ public class HomeActivity extends AppCompatActivity {
             if (etSearch != null) etSearch.setVisibility(View.GONE);
             if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.GONE);
         }
-        if (container == moviesContainer) showingOverview = false;
+        if (container == moviesContainer) {
+            captureHomeScroll();
+            showingOverview = false;
+        }
 
         // 存储当前浏览上下文，排序变化时用于重新加载
         currentBrowseGuid = ancestorGuid;
@@ -1496,6 +1510,7 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void showDetail(PlayListItem item) {
+        captureHomeScroll();
         switchTab(0);
         savedBrowseList = null; savedBrowseGuid = null;
         showingOverview = false;
@@ -2378,7 +2393,6 @@ public class HomeActivity extends AppCompatActivity {
         final List<View> cards = new ArrayList<>();
         for (final PlayListItem season : seasons) {
             View card = makeSeasonPosterCard(season);
-            card.setSelected(season.guid != null && season.guid.equals(selected.guid));
             card.setOnClickListener(v -> showSeasonEpisodePage(season, seasons));
             cards.add(card);
             row.addView(card);
@@ -2506,8 +2520,7 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (detailSeasonRow != null) {
             for (int i = 0; i < detailSeasonRow.getChildCount(); i++) {
-                View child = detailSeasonRow.getChildAt(i);
-                child.setSelected(season.guid != null && season.guid.equals(child.getTag()));
+                detailSeasonRow.getChildAt(i).setSelected(false);
             }
         }
     }
@@ -2752,15 +2765,7 @@ public class HomeActivity extends AppCompatActivity {
         String res = shortResolution(ep);
         if (!res.isEmpty()) shot.addView(makeOverlayBadge(res, Gravity.BOTTOM | Gravity.RIGHT));
 
-        if (isCurrent) {
-            View mark = new View(this);
-            FrameLayout.LayoutParams markLp = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(3));
-            markLp.gravity = Gravity.BOTTOM;
-            mark.setLayoutParams(markLp);
-            mark.setBackgroundColor(color(R.color.colorPrimary));
-            shot.addView(mark);
-        } else if (ep.duration > 0 && ep.ts > 0) {
+        if (ep.duration > 0 && ep.ts > 0) {
             int pct = Math.max(0, Math.min(100, (int) (ep.ts * 100 / ep.duration)));
             if (pct > 0) {
                 LinearLayout pBar = new LinearLayout(this);
@@ -2794,7 +2799,7 @@ public class HomeActivity extends AppCompatActivity {
         title.setEllipsize(TextUtils.TruncateAt.END);
         title.setTextSize(14);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(isCurrent ? color(R.color.colorPrimary) : color(R.color.text_primary));
+        title.setTextColor(color(R.color.text_primary));
         title.setText(name.isEmpty() ? String.valueOf(num) : num + "." + name);
         card.addView(title);
 
@@ -4339,6 +4344,58 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
+    private ScrollView moviesScroller() {
+        if (moviesContainer == null) return null;
+        ViewParent parent = moviesContainer.getParent();
+        return parent instanceof ScrollView ? (ScrollView) parent : null;
+    }
+
+    /** 离开首页前记下滚动落在哪个区块，返回重建页面后滚回原处。 */
+    private void captureHomeScroll() {
+        if (!showingOverview || moviesContainer == null) return;
+        ScrollView scroller = moviesScroller();
+        if (scroller == null) return;
+        int scrollY = scroller.getScrollY();
+        int index = 0;
+        int offset = scrollY;
+        for (int i = 0; i < moviesContainer.getChildCount(); i++) {
+            View child = moviesContainer.getChildAt(i);
+            if (child.getTop() + child.getHeight() > scrollY) {
+                index = i;
+                offset = scrollY - child.getTop();
+                break;
+            }
+        }
+        pendingHomeAnchor = index;
+        pendingHomeAnchorOffset = offset;
+        View focused = getCurrentFocus();
+        if (focused != null) rememberFocusSection(focused);
+    }
+
+    private void applyPendingHomeScroll() {
+        if (pendingHomeAnchor < 0 || !showingOverview || moviesContainer == null) return;
+        ScrollView scroller = moviesScroller();
+        if (scroller == null) return;
+        final int index = pendingHomeAnchor;
+        final int offset = pendingHomeAnchorOffset;
+        scroller.post(() -> {
+            if (!showingOverview || pendingHomeAnchor != index) return;
+            if (moviesContainer.getChildCount() == 0) return;
+            View anchor = moviesContainer.getChildAt(Math.min(index, moviesContainer.getChildCount() - 1));
+            scroller.scrollTo(0, Math.max(0, anchor.getTop() + offset));
+            initialFocusPlaced = true;
+            homeEntryFocused = true;
+            View restore = restoreInRememberedSection();
+            if (isUsableFocus(restore) && !restore.isFocused()) restore.requestFocus();
+            scroller.post(() -> {
+                if (!showingOverview || pendingHomeAnchor != index) return;
+                if (moviesContainer.getChildCount() == 0) return;
+                View again = moviesContainer.getChildAt(Math.min(index, moviesContainer.getChildCount() - 1));
+                scroller.scrollTo(0, Math.max(0, again.getTop() + offset));
+            });
+        });
+    }
+
     private void rememberFocusSection(View v) {
         lastFocusSectionTag = null;
         lastFocusIndexInSection = 0;
@@ -4428,6 +4485,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void restoreOverviewFocus() {
         if (currentTab != 0 || !showingOverview) return;
+        if (pendingHomeAnchor >= 0) return;
         View focused = getCurrentFocus();
         View searchBtn = findViewById(R.id.btnHomeSearch);
         List<View> continueCards = continueCards();
@@ -4520,8 +4578,21 @@ public class HomeActivity extends AppCompatActivity {
     // ==================== 按键 ====================
 
     @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        if (pendingHomeAnchor >= 0 && ev.getAction() == android.view.MotionEvent.ACTION_MOVE) {
+            pendingHomeAnchor = -1;
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
+    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         int keyCode = event.getKeyCode();
+        if (event.getAction() == KeyEvent.ACTION_DOWN
+                && (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                || keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            pendingHomeAnchor = -1;
+        }
         boolean dpad = keyCode == KeyEvent.KEYCODE_DPAD_UP
                 || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
                 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT

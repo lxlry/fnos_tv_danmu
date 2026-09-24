@@ -26,6 +26,7 @@ public class UpdateManager {
     private final Activity activity;
     private final Button btnCheckUpdate;
     private final int currentVersionCode;
+    private boolean busy;
 
     /** 更新源（按优先级） */
     private static final String[] UPDATE_URLS = {
@@ -49,15 +50,19 @@ public class UpdateManager {
     }
 
     private void resetBtn() {
+        busy = false;
         btnCheckUpdate.setEnabled(true);
         btnCheckUpdate.setText("检查更新");
+        btnCheckUpdate.requestFocus();
     }
 
     // ========== 检查更新 ==========
 
     public void checkUpdate() {
-        btnCheckUpdate.setEnabled(false);
+        if (busy) return;
+        busy = true;
         btnCheckUpdate.setText("检查中...");
+        btnCheckUpdate.requestFocus();
         new Thread(() -> {
             try {
                 org.json.JSONObject json = null;
@@ -170,8 +175,9 @@ public class UpdateManager {
     // ========== 下载 ==========
 
     private void downloadAndInstall(final String apkUrl, final int remoteVersion, final boolean isTestInstall) {
+        busy = true;
         btnCheckUpdate.setText(isTestInstall ? "测试中..." : "下载中...");
-        btnCheckUpdate.setEnabled(false);
+        btnCheckUpdate.requestFocus();
         new Thread(() -> {
             try {
                 HttpURLConnection c = (HttpURLConnection) new URL(apkUrl).openConnection();
