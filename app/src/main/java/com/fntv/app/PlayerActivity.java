@@ -2076,6 +2076,10 @@ public class PlayerActivity extends AppCompatActivity {
             btnLock.setVisibility(View.INVISIBLE);
             View panel = findViewById(R.id.morePanel);
             if (panel != null) {
+                ViewGroup.LayoutParams panelLp = panel.getLayoutParams();
+                panelLp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                panel.setLayoutParams(panelLp);
+                panel.setMinimumHeight(getResources().getDisplayMetrics().heightPixels);
                 int pad = (int) (12 * getResources().getDisplayMetrics().density);
                 panel.setPadding(pad, pad, pad, pad);
             }
@@ -2084,12 +2088,12 @@ public class PlayerActivity extends AppCompatActivity {
             handler.removeCallbacks(sleepLabelTick);
             if (SleepTimer.isRunning()) handler.postDelayed(sleepLabelTick, 1000);
             handler.removeCallbacks(hideC);
+            if (topBar != null) topBar.clearFocus();
+            if (controller != null) controller.clearFocus();
+            if (btnLock != null) btnLock.clearFocus();
             if (moreScrim != null) {
-                moreScrim.post(() -> {
-                    wireMoreFocus();
-                    List<View> rows = TvFocus.present(btnSleep, btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
-                    if (!rows.isEmpty()) rows.get(0).requestFocus();
-                });
+                moreScrim.setFocusable(false);
+                moreScrim.post(this::focusMorePanel);
             }
         } else if (ctrlVis && !isLocked) {
             controller.setVisibility(View.VISIBLE);
@@ -2139,6 +2143,42 @@ public class PlayerActivity extends AppCompatActivity {
         TvFocus.sealAll(sides);
         TvFocus.sealAll(seek);
         TvFocus.sealAll(bottom);
+    }
+
+    private void focusMorePanel() {
+        View panel = findViewById(R.id.morePanel);
+        if (panel instanceof ViewGroup) {
+            relaxScrollerFocus((ViewGroup) panel);
+        }
+        wireMoreFocus();
+        List<View> rows = TvFocus.present(btnSleep, btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
+        if (rows.isEmpty()) return;
+        View first = rows.get(0);
+        if (!first.requestFocus()) first.post(first::requestFocus);
+    }
+
+    private boolean focusInMore() {
+        View focused = getCurrentFocus();
+        View panel = findViewById(R.id.morePanel);
+        View v = focused;
+        while (v != null) {
+            if (v == panel) return true;
+            Object parent = v.getParent();
+            v = parent instanceof View ? (View) parent : null;
+        }
+        return false;
+    }
+
+    private void relaxScrollerFocus(ViewGroup group) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof android.widget.ScrollView) {
+                child.setFocusable(false);
+                ((android.widget.ScrollView) child).setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+            } else if (child instanceof ViewGroup) {
+                relaxScrollerFocus((ViewGroup) child);
+            }
+        }
     }
 
     private void wireMoreFocus() {
@@ -2552,11 +2592,15 @@ public class PlayerActivity extends AppCompatActivity {
                     toggleInfo(); return true;
             }
             if ((k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT)
-                    && seekBar != null && seekBar.hasFocus()) {
+                    && seekBar != null && seekBar.hasFocus() && !moreOpen) {
                 return super.onKeyDown(k, e);
             }
             if (k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN
                     || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                if (moreOpen && !focusInMore()) {
+                    focusMorePanel();
+                    return true;
+                }
                 if (TvFocus.move(getCurrentFocus(), k)) return true;
             }
             return super.onKeyDown(k, e);

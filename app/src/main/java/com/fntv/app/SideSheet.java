@@ -31,7 +31,7 @@ final class SideSheet {
     }
 
     static void showList(Context context, String title, String[] items, DialogInterface.OnClickListener listener) {
-        Dialog dialog = new Dialog(context, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        Dialog dialog = new Dialog(context, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen);
         dialog.setCanceledOnTouchOutside(true);
         float density = context.getResources().getDisplayMetrics().density;
         int pad = (int) (18 * density);
@@ -58,9 +58,7 @@ final class SideSheet {
         line.setLayoutParams(lineLp);
         root.addView(line);
 
-        ScrollView scroll = new ScrollView(context);
-        scroll.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        ScrollView scroll = sheetScroll(context);
         LinearLayout list = new LinearLayout(context);
         list.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(list);
@@ -93,6 +91,7 @@ final class SideSheet {
         dialog.setContentView(root);
         place(dialog);
         dialog.show();
+        focusSheet(dialog, list);
     }
 
     /** 画质、音轨、字幕卡片。detail 和 badge 可空。 */
@@ -145,7 +144,7 @@ final class SideSheet {
     }
 
     private static void showPanel(Context context, String title, int widthDp, View body) {
-        Dialog dialog = new Dialog(context, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        Dialog dialog = new Dialog(context, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen);
         dialog.setCanceledOnTouchOutside(true);
         float density = context.getResources().getDisplayMetrics().density;
         int pad = (int) (18 * density);
@@ -171,15 +170,14 @@ final class SideSheet {
         line.setLayoutParams(lineLp);
         root.addView(line);
 
-        ScrollView scroll = new ScrollView(context);
-        scroll.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        ScrollView scroll = sheetScroll(context);
         scroll.addView(body);
         root.addView(scroll);
         dialog.setContentView(root);
         place(dialog, widthDp);
         wireDismiss(body, dialog);
         dialog.show();
+        focusSheet(dialog, body);
     }
 
     private static final class Click {
@@ -338,10 +336,10 @@ final class SideSheet {
     private static void place(Dialog dialog, int widthDp) {
         Window window = dialog.getWindow();
         if (window == null) return;
-        float density = dialog.getContext().getResources().getDisplayMetrics().density;
-        window.setBackgroundDrawable(new ColorDrawable(0xF0121212));
+        window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                | WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                | WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             window.setStatusBarColor(Color.TRANSPARENT);
             window.setNavigationBarColor(Color.TRANSPARENT);
@@ -356,7 +354,7 @@ final class SideSheet {
         window.getDecorView().setPadding(0, 0, 0, 0);
         WindowManager.LayoutParams lp = window.getAttributes();
         lp.gravity = Gravity.END | Gravity.TOP;
-        lp.width = (int) (widthDp * density);
+        lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
         lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
         lp.x = 0;
         lp.y = 0;
@@ -364,13 +362,104 @@ final class SideSheet {
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
         window.setAttributes(lp);
-        int inset = statusBarInset(dialog.getContext());
-        if (inset <= 0) return;
+        dialog.setOnShowListener(d -> pinPanel(dialog, widthDp));
+    }
+
+    /** 浮窗在电视上只会包住内容。把面板拉到屏幕右侧，从顶到底铺满。 */
+    private static void pinPanel(Dialog dialog, int widthDp) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        window.getDecorView().setPadding(0, 0, 0, 0);
         View content = window.findViewById(android.R.id.content);
         if (!(content instanceof ViewGroup) || ((ViewGroup) content).getChildCount() == 0) return;
-        View root = ((ViewGroup) content).getChildAt(0);
-        root.setPadding(root.getPaddingLeft(), root.getPaddingTop() + inset,
-                root.getPaddingRight(), root.getPaddingBottom());
+        ViewGroup host = (ViewGroup) content;
+        View panel = host.getChildAt(host.getChildCount() - 1);
+        if ("side_panel".equals(panel.getTag())) return;
+        int width = (int) (widthDp * dialog.getContext().getResources().getDisplayMetrics().density);
+        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(
+                width, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
+        panel.setLayoutParams(panelLp);
+        panel.setTag("side_panel");
+        panel.setMinimumHeight(dialog.getContext().getResources().getDisplayMetrics().heightPixels);
+        int inset = statusBarInset(dialog.getContext());
+        if (inset > 0) {
+            panel.setPadding(panel.getPaddingLeft(), panel.getPaddingTop() + inset,
+                    panel.getPaddingRight(), panel.getPaddingBottom());
+        }
+    }
+
+    private static ScrollView sheetScroll(Context context) {
+        ScrollView scroll = new ScrollView(context);
+        scroll.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        scroll.setFocusable(false);
+        scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        return scroll;
+    }
+
+    /** 打开后把焦点放进第一条，并串起上下左右，避免停在滚动容器上。 */
+    private static void focusSheet(Dialog dialog, View body) {
+        body.post(() -> bindSheet(body, true));
+    }
+
+    private static void bindSheet(View body, boolean retry) {
+            java.util.ArrayList<View> items = new java.util.ArrayList<>();
+            collectFocusables(body, items);
+            if (items.isEmpty()) return;
+            boolean sameTop = items.size() > 1;
+            if (sameTop) {
+                int top = items.get(0).getTop();
+                for (View item : items) {
+                    if (item.getTop() != top) {
+                        sameTop = false;
+                        break;
+                    }
+                }
+            }
+            if (sameTop && retry) {
+                body.post(() -> bindSheet(body, false));
+                return;
+            }
+            java.util.ArrayList<java.util.ArrayList<View>> rows = new java.util.ArrayList<>();
+            if (sameTop) {
+                for (View item : items) {
+                    java.util.ArrayList<View> row = new java.util.ArrayList<>();
+                    row.add(item);
+                    rows.add(row);
+                }
+            } else {
+                for (View item : items) {
+                    java.util.ArrayList<View> row = rows.isEmpty() ? null : rows.get(rows.size() - 1);
+                    if (row == null || Math.abs(item.getTop() - row.get(0).getTop()) > Math.max(1, item.getHeight() / 2)) {
+                        row = new java.util.ArrayList<>();
+                        rows.add(row);
+                    }
+                    row.add(item);
+                }
+            }
+            for (int r = 0; r < rows.size(); r++) {
+                java.util.ArrayList<View> row = rows.get(r);
+                TvFocus.bindRow(row);
+                if (r + 1 < rows.size()) TvFocus.bindVertical(row, rows.get(r + 1));
+            }
+            if (!rows.isEmpty()) {
+                for (View v : rows.get(0)) TvFocus.point(v, View.FOCUS_UP, v);
+                java.util.ArrayList<View> last = rows.get(rows.size() - 1);
+                for (View v : last) TvFocus.point(v, View.FOCUS_DOWN, v);
+            }
+            for (java.util.ArrayList<View> row : rows) TvFocus.sealAll(row);
+            View first = items.get(0);
+            if (!first.requestFocus()) first.post(first::requestFocus);
+    }
+
+    private static void collectFocusables(View view, java.util.List<View> out) {
+        if (view == null || view.getVisibility() != View.VISIBLE) return;
+        if (view.isFocusable() && view.isClickable()) out.add(view);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) collectFocusables(group.getChildAt(i), out);
+        }
     }
 
     /** 菜单栏露出状态栏时，侧边栏背景仍铺满，文字下移避开状态栏。 */

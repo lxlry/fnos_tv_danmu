@@ -102,6 +102,21 @@ DPAD 遥控器友好
                     android:padding="8dp"
                     android:scaleType="centerInside"
                     android:src="@drawable/ic_search" />
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:id="@+id/btnHomeSettings"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_alignParentRight="true"
+                    android:layout_centerVertical="true"
+                    android:background="@drawable/bg_text_action"
+                    android:clickable="true"
+                    android:contentDescription="设置"
+                    android:focusable="true"
+                    android:padding="8dp"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_settings"
+                    android:visibility="gone" />
             </RelativeLayout>
 
             <com.fntv.app.HomeSwipeRefresh
@@ -616,6 +631,7 @@ DPAD 遥控器友好
     </FrameLayout>
 
     <View
+        android:id="@+id/tabDivider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="@color/divider" />
