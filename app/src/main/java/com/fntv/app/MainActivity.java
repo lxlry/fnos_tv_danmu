@@ -392,13 +392,13 @@ public class MainActivity extends AppCompatActivity {
     private void loadCardInput() {
         if (isFnIdMode) {
             fnidHostEt.setText(prefs.getString("fnid_host", ""));
-            fnidUserEt.setText(prefs.getString("fnid_user", "video"));
+            fnidUserEt.setText(prefs.getString("fnid_user", ""));
             boolean rem = prefs.getBoolean("fnid_remember", false);
             fnidRememberCb.setChecked(rem);
             fnidPassEt.setText(rem ? prefs.getString("fnid_pass", "") : "");
         } else {
             httpHostEt.setText(prefs.getString("host", "http://192.168.10.158:5666"));
-            httpUserEt.setText(prefs.getString("user", "video"));
+            httpUserEt.setText(prefs.getString("user", ""));
             boolean rem = prefs.getBoolean("remember", false);
             httpRememberCb.setChecked(rem);
             httpPassEt.setText(rem ? prefs.getString("pass", "") : "");

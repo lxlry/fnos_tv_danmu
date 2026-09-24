@@ -30,6 +30,13 @@ public class SkipSeekMarks extends View {
         setFocusableInTouchMode(false);
     }
 
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        int width = MeasureSpec.getSize(widthMeasureSpec);
+        int height = (int) (18f * getResources().getDisplayMetrics().density);
+        setMeasuredDimension(width, height);
+    }
+
     public void setMarks(long introMs, long outroMs, long durationMs) {
         if (this.introMs == introMs && this.outroMs == outroMs && this.durationMs == durationMs) return;
         this.introMs = introMs;

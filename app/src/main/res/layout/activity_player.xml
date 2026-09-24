@@ -218,7 +218,8 @@
             <com.fntv.app.SkipSeekMarks
                 android:id="@+id/skipMarks"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
                 android:clickable="false"
                 android:focusable="false"
                 android:forceDarkAllowed="false" />
