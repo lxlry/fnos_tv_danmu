@@ -114,6 +114,7 @@ public class HomeActivity extends AppCompatActivity {
     private int pendingHomeAnchorOffset;
     private String lastFocusSectionTag;
     private int lastFocusIndexInSection;
+    private boolean holdRememberedFocus;
     private Button detailPlayBtn;
     private TextView detailOverview;
     private ViewGroup detailSeasonRow;
@@ -668,7 +669,7 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
-    /** 没有片子时去掉「加载中...」，标题（如「综艺 >」）和下面的间隔一并移除。 */
+    /** 没有片子时去掉「加载中...」，栏目标题和下面的间隔一并移除。 */
     private void clearPreview(String libGuid) {
         if (moviesContainer == null) return;
         for (int i = 0; i < moviesContainer.getChildCount(); i++) {
@@ -731,13 +732,24 @@ public class HomeActivity extends AppCompatActivity {
         TextView header = new TextView(this);
         header.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        header.setText(libTitle + "  >");
+        header.setText(libTitle);
         header.setTextColor(color(R.color.text_primary));
         header.setTextSize(16);
         header.setTypeface(Typeface.DEFAULT_BOLD);
         headerRow.addView(header);
-        headerRow.setOnFocusChangeListener((v, hasFocus) ->
-                header.setTextColor(hasFocus ? color(R.color.border_focused) : color(R.color.text_primary)));
+
+        ImageView arrow = new ImageView(this);
+        LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(18), dp(18));
+        arrowLp.leftMargin = dp(1);
+        arrow.setLayoutParams(arrowLp);
+        arrow.setImageResource(R.drawable.ic_chevron_right_bold);
+        arrow.setColorFilter(color(R.color.text_primary));
+        headerRow.addView(arrow);
+        headerRow.setOnFocusChangeListener((v, hasFocus) -> {
+            int c = hasFocus ? color(R.color.border_focused) : color(R.color.text_primary);
+            header.setTextColor(c);
+            arrow.setColorFilter(c);
+        });
         return headerRow;
     }
 
@@ -1363,12 +1375,16 @@ public class HomeActivity extends AppCompatActivity {
             View refresh = findViewById(R.id.btnHomeRefresh);
             if (back != null) back.setVisibility(View.VISIBLE);
             if (refresh != null) refresh.setVisibility(View.GONE);
+            View logo = findViewById(R.id.ivHomeLogo);
+            if (logo != null) logo.setVisibility(View.GONE);
             if (tvHomeTitle != null) {
                 tvHomeTitle.setText(name);
                 tvHomeTitle.setGravity(Gravity.CENTER);
                 android.widget.RelativeLayout.LayoutParams lp =
                         (android.widget.RelativeLayout.LayoutParams) tvHomeTitle.getLayoutParams();
                 lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                lp.leftMargin = dp(48);
+                lp.addRule(android.widget.RelativeLayout.RIGHT_OF, 0);
                 lp.addRule(android.widget.RelativeLayout.CENTER_VERTICAL);
                 tvHomeTitle.setLayoutParams(lp);
             }
@@ -1385,12 +1401,16 @@ public class HomeActivity extends AppCompatActivity {
         View refresh = findViewById(R.id.btnHomeRefresh);
         if (back != null) back.setVisibility(View.GONE);
         if (refresh != null) refresh.setVisibility(View.VISIBLE);
+        View logo = findViewById(R.id.ivHomeLogo);
+        if (logo != null) logo.setVisibility(View.VISIBLE);
         if (tvHomeTitle != null) {
             tvHomeTitle.setText("FN TV");
             tvHomeTitle.setGravity(Gravity.CENTER_VERTICAL);
             android.widget.RelativeLayout.LayoutParams lp =
                     (android.widget.RelativeLayout.LayoutParams) tvHomeTitle.getLayoutParams();
             lp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+            lp.leftMargin = dp(8);
+            lp.addRule(android.widget.RelativeLayout.RIGHT_OF, R.id.ivHomeLogo);
             tvHomeTitle.setLayoutParams(lp);
         }
         View bar = findViewById(R.id.libBrowseBar);
@@ -4803,8 +4823,10 @@ public class HomeActivity extends AppCompatActivity {
         }
         pendingHomeAnchor = index;
         pendingHomeAnchorOffset = offset;
+        holdRememberedFocus = false;
         View focused = getCurrentFocus();
         if (focused != null) rememberFocusSection(focused);
+        holdRememberedFocus = lastFocusSectionTag != null;
     }
 
     private void applyPendingHomeScroll() {
@@ -4822,6 +4844,7 @@ public class HomeActivity extends AppCompatActivity {
             homeEntryFocused = true;
             View restore = restoreInRememberedSection();
             if (isUsableFocus(restore) && !restore.isFocused()) restore.requestFocus();
+            if (isUsableFocus(restore) && restore.isFocused()) holdRememberedFocus = false;
             scroller.post(() -> {
                 if (!showingOverview || pendingHomeAnchor != index) return;
                 if (moviesContainer.getChildCount() == 0) return;
@@ -4832,6 +4855,7 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void rememberFocusSection(View v) {
+        if (holdRememberedFocus) return;
         lastFocusSectionTag = null;
         lastFocusIndexInSection = 0;
         View p = v;
@@ -4843,7 +4867,7 @@ public class HomeActivity extends AppCompatActivity {
                         || "live_channel".equals(s) || s.startsWith("preview_")) {
                     lastFocusSectionTag = s;
                     List<View> items = TvFocus.collectAllFocusables(p);
-                    int idx = items.indexOf(v);
+                    int idx = focusIndexIn(items, v, p);
                     lastFocusIndexInSection = Math.max(0, idx);
                     return;
                 }
@@ -4856,6 +4880,19 @@ public class HomeActivity extends AppCompatActivity {
             Object parent = p.getParent();
             p = parent instanceof View ? (View) parent : null;
         }
+    }
+
+    /** 焦点可能在卡片内部，沿父级找到这一行里真正可聚焦的那一张。 */
+    private int focusIndexIn(List<View> items, View focused, View section) {
+        View cursor = focused;
+        while (cursor != null) {
+            int idx = items.indexOf(cursor);
+            if (idx >= 0) return idx;
+            if (cursor == section) break;
+            ViewParent parent = cursor.getParent();
+            cursor = parent instanceof View ? (View) parent : null;
+        }
+        return -1;
     }
 
     private String headerSectionKey(View header) {
@@ -5017,6 +5054,7 @@ public class HomeActivity extends AppCompatActivity {
     public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
         if (pendingHomeAnchor >= 0 && ev.getAction() == android.view.MotionEvent.ACTION_MOVE) {
             pendingHomeAnchor = -1;
+            holdRememberedFocus = false;
         }
         return super.dispatchTouchEvent(ev);
     }
@@ -5028,6 +5066,7 @@ public class HomeActivity extends AppCompatActivity {
                 && (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
                 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
             pendingHomeAnchor = -1;
+            holdRememberedFocus = false;
         }
         boolean dpad = keyCode == KeyEvent.KEYCODE_DPAD_UP
                 || keyCode == KeyEvent.KEYCODE_DPAD_DOWN

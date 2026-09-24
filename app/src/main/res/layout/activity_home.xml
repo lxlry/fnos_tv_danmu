@@ -7,6 +7,7 @@
 DPAD 遥控器友好
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_dark"
@@ -49,13 +50,23 @@ DPAD 遥控器友好
                     android:src="@drawable/ic_player_back"
                     android:visibility="gone" />
 
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:id="@+id/ivHomeLogo"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_alignParentLeft="true"
+                    android:layout_centerVertical="true"
+                    android:contentDescription="FN TV"
+                    app:srcCompat="@drawable/ic_fn_logo" />
+
                 <TextView
                     android:id="@+id/tvHomeTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_centerVertical="true"
-                    android:layout_marginLeft="48dp"
+                    android:layout_marginLeft="8dp"
                     android:layout_marginRight="96dp"
+                    android:layout_toRightOf="@id/ivHomeLogo"
                     android:ellipsize="end"
                     android:singleLine="true"
                     android:text="FN TV"
