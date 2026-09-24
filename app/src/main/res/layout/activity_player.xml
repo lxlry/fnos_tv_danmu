@@ -22,6 +22,7 @@
         android:text="加载中..."
         android:textColor="#FFFFFFFF"
         android:textSize="16sp"
+        android:forceDarkAllowed="false"
         android:visibility="gone" />
 
     <!-- 弹幕层（视频上方，控件下方） -->
@@ -125,6 +126,7 @@
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="56dp"
         android:background="@drawable/bg_danmu_status"
+        android:forceDarkAllowed="false"
         android:paddingLeft="14dp"
         android:paddingRight="14dp"
         android:paddingTop="8dp"

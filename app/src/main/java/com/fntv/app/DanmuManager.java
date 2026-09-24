@@ -2,9 +2,11 @@ package com.fntv.app;
 
 import android.app.Activity;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -460,12 +462,25 @@ public class DanmuManager {
         View ticks = v.findViewById(R.id.dm_ticks);
         if (ticks != null) ticks.setVisibility(View.VISIBLE);
         if (sb != null) {
-            sb.setMax(max - min);
+            final int range = max - min;
+            sb.setMax(range);
             sb.setProgress(val - min);
             if (ticks != null) sb.post(ticks::invalidate);
+            final boolean[] applyingSnap = {false};
+            final boolean[] tracking = {false};
+            final int[] lastTick = {-1};
             sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override
-                public void onProgressChanged(SeekBar s, int p, boolean u) {
+                public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
+                    if (!applyingSnap[0] && fromUser && tracking[0]) {
+                        int snapped = snapToQuarter(p, range);
+                        if (snapped != p) {
+                            applyingSnap[0] = true;
+                            s.setProgress(snapped);
+                            applyingSnap[0] = false;
+                            p = snapped;
+                        }
+                    }
                     int real = p + min;
                     String suffix;
                     if (unit.equals("x")) suffix = String.format("%.1f", real / 100f);
@@ -474,31 +489,90 @@ public class DanmuManager {
                     else if (unit.equals("fps")) suffix = real + "fps";
                     else suffix = String.valueOf(real);
                     if (tv != null) tv.setText(label + "  " + suffix);
+                    if (fromUser && isQuarterPoint(p, range)) {
+                        if (lastTick[0] != p) {
+                            lastTick[0] = p;
+                            tickFeedback(s);
+                        }
+                    } else if (fromUser) {
+                        lastTick[0] = -1;
+                    }
                 }
 
                 @Override
                 public void onStartTrackingTouch(SeekBar s) {
+                    tracking[0] = true;
                 }
 
                 @Override
                 public void onStopTrackingTouch(SeekBar s) {
+                    tracking[0] = false;
                 }
             });
-            // 遥控器左右键步进1
+            // 遥控器左右键步进1；靠近节点时吸上去，已在节点上再按一下则跳出吸附范围
             sb.setOnKeyListener((v2, keyCode, event) -> {
                 if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
                     int cur = sb.getProgress();
-                    int newMax = max - min;
                     if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT || keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
                         int step = (keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT) ? -1 : 1;
-                        int next = Math.max(0, Math.min(newMax, cur + step));
-                        if (next != cur) sb.setProgress(next);
+                        int next = cur + step;
+                        if (isQuarterPoint(cur, range)) {
+                            next = cur + step * (quarterSnapDistance(range) + 1);
+                        } else {
+                            int toward = snapToQuarter(next, range);
+                            if (toward != next) next = toward;
+                        }
+                        next = Math.max(0, Math.min(range, next));
+                        if (next != cur) {
+                            sb.setProgress(next);
+                            if (isQuarterPoint(next, range)) {
+                                lastTick[0] = next;
+                                tickFeedback(sb);
+                            } else {
+                                lastTick[0] = -1;
+                            }
+                        }
                         return true;
                     }
                 }
                 return false;
             });
         }
+    }
+
+    /** 离 0%、25%、50%、75%、100% 很近时吸到该节点，否则保持原进度。 */
+    private int snapToQuarter(int progress, int range) {
+        if (range <= 0) return progress;
+        int nearest = progress;
+        int best = Integer.MAX_VALUE;
+        for (int i = 0; i <= 4; i++) {
+            int point = (int) Math.round(range * (i / 4.0));
+            int dist = Math.abs(progress - point);
+            if (dist < best) {
+                best = dist;
+                nearest = point;
+            }
+        }
+        return best <= quarterSnapDistance(range) ? nearest : progress;
+    }
+
+    private boolean isQuarterPoint(int progress, int range) {
+        if (range <= 0) return false;
+        for (int i = 0; i <= 4; i++) {
+            if (progress == (int) Math.round(range * (i / 4.0))) return true;
+        }
+        return false;
+    }
+
+    private int quarterSnapDistance(int range) {
+        return Math.max(1, range / 50);
+    }
+
+    private void tickFeedback(View v) {
+        int effect = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+                ? HapticFeedbackConstants.CLOCK_TICK
+                : HapticFeedbackConstants.VIRTUAL_KEY;
+        v.performHapticFeedback(effect);
     }
 
     private int readSlider(android.app.Dialog d, int id, int min) {

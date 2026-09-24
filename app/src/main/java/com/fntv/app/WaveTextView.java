@@ -3,6 +3,8 @@ package com.fntv.app;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.os.Build;
 import android.text.Layout;
 import android.util.AttributeSet;
 import android.view.animation.LinearInterpolator;
@@ -19,6 +21,10 @@ public class WaveTextView extends AppCompatTextView {
 
     public WaveTextView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        setTextColor(Color.WHITE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            setForceDarkAllowed(false);
+        }
         setShadowLayer(8f, 0f, 1f, 0xCC000000);
     }
 
@@ -64,6 +70,7 @@ public class WaveTextView extends AppCompatTextView {
             super.onDraw(canvas);
             return;
         }
+        getPaint().setColor(Color.WHITE);
         getPaint().setShadowLayer(8f, 0f, 1f, 0xCC000000);
         float amp = 4f * getResources().getDisplayMetrics().density;
         int n = text.length();

@@ -534,24 +534,28 @@ public class CloudStreamManager {
         itemGroupIdx.add(-1);
         itemTrackIdx.add(-1);
 
+        int trackCount = 0;
+        for (int g = 0; g < groups.length; g++) trackCount += groups.get(g).length;
+        boolean aligned = streamSubtitleTracks != null && streamSubtitleTracks.size() == trackCount;
+        int seen = 0;
         for (int g = 0; g < groups.length; g++) {
             TrackGroup group = groups.get(g);
             for (int t = 0; t < group.length; t++) {
                 Format fmt = group.getFormat(t);
-                String label = "字幕" + (itemLabels.size() - 1);
-                if (fmt.language != null && !fmt.language.isEmpty()) {
-                    label += "  " + fmt.language;
-                } else if (streamSubtitleTracks != null && t < streamSubtitleTracks.size()) {
-                    StreamResponse.SubtitleStreamInfo ssi = streamSubtitleTracks.get(t);
-                    if (ssi.language != null && !ssi.language.isEmpty()) label += "  " + ssi.language;
-                }
+                StreamResponse.SubtitleStreamInfo ssi = null;
+                if (aligned) ssi = streamSubtitleTracks.get(seen);
+                else ssi = matchSubtitleInfo(fmt.label, fmt.language);
+                String title = ssi != null && ssi.title != null && !ssi.title.isEmpty()
+                        ? ssi.title : fmt.label;
+                String language = fmt.language;
+                if ((language == null || language.isEmpty()) && ssi != null) language = ssi.language;
                 String codecStr = fmt.codecs != null ? fmt.codecs
                         : (fmt.sampleMimeType != null ? fmt.sampleMimeType.replace("text/", "") : "");
-                if (!codecStr.isEmpty()) label += "  " + codecStr.toUpperCase();
-
-                itemLabels.add(label);
+                if (codecStr.isEmpty() && ssi != null && ssi.codecName != null) codecStr = ssi.codecName;
+                itemLabels.add(subtitleChoiceText(title, language, codecStr, seen + 1));
                 itemGroupIdx.add(g);
                 itemTrackIdx.add(t);
+                seen++;
             }
         }
 
@@ -598,10 +602,10 @@ public class CloudStreamManager {
         items[0] = "关闭字幕";
         for (int i = 0; i < streamSubtitleTracks.size(); i++) {
             StreamResponse.SubtitleStreamInfo ssi = streamSubtitleTracks.get(i);
-            String lang = ssi.language != null && !ssi.language.isEmpty() ? ssi.language : "未知";
-            String codec = ssi.codecName != null ? ssi.codecName.toUpperCase() : "?";
-            String def = ssi.isDefault != 0 ? " [默认]" : "";
-            items[i + 1] = "字幕" + (i + 1) + "  " + lang + "  " + codec + def;
+            String codec = ssi.codecName != null ? ssi.codecName : "";
+            String text = subtitleChoiceText(ssi.title, ssi.language, codec, i + 1);
+            if (ssi.isDefault != 0) text = text + "  默认";
+            items[i + 1] = text;
         }
         SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), trackSelected(items, lastSubtitleTrackLabel), "当前没有字幕可选择", (dialog, which) -> {
                     if (which < 0) return;
@@ -636,6 +640,108 @@ public class CloudStreamManager {
                     Toast.makeText(activity, "已切换: " + items[which], Toast.LENGTH_SHORT).show();
                     dialog.dismiss();
                 });
+    }
+
+    /** 卡片标题用中文名（有标题或能识别的语言才用），编码放在副标题。 */
+    private String subtitleChoiceText(String title, String language, String codec, int index) {
+        String name = subtitleChineseName(title, language);
+        if (name == null || name.isEmpty()) name = "字幕" + index;
+        String extra = codec == null ? "" : codec.trim();
+        if (!extra.isEmpty()) extra = extra.toUpperCase();
+        return extra.isEmpty() ? name : name + "  " + extra;
+    }
+
+    private StreamResponse.SubtitleStreamInfo matchSubtitleInfo(String label, String language) {
+        if (streamSubtitleTracks == null) return null;
+        if (label != null && !label.isEmpty()) {
+            for (StreamResponse.SubtitleStreamInfo s : streamSubtitleTracks) {
+                if (label.equals(s.title)) return s;
+            }
+        }
+        if (language != null && !language.isEmpty()) {
+            for (StreamResponse.SubtitleStreamInfo s : streamSubtitleTracks) {
+                if (language.equalsIgnoreCase(s.language)) return s;
+            }
+        }
+        return null;
+    }
+
+    private static String subtitleChineseName(String title, String language) {
+        String titled = cleanSubtitleTitle(title);
+        if (titled != null && containsCjk(titled)) return titled;
+        String fromLang = languageToChinese(language);
+        if (fromLang != null) return fromLang;
+        String fromTitle = languageToChinese(titled);
+        if (fromTitle != null) return fromTitle;
+        if (titled != null && !looksLikeFileName(titled)) return titled;
+        return null;
+    }
+
+    private static String cleanSubtitleTitle(String title) {
+        if (title == null) return null;
+        String s = title.trim().replace('\\', '/');
+        int slash = s.lastIndexOf('/');
+        if (slash >= 0) s = s.substring(slash + 1);
+        String lower = s.toLowerCase(java.util.Locale.US);
+        for (String ext : new String[]{".utf-8.srt", ".utf8.srt", ".ass", ".ssa", ".srt", ".vtt", ".sub", ".sup", ".idx"}) {
+            if (lower.endsWith(ext)) {
+                s = s.substring(0, s.length() - ext.length()).trim();
+                break;
+            }
+        }
+        return s.isEmpty() ? null : s;
+    }
+
+    private static boolean looksLikeFileName(String s) {
+        return s.indexOf('.') >= 0 || s.length() > 32;
+    }
+
+    private static boolean containsCjk(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 0x4E00 && c <= 0x9FFF) return true;
+        }
+        return false;
+    }
+
+    private static String languageToChinese(String raw) {
+        if (raw == null) return null;
+        String n = raw.trim().toLowerCase(java.util.Locale.US).replace('_', '-');
+        if (n.isEmpty() || "und".equals(n) || "unk".equals(n) || "unknown".equals(n)) return null;
+        if (n.contains(",") || n.contains("+") || n.contains("&") || n.contains("/")) {
+            boolean zh = false;
+            boolean en = false;
+            for (String part : n.split("[,+&/]")) {
+                String one = languageToChinese(part.trim());
+                if ("中文".equals(one) || "简体中文".equals(one) || "繁体中文".equals(one)) zh = true;
+                if ("英语".equals(one)) en = true;
+            }
+            if (zh && en) return "中英";
+            if (zh) return "中文";
+            if (en) return "英语";
+            return null;
+        }
+        if (n.equals("zh-hans") || n.equals("zh-cn") || n.equals("chs") || n.equals("sc")
+                || n.equals("gb") || n.equals("simplified") || n.contains("simplified")) return "简体中文";
+        if (n.equals("zh-hant") || n.equals("zh-tw") || n.equals("zh-hk") || n.equals("cht")
+                || n.equals("tc") || n.equals("big5") || n.equals("traditional")
+                || n.contains("traditional")) return "繁体中文";
+        if (n.equals("zh") || n.equals("chi") || n.equals("zho") || n.equals("cn")
+                || n.equals("chinese") || n.equals("cmn") || n.equals("mandarin")) return "中文";
+        if (n.equals("en") || n.equals("eng") || n.equals("english")) return "英语";
+        if (n.equals("ja") || n.equals("jpn") || n.equals("jp") || n.equals("japanese")) return "日语";
+        if (n.equals("ko") || n.equals("kor") || n.equals("korean")) return "韩语";
+        if (n.equals("fr") || n.equals("fre") || n.equals("fra") || n.equals("french")) return "法语";
+        if (n.equals("de") || n.equals("ger") || n.equals("deu") || n.equals("german")) return "德语";
+        if (n.equals("es") || n.equals("spa") || n.equals("spanish")) return "西班牙语";
+        if (n.equals("ru") || n.equals("rus") || n.equals("russian")) return "俄语";
+        if (n.equals("pt") || n.equals("por") || n.equals("portuguese")) return "葡萄牙语";
+        if (n.equals("it") || n.equals("ita") || n.equals("italian")) return "意大利语";
+        if (n.equals("th") || n.equals("tha") || n.equals("thai")) return "泰语";
+        if (n.equals("vi") || n.equals("vie") || n.equals("vietnamese")) return "越南语";
+        if (n.equals("ar") || n.equals("ara") || n.equals("arabic")) return "阿拉伯语";
+        if (n.equals("hi") || n.equals("hin") || n.equals("hindi")) return "印地语";
+        return null;
     }
 
     // ========== 内部 ==========
