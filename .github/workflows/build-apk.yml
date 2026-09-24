@@ -58,6 +58,7 @@ jobs:
           mkdir -p dist
           src=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
           cp "$src" "dist/FNTV_release_v${version}.apk"
+          jq -r '.changelog // ""' update.json > dist/changelog.txt
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Prepared FNTV_release_v${version}.apk"
 
@@ -66,6 +67,7 @@ jobs:
         with:
           tag_name: ${{ steps.apk.outputs.version }}
           name: ${{ steps.apk.outputs.version }}
+          body_path: dist/changelog.txt
           files: dist/FNTV_release_v${{ steps.apk.outputs.version }}.apk
           overwrite_files: true
           fail_on_unmatched_files: true
