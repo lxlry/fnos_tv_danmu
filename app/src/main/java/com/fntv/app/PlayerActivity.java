@@ -1290,11 +1290,28 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
 
+    private LinearLayout skipSheetBody;
+
     private void showIntroOutroDialog() {
         final android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(0xFF1A1A1A);
+        scroll.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        skipSheetBody = new LinearLayout(this);
+        skipSheetBody.setOrientation(LinearLayout.VERTICAL);
+        skipSheetBody.setPadding(dpPx(16), dpPx(16), dpPx(16), dpPx(16));
+        scroll.addView(skipSheetBody, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         showSkipMenu(dialog);
+        dialog.setContentView(scroll);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xDD1A1A1A));
+            int screenH = getResources().getDisplayMetrics().heightPixels;
+            dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (int) (screenH * 0.9f));
+        }
+        SideSheet.place(dialog);
         dialog.show();
-        SideSheet.focus(dialog);
     }
 
     private String skipPrefsKey() {
@@ -1345,18 +1362,8 @@ public class PlayerActivity extends AppCompatActivity {
         return (int) (dp * getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    private void placeSkipDialog(android.app.Dialog dialog) {
-        SideSheet.place(dialog, 360);
-    }
-
-    private void showSkipContent(android.app.Dialog dialog, View content) {
-        dialog.setContentView(content);
-        placeSkipDialog(dialog);
-        if (dialog.isShowing()) SideSheet.focus(dialog);
-    }
-
     private void showSkipMenu(android.app.Dialog dialog) {
-        LinearLayout root = skipSheetRoot();
+        LinearLayout root = skipSheetPage();
         root.addView(skipHeader(null, "片头片尾", null));
         TextView scope = skipHint(skipScopeText());
         scope.setPadding(0, 0, 0, dpPx(16));
@@ -1368,11 +1375,10 @@ public class PlayerActivity extends AppCompatActivity {
         root.addView(gap);
         root.addView(skipLinkRow("片尾时长", formatSkipClock(readSkipSec(false)),
                 () -> showSkipEditor(dialog, false)));
-        showSkipContent(dialog, root);
     }
 
     private void showSkipEditor(android.app.Dialog dialog, boolean intro) {
-        LinearLayout root = skipSheetRoot();
+        LinearLayout root = skipSheetPage();
         TextView clock = new TextView(this);
         clock.setGravity(Gravity.CENTER);
         clock.setTextColor(Color.WHITE);
@@ -1400,7 +1406,6 @@ public class PlayerActivity extends AppCompatActivity {
         gap.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpPx(10)));
         root.addView(gap);
         root.addView(skipLinkRow("自定义", "", () -> showSkipCustom(dialog, intro)));
-        showSkipContent(dialog, root);
     }
 
     private int playheadSeconds() {
@@ -1422,7 +1427,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void showSkipCustom(android.app.Dialog dialog, boolean intro) {
         int current = readSkipSec(intro);
-        LinearLayout root = skipSheetRoot();
+        LinearLayout root = skipSheetPage();
         root.addView(skipHeader(() -> showSkipEditor(dialog, intro),
                 intro ? "自定义片头时长" : "自定义片尾时长", null));
 
@@ -1471,18 +1476,11 @@ public class PlayerActivity extends AppCompatActivity {
         actions.addView(reset, btnLp);
         actions.addView(ok, new LinearLayout.LayoutParams(0, dpPx(44), 1));
         root.addView(actions);
-        showSkipContent(dialog, root);
-        minutes.requestFocus();
     }
 
-    private LinearLayout skipSheetRoot() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xF0121212);
-        root.setPadding(dpPx(18), dpPx(16), dpPx(18), dpPx(16));
-        root.setLayoutParams(new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        return root;
+    private LinearLayout skipSheetPage() {
+        skipSheetBody.removeAllViews();
+        return skipSheetBody;
     }
 
     private View sheetDivider() {
@@ -1607,15 +1605,13 @@ public class PlayerActivity extends AppCompatActivity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dpPx(64));
+        row.setMinimumHeight(dpPx(48));
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         row.setPadding(dpPx(14), dpPx(10), dpPx(14), dpPx(10));
         row.setFocusable(true);
         row.setClickable(true);
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(0x00000000);
-        bg.setCornerRadius(dpPx(10));
-        bg.setStroke(dpPx(1), 0x66FFFFFF);
-        row.setBackground(bg);
+        row.setBackgroundResource(R.drawable.bg_chip);
         return row;
     }
 
@@ -1628,17 +1624,15 @@ public class PlayerActivity extends AppCompatActivity {
         btn.setMinWidth(0);
         btn.setMinHeight(0);
         btn.setPadding(dpPx(8), 0, dpPx(8), 0);
-        btn.setBackgroundResource(R.drawable.bg_player_action);
+        btn.setBackgroundResource(R.drawable.bg_chip);
         btn.setFocusable(true);
+        btn.setFocusableInTouchMode(false);
         return btn;
     }
 
     private Button skipActionButton(String text, boolean primary) {
         Button btn = skipTextButton(text);
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(dpPx(8));
-        bg.setColor(primary ? 0xFF3B6FFF : 0xFF3A4150);
-        btn.setBackground(bg);
+        btn.setBackgroundResource(primary ? R.drawable.bg_btn_primary : R.drawable.bg_chip);
         return btn;
     }
 
@@ -1650,7 +1644,7 @@ public class PlayerActivity extends AppCompatActivity {
         picker.setWrapSelectorWheel(true);
         picker.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         picker.setFocusable(true);
-        picker.setFocusableInTouchMode(true);
+        picker.setFocusableInTouchMode(false);
         picker.setBackgroundResource(R.drawable.bg_poster_card);
         picker.setPadding(dpPx(8), dpPx(4), dpPx(8), dpPx(4));
         try {

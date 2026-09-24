@@ -26,6 +26,7 @@ import java.util.List;
 final class SideSheet {
 
     private static Dialog open;
+    private static final java.util.Map<Dialog, Runnable> dismissHooks = new java.util.WeakHashMap<>();
 
     private SideSheet() {}
 
@@ -387,7 +388,15 @@ final class SideSheet {
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
         window.setAttributes(lp);
-        dialog.setOnShowListener(d -> pinPanel(dialog, widthDp));
+        dialog.setOnShowListener(d -> ensurePinned(dialog, widthDp));
+    }
+
+    /** 换页后重新把面板钉回右侧，避免内容再次铺满窗口。 */
+    static void ensurePinned(Dialog dialog, int widthDp) {
+        pinPanel(dialog, widthDp);
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        window.getDecorView().post(() -> pinPanel(dialog, widthDp));
     }
 
     /** 浮窗在电视上只会包住内容。把面板拉到屏幕右侧，从顶到底铺满。 */
@@ -400,22 +409,24 @@ final class SideSheet {
         if (!(content instanceof ViewGroup) || ((ViewGroup) content).getChildCount() == 0) return;
         ViewGroup host = (ViewGroup) content;
         View panel = host.getChildAt(host.getChildCount() - 1);
-        if ("side_panel".equals(panel.getTag())) return;
+        boolean first = !"side_panel".equals(panel.getTag());
         int width = (int) (widthDp * dialog.getContext().getResources().getDisplayMetrics().density);
         FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(
                 width, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
         panel.setLayoutParams(panelLp);
-        panel.setTag("side_panel");
         panel.setClickable(true);
         panel.setMinimumHeight(dialog.getContext().getResources().getDisplayMetrics().heightPixels);
-        host.setClickable(true);
-        host.setOnClickListener(v -> {
-            if (dialog.isShowing()) dialog.dismiss();
-        });
-        int inset = statusBarInset(dialog.getContext());
-        if (inset > 0) {
-            panel.setPadding(panel.getPaddingLeft(), panel.getPaddingTop() + inset,
-                    panel.getPaddingRight(), panel.getPaddingBottom());
+        if (first) {
+            panel.setTag("side_panel");
+            host.setClickable(true);
+            host.setOnClickListener(v -> {
+                if (dialog.isShowing()) dialog.dismiss();
+            });
+            int inset = statusBarInset(dialog.getContext());
+            if (inset > 0) {
+                panel.setPadding(panel.getPaddingLeft(), panel.getPaddingTop() + inset,
+                        panel.getPaddingRight(), panel.getPaddingBottom());
+            }
         }
     }
 
@@ -445,7 +456,14 @@ final class SideSheet {
         dialog.setOnKeyListener((d, keyCode, event) -> onKey(dialog, event, true));
         dialog.setOnDismissListener(d -> {
             if (open == dialog) open = null;
+            Runnable extra = dismissHooks.remove(dialog);
+            if (extra != null) extra.run();
         });
+    }
+
+    static void afterDismiss(Dialog dialog, Runnable action) {
+        if (dialog == null || action == null) return;
+        dismissHooks.put(dialog, action);
     }
 
     private static boolean onKey(Dialog dialog, KeyEvent event, boolean inDialogWindow) {
