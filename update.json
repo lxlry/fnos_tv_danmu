@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527010,
-    "versionName": "9527.010",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.010/FNTV_release_v9527.010.apk",
-    "changelog": "电视端设置入口调整；详情页返回上一页并保持位置",
+    "versionCode": 9527011,
+    "versionName": "9527.011",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.011/FNTV_release_v9527.011.apk",
+    "changelog": "电视端焦点与设置图标优化；媒体库返回保持位置；提示改为半透明",
     "forceUpdate": false
 }

@@ -474,7 +474,7 @@ public class HomeActivity extends AppCompatActivity {
     private void noteListRefreshDone(boolean ok) {
         if (!pageRefreshRequested) return;
         pageRefreshRequested = false;
-        Toast.makeText(this, ok ? "已刷新" : "刷新失败", Toast.LENGTH_SHORT).show();
+        AppToast.show(this, ok ? "已刷新" : "刷新失败");
         finishHomeSwipe();
     }
 
@@ -596,14 +596,14 @@ public class HomeActivity extends AppCompatActivity {
                     loadAllPreviews();
                     if (homeRefreshRequested) {
                         homeRefreshRequested = false;
-                        Toast.makeText(HomeActivity.this, "已刷新", Toast.LENGTH_SHORT).show();
+                        AppToast.show(HomeActivity.this, "已刷新");
                     }
                     finishHomeSwipe();
                 } else {
                     tvMoviesLoading.setVisibility(View.GONE);
                     if (homeRefreshRequested) {
                         homeRefreshRequested = false;
-                        Toast.makeText(HomeActivity.this, "刷新失败", Toast.LENGTH_SHORT).show();
+                        AppToast.show(HomeActivity.this, "刷新失败");
                     }
                     finishHomeSwipe();
                 }
@@ -614,7 +614,7 @@ public class HomeActivity extends AppCompatActivity {
                 tvMoviesLoading.setVisibility(View.GONE);
                 if (homeRefreshRequested) {
                     homeRefreshRequested = false;
-                    Toast.makeText(HomeActivity.this, "刷新失败", Toast.LENGTH_SHORT).show();
+                    AppToast.show(HomeActivity.this, "刷新失败");
                 }
                 finishHomeSwipe();
                 Log.e("Overview", "getMediaDbList onFailure: " + t.getMessage() + " t=" + (System.currentTimeMillis() - t0) + "ms");
@@ -1658,8 +1658,9 @@ public class HomeActivity extends AppCompatActivity {
     private View makeLibraryPoster(PlayListItem item, int posterH) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.bg_poster_card);
+        card.setPadding(dp(2), dp(2), dp(2), dp(2));
         card.setFocusable(true);
-        card.setPadding(0, 0, 0, 0);
 
         FrameLayout posterBox = new FrameLayout(this);
         posterBox.setLayoutParams(new LinearLayout.LayoutParams(
@@ -1706,7 +1707,10 @@ public class HomeActivity extends AppCompatActivity {
             sub.setPadding(0, dp(2), 0, 0);
             card.addView(sub);
         }
-        card.setOnFocusChangeListener((v, hasFocus) -> title.setSelected(hasFocus));
+        card.setOnFocusChangeListener((v, hasFocus) -> {
+            title.setSelected(hasFocus);
+            title.setTextColor(hasFocus ? color(R.color.border_focused) : color(R.color.text_primary));
+        });
         card.setTag(item);
         card.setOnClickListener(v -> onItemClick((PlayListItem) card.getTag()));
         return card;
@@ -1944,7 +1948,7 @@ public class HomeActivity extends AppCompatActivity {
                 tvMoviesLoading.setVisibility(View.GONE);
                 if (!response.isSuccessful() || response.body() == null || response.body().code != 0
                         || response.body().data == null) {
-                    Toast.makeText(HomeActivity.this, "获取详情失败", Toast.LENGTH_SHORT).show();
+                    AppToast.show(HomeActivity.this, "获取详情失败");
                     return;
                 }
                 buildDetailPage(item, response.body().data);
@@ -1952,7 +1956,7 @@ public class HomeActivity extends AppCompatActivity {
             @Override
             public void onFailure(Call<ApiResponse<PlayInfoResponse>> call, Throwable t) {
                 tvMoviesLoading.setVisibility(View.GONE);
-                Toast.makeText(HomeActivity.this, "网络错误: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                AppToast.show(HomeActivity.this, "网络错误: " + t.getMessage());
             }
         });
     }
@@ -4060,11 +4064,11 @@ public class HomeActivity extends AppCompatActivity {
         if ("hardware".equals(cur)) {
             prefs.edit().putString(PREF_DECODER, "software").apply();
             tvDecoderValue.setText("软解");
-            Toast.makeText(this, "解码: 软解 (CPU)", Toast.LENGTH_SHORT).show();
+            AppToast.show(this, "解码: 软解 (CPU)");
         } else {
             prefs.edit().putString(PREF_DECODER, "hardware").apply();
             tvDecoderValue.setText("硬解");
-            Toast.makeText(this, "解码: 硬解 (GPU)", Toast.LENGTH_SHORT).show();
+            AppToast.show(this, "解码: 硬解 (GPU)");
         }
     }
 
@@ -4134,7 +4138,7 @@ public class HomeActivity extends AppCompatActivity {
                 android.content.ClipboardManager cm = (android.content.ClipboardManager)
                         getSystemService(CLIPBOARD_SERVICE);
                 cm.setText(issuesUrl);
-                Toast.makeText(this, "链接已复制", Toast.LENGTH_SHORT).show();
+                AppToast.show(this, "链接已复制");
                 dialog.dismiss();
             });
 
@@ -4168,7 +4172,7 @@ public class HomeActivity extends AppCompatActivity {
     private void logout() {
         apiManager.setToken(null);
         prefs.edit().remove("auth_token").apply();
-        Toast.makeText(this, "已退出", Toast.LENGTH_SHORT).show();
+        AppToast.show(this, "已退出");
         Intent intent = new Intent(this, MainActivity.class);
         intent.putExtra("skip_auto_login", true);
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -4457,7 +4461,7 @@ public class HomeActivity extends AppCompatActivity {
             @Override
             public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
                 tvMoviesLoading.setVisibility(View.GONE);
-                Toast.makeText(HomeActivity.this, "加载直播频道失败", Toast.LENGTH_SHORT).show();
+                AppToast.show(HomeActivity.this, "加载直播频道失败");
                 noteListRefreshDone(false);
             }
         });
@@ -4655,6 +4659,7 @@ public class HomeActivity extends AppCompatActivity {
     /** 进入媒体库网格后，焦点落到第一张海报，而不是停在搜索或底栏。 */
     private void placeBrowseFocus(LinearLayout container) {
         if (container == null) return;
+        if (pendingReturnFocus != null || pendingReturnGuid != null) return;
         View focused = getCurrentFocus();
         if (isDescendantOf(focused, container)) return;
         List<List<View>> rows = TvFocus.collectGridRows(container);
@@ -4990,7 +4995,10 @@ public class HomeActivity extends AppCompatActivity {
         ScrollView scroller = verticalScroller(page.container);
         if (scroller != null) {
             int y = page.scrollY;
-            scroller.post(() -> scroller.scrollTo(0, y));
+            scroller.post(() -> {
+                scroller.scrollTo(0, y);
+                scroller.post(() -> scroller.scrollTo(0, y));
+            });
         }
     }
 
@@ -5363,6 +5371,10 @@ public class HomeActivity extends AppCompatActivity {
         if (scroller == null || scroller.getChildCount() == 0) return;
         View block = ancestorTagged(target, "continue_watching");
         View shown = block != null ? block : target;
+        if (!shown.isLaidOut()) {
+            shown.post(() -> revealInVerticalScroll(target));
+            return;
+        }
         int top = topWithinContent(shown, scroller);
         int height = Math.max(shown.getHeight(), 1);
         int scrollY = scroller.getScrollY();
@@ -5461,7 +5473,7 @@ public class HomeActivity extends AppCompatActivity {
             moveTaskToBack(true);
         } else {
             backPressedTime = System.currentTimeMillis();
-            Toast.makeText(this, "再按一次返回桌面", Toast.LENGTH_SHORT).show();
+            AppToast.show(this, "再按一次返回桌面");
         }
         return true;
     }

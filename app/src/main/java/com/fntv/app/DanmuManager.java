@@ -17,8 +17,6 @@ import android.widget.BaseAdapter;
 import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
-import android.widget.Toast;
-
 import com.google.android.exoplayer2.Player;
 
 import org.json.JSONArray;
@@ -705,7 +703,7 @@ public class DanmuManager {
         sBtn.setOnClickListener(v -> {
             final String kw = input.getText().toString().trim();
             if (kw.isEmpty()) {
-                Toast.makeText(activity, "请输入番剧名", Toast.LENGTH_SHORT).show();
+                AppToast.show(activity, "请输入番剧名");
                 return;
             }
             results.removeAllViews();

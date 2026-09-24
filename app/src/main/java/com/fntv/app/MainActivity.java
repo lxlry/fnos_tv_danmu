@@ -429,7 +429,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (host.isEmpty() || user.isEmpty() || pass.isEmpty()) {
-            Toast.makeText(this, "所有字段都不能为空", Toast.LENGTH_SHORT).show();
+            AppToast.show(this, "所有字段都不能为空");
             return;
         }
 
@@ -439,7 +439,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (isFnIdMode) {
             if (!FnIdLoginHelper.isFnId(host)) {
-                Toast.makeText(this, "FN ID 格式不正确（6-30 位字符，不含点号和斜杠）", Toast.LENGTH_LONG).show();
+                AppToast.show(this, "FN ID 格式不正确（6-30 位字符，不含点号和斜杠）", true);
                 resetLoginState();
                 return;
             }
@@ -453,7 +453,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onError(String message) {
                     runOnUiThread(() -> {
-                        Toast.makeText(MainActivity.this, "FN ID 登录失败: " + message, Toast.LENGTH_LONG).show();
+                        AppToast.show(MainActivity.this, "FN ID 登录失败: " + message, true);
                         resetLoginState();
                     });
                 }
@@ -480,7 +480,7 @@ public class MainActivity extends AppCompatActivity {
         e.putString("auth_token", token);
         e.apply();
         Log.i(TAG, "FN ID 登录成功！fnId=" + rawFnId + " domain=" + domain);
-        Toast.makeText(this, "FN ID 登录成功！", Toast.LENGTH_SHORT).show();
+        AppToast.show(this, "FN ID 登录成功！");
         startActivity(new Intent(this, HomeActivity.class));
     }
 
@@ -510,21 +510,21 @@ public class MainActivity extends AppCompatActivity {
                         FnApiManager.getInstance().setToken(token);
                         prefs.edit().putString("auth_token", token).apply();
                         Log.i(TAG, "HTTP 登录成功！耗时 " + (System.currentTimeMillis() - loginStartTime) + "ms");
-                        Toast.makeText(MainActivity.this, "登录成功！", Toast.LENGTH_SHORT).show();
+                        AppToast.show(MainActivity.this, "登录成功！");
                         startActivity(new Intent(MainActivity.this, HomeActivity.class));
                         return;
                     } else {
-                        Toast.makeText(MainActivity.this, "登录失败: " + response.body().msg, Toast.LENGTH_LONG).show();
+                        AppToast.show(MainActivity.this, "登录失败: " + response.body().msg, true);
                     }
                 } else {
-                    Toast.makeText(MainActivity.this, "服务器响应异常，请重试", Toast.LENGTH_LONG).show();
+                    AppToast.show(MainActivity.this, "服务器响应异常，请重试", true);
                 }
                 resetLoginState();
             }
             @Override
             public void onFailure(Call<ApiResponse<LoginResponseData>> call, Throwable t) {
                 Log.e(TAG, "网络请求失败: " + t.getMessage(), t);
-                Toast.makeText(MainActivity.this, "网络连接失败: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                AppToast.show(MainActivity.this, "网络连接失败: " + t.getMessage(), true);
                 resetLoginState();
             }
         });

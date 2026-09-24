@@ -31,7 +31,7 @@ final class SideSheet {
     }
 
     static void showList(Context context, String title, String[] items, DialogInterface.OnClickListener listener) {
-        Dialog dialog = new Dialog(context, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen);
+        Dialog dialog = new Dialog(context, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
         dialog.setCanceledOnTouchOutside(true);
         float density = context.getResources().getDisplayMetrics().density;
         int pad = (int) (18 * density);
@@ -144,7 +144,7 @@ final class SideSheet {
     }
 
     private static void showPanel(Context context, String title, int widthDp, View body) {
-        Dialog dialog = new Dialog(context, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen);
+        Dialog dialog = new Dialog(context, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
         dialog.setCanceledOnTouchOutside(true);
         float density = context.getResources().getDisplayMetrics().density;
         int pad = (int) (18 * density);
@@ -399,7 +399,20 @@ final class SideSheet {
     }
 
     /** 打开后把焦点放进第一条，并串起上下左右，避免停在滚动容器上。 */
+    static void focus(Dialog dialog) {
+        if (dialog == null || dialog.getWindow() == null) return;
+        View decor = dialog.getWindow().getDecorView();
+        decor.setFocusable(true);
+        decor.setFocusableInTouchMode(true);
+        decor.post(() -> bindSheet(decor, true));
+    }
+
     private static void focusSheet(Dialog dialog, View body) {
+        if (dialog.getWindow() != null) {
+            View decor = dialog.getWindow().getDecorView();
+            decor.setFocusable(true);
+            decor.setFocusableInTouchMode(true);
+        }
         body.post(() -> bindSheet(body, true));
     }
 
@@ -407,6 +420,7 @@ final class SideSheet {
             java.util.ArrayList<View> items = new java.util.ArrayList<>();
             collectFocusables(body, items);
             if (items.isEmpty()) return;
+            for (View item : items) item.setFocusableInTouchMode(true);
             boolean sameTop = items.size() > 1;
             if (sameTop) {
                 int top = items.get(0).getTop();
@@ -455,7 +469,8 @@ final class SideSheet {
 
     private static void collectFocusables(View view, java.util.List<View> out) {
         if (view == null || view.getVisibility() != View.VISIBLE) return;
-        if (view.isFocusable() && view.isClickable()) out.add(view);
+        boolean leaf = !(view instanceof ViewGroup);
+        if (view.isFocusable() && (view.isClickable() || leaf)) out.add(view);
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) collectFocusables(group.getChildAt(i), out);

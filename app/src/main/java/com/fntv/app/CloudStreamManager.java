@@ -8,8 +8,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
-import android.widget.Toast;
-
 import com.fntv.app.api.FnApiManager;
 import com.fntv.app.api.model.ApiResponse;
 import com.fntv.app.api.model.StreamResponse;
@@ -528,7 +526,7 @@ public class CloudStreamManager {
                             sp.edit().putInt("cloud_quality_index", qualityIndex).apply();
                             updateCloudBtnText();
                             dialog.dismiss();
-                            Toast.makeText(cb.getContext(), "切换画质：" + qualityLabels[qualityIndex], Toast.LENGTH_SHORT).show();
+                            AppToast.show(cb.getContext(), "切换画质：" + qualityLabels[qualityIndex]);
                             cb.runOnUiThread(() -> reloadPlayback());
                         }
                     });
@@ -546,14 +544,14 @@ public class CloudStreamManager {
                                     .putBoolean("cloud_direct_mode", true).apply();
                             updateCloudBtnText();
                             dialog.dismiss();
-                            Toast.makeText(cb.getContext(), "切换画质：" + qualityLabels[qualityIndex], Toast.LENGTH_SHORT).show();
+                            AppToast.show(cb.getContext(), "切换画质：" + qualityLabels[qualityIndex]);
                             cb.runOnUiThread(() -> reloadPlayback());
                         } else {
                             cloudDirectMode = false;
                             sp.edit().putBoolean("cloud_direct_mode", false).apply();
                             updateCloudBtnText();
                             dialog.dismiss();
-                            Toast.makeText(cb.getContext(), "已切换为代理模式", Toast.LENGTH_SHORT).show();
+                            AppToast.show(cb.getContext(), "已切换为代理模式");
                             cb.runOnUiThread(() -> reloadPlayback());
                         }
                     });
@@ -564,7 +562,7 @@ public class CloudStreamManager {
                         sp.edit().putBoolean("cloud_direct_mode", true).apply();
                         updateCloudBtnText();
                         dialog.dismiss();
-                        Toast.makeText(cb.getContext(), "已切换为直链模式", Toast.LENGTH_SHORT).show();
+                        AppToast.show(cb.getContext(), "已切换为直链模式");
                         cb.runOnUiThread(() -> reloadPlayback());
                     });
         }
@@ -600,7 +598,7 @@ public class CloudStreamManager {
         } else if (streamAudioTracks != null && !streamAudioTracks.isEmpty()) {
             showAudioTracksFromStreamApi(activity);
         } else {
-            Toast.makeText(activity, trackInfo == null ? "音轨信息尚未就绪" : "无可用音轨", Toast.LENGTH_SHORT).show();
+            AppToast.show(activity, trackInfo == null ? "音轨信息尚未就绪" : "无可用音轨");
         }
     }
 
@@ -662,7 +660,7 @@ public class CloudStreamManager {
                     lastAudioTrackLabel = items[which];
                     lastSubtitleTrackLabel = items[which];
                     cb.onTrackChanged();
-                    Toast.makeText(activity, "已切换: " + items[which], Toast.LENGTH_SHORT).show();
+                    AppToast.show(activity, "已切换: " + items[which]);
                     dialog.dismiss();
                 });
     }
@@ -693,9 +691,9 @@ public class CloudStreamManager {
                         );
                         lastAudioTrackLabel = items[which];
                     cb.onTrackChanged();
-                    Toast.makeText(activity, "已切换: " + items[which], Toast.LENGTH_SHORT).show();
+                    AppToast.show(activity, "已切换: " + items[which]);
                     } else {
-                        Toast.makeText(activity, "该音轨无语言标记，无法自动切换", Toast.LENGTH_SHORT).show();
+                        AppToast.show(activity, "该音轨无语言标记，无法自动切换");
                     }
                     dialog.dismiss();
                 });
@@ -713,7 +711,7 @@ public class CloudStreamManager {
         } else if (streamSubtitleTracks != null && !streamSubtitleTracks.isEmpty()) {
             showSubtitleTracksFromStreamApi(activity);
         } else if (trackInfo == null) {
-            Toast.makeText(activity, "字幕信息尚未就绪", Toast.LENGTH_SHORT).show();
+            AppToast.show(activity, "字幕信息尚未就绪");
         } else {
             SideSheet.showCards(activity, "字幕", "字幕列表",
                     java.util.Collections.<SideSheet.Choice>emptyList(), -1, "当前没有字幕可选择", null);
@@ -790,7 +788,7 @@ public class CloudStreamManager {
                     lastAudioTrackLabel = items[which];
                     lastSubtitleTrackLabel = items[which];
                     cb.onTrackChanged();
-                    Toast.makeText(activity, "已切换: " + items[which], Toast.LENGTH_SHORT).show();
+                    AppToast.show(activity, "已切换: " + items[which]);
                     dialog.dismiss();
                 });
     }
@@ -836,7 +834,7 @@ public class CloudStreamManager {
                     lastAudioTrackLabel = items[which];
                     lastSubtitleTrackLabel = items[which];
                     cb.onTrackChanged();
-                    Toast.makeText(activity, "已切换: " + items[which], Toast.LENGTH_SHORT).show();
+                    AppToast.show(activity, "已切换: " + items[which]);
                     dialog.dismiss();
                 });
     }

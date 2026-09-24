@@ -61,6 +61,7 @@ final class TvFocus {
         if (v == null) return;
         View[] slot = rowMemory.get(v);
         if (slot != null) slot[0] = v;
+        if ("lib_header".equals(v.getTag())) return;
         if (v.getWidth() <= 0) return;
         int screenW = v.getResources().getDisplayMetrics().widthPixels;
         if (v.getWidth() > screenW * 4 / 5) return;
@@ -181,11 +182,12 @@ final class TvFocus {
 
         int screenW = from.getResources().getDisplayMetrics().widthPixels;
         boolean wide = from.getWidth() > screenW * 4 / 5;
+        boolean header = "lib_header".equals(from.getTag());
         int[] loc = new int[2];
         int fromL;
         int fromR;
         int fromCx;
-        if (wide && lastNarrowCx >= 0) {
+        if ((wide || header) && lastNarrowCx >= 0) {
             fromCx = lastNarrowCx;
             fromL = fromCx - 24;
             fromR = fromCx + 24;
@@ -411,11 +413,12 @@ final class TvFocus {
     }
 
     /**
-     * 分区标题不挡下行：上排按下仍落到对齐的卡片。
-     * 标题从首张卡按上进入，再上回到上一行；右键进首张卡。
+     * 分区标题夹在两行海报中间。这一行任意一张按上先到标题，上一行按下也先到标题，
+     * 不会从靠后的海报直接跨到下一行。
      */
     static void bindSectionHeader(View header, List<View> cards, List<View> prevLane) {
         if (header == null || cards == null || cards.isEmpty()) return;
+        List<View> headerLane = listOf(header);
         setLane(header, View.FOCUS_DOWN, cards);
         point(header, View.FOCUS_DOWN, cards.get(0));
         point(header, View.FOCUS_RIGHT, cards.get(0));
@@ -423,12 +426,18 @@ final class TvFocus {
         if (prevLane != null && !prevLane.isEmpty()) {
             setLane(header, View.FOCUS_UP, prevLane);
             point(header, View.FOCUS_UP, nearestX(header, prevLane));
+            for (View v : prevLane) {
+                setLane(v, View.FOCUS_DOWN, headerLane);
+                point(v, View.FOCUS_DOWN, header);
+            }
         } else {
             setLane(header, View.FOCUS_UP, null);
             point(header, View.FOCUS_UP, header);
         }
-        setLane(cards.get(0), View.FOCUS_UP, listOf(header));
-        point(cards.get(0), View.FOCUS_UP, header);
+        for (View card : cards) {
+            setLane(card, View.FOCUS_UP, headerLane);
+            point(card, View.FOCUS_UP, header);
+        }
         seal(header);
     }
 

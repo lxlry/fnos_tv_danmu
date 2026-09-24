@@ -1294,6 +1294,7 @@ public class PlayerActivity extends AppCompatActivity {
         final android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
         showSkipMenu(dialog);
         dialog.show();
+        SideSheet.focus(dialog);
     }
 
     private String skipPrefsKey() {
@@ -1354,6 +1355,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void showSkipContent(android.app.Dialog dialog, View content) {
         dialog.setContentView(content);
         placeSkipDialog(dialog);
+        if (dialog.isShowing()) SideSheet.focus(dialog);
     }
 
     private void showSkipMenu(android.app.Dialog dialog) {
@@ -1415,7 +1417,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (intro) return pos;
         long dur = player.getDuration();
         if (dur <= 0) {
-            Toast.makeText(this, "还不知道片长，稍后再设片尾", Toast.LENGTH_SHORT).show();
+            AppToast.show(this, "还不知道片长，稍后再设片尾");
             return -1;
         }
         return (int) Math.max(0, dur / 1000 - pos);
@@ -1704,6 +1706,7 @@ public class PlayerActivity extends AppCompatActivity {
         dialog.setContentView(sleepOptionView(dialog));
         SideSheet.place(dialog);
         dialog.show();
+        SideSheet.focus(dialog);
     }
 
     private View sleepOptionView(android.app.Dialog dialog) {
@@ -1767,6 +1770,7 @@ public class PlayerActivity extends AppCompatActivity {
         chip.setOnClickListener(v -> {
             if (custom) {
                 dialog.setContentView(sleepCustomView(dialog));
+                SideSheet.focus(dialog);
                 return;
             }
             sleepChoiceMinutes = minutes;
@@ -1878,6 +1882,7 @@ public class PlayerActivity extends AppCompatActivity {
         });
         SideSheet.place(dialog);
         dialog.show();
+        SideSheet.focus(dialog);
     }
 
     /** 切换 HDR 开关 */
@@ -2153,6 +2158,12 @@ public class PlayerActivity extends AppCompatActivity {
         wireMoreFocus();
         List<View> rows = TvFocus.present(btnSleep, btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
         if (rows.isEmpty()) return;
+        for (View row : rows) row.setFocusableInTouchMode(true);
+        if (ratioChips != null) {
+            for (Button chip : ratioChips) {
+                if (chip != null) chip.setFocusableInTouchMode(true);
+            }
+        }
         View first = rows.get(0);
         if (!first.requestFocus()) first.post(first::requestFocus);
     }
@@ -2611,7 +2622,7 @@ public class PlayerActivity extends AppCompatActivity {
                         finish();
                     } else {
                         backPressedTime = System.currentTimeMillis();
-                        Toast.makeText(this, "再按一次退出播放", Toast.LENGTH_SHORT).show();
+                        AppToast.show(this, "再按一次退出播放");
                     }
                     return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:

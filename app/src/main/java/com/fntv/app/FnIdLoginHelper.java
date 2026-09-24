@@ -10,8 +10,6 @@ import android.webkit.WebView;
 import android.view.ViewGroup;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.widget.Toast;
-
 import com.fntv.app.api.FnApiManager;
 import com.fntv.app.api.model.ApiResponse;
 import com.fntv.app.api.model.FnAuthResponse;

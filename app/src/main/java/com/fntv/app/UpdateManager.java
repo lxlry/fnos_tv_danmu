@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.util.Log;
 import android.widget.Button;
-import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -110,7 +109,7 @@ public class UpdateManager {
 
                 if (json == null) {
                     activity.runOnUiThread(() -> {
-                        Toast.makeText(activity, "检查更新失败，无法连接更新服务器", Toast.LENGTH_LONG).show();
+                        AppToast.show(activity, "检查更新失败，无法连接更新服务器", true);
                         resetBtn();
                     });
                     return;
@@ -127,7 +126,7 @@ public class UpdateManager {
                 final boolean isTestInstall = BuildConfig.DEBUG && remoteVersion <= currentVersionCode;
                 if (remoteVersion <= currentVersionCode && !isTestInstall) {
                     activity.runOnUiThread(() -> {
-                        Toast.makeText(activity, "已是最新版本", Toast.LENGTH_SHORT).show();
+                        AppToast.show(activity, "已是最新版本");
                         resetBtn();
                     });
                     return;
@@ -141,7 +140,7 @@ public class UpdateManager {
             } catch (Exception e) {
                 Log.e(TAG, "检查更新异常", e);
                 activity.runOnUiThread(() -> {
-                    Toast.makeText(activity, "检查更新失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    AppToast.show(activity, "检查更新失败: " + e.getMessage(), true);
                     resetBtn();
                 });
             }
@@ -188,7 +187,7 @@ public class UpdateManager {
                 int respCode = c.getResponseCode();
                 if (respCode != 200) {
                     activity.runOnUiThread(() -> {
-                        Toast.makeText(activity, "下载失败，服务器返回 " + respCode, Toast.LENGTH_LONG).show();
+                        AppToast.show(activity, "下载失败，服务器返回 " + respCode, true);
                         resetBtn();
                     });
                     return;
@@ -217,7 +216,7 @@ public class UpdateManager {
                 Log.d(TAG, "APK 文件头: " + headerStr + " (" + bytesToHex(header) + ")");
                 if (!"PK".equals(headerStr.substring(0, 2))) {
                     activity.runOnUiThread(() -> {
-                        Toast.makeText(activity, "下载文件不是有效的 APK（文件头异常）", Toast.LENGTH_LONG).show();
+                        AppToast.show(activity, "下载文件不是有效的 APK（文件头异常）", true);
                         resetBtn();
                     });
                     return;
@@ -226,7 +225,7 @@ public class UpdateManager {
                 // 签名校验
                 if (!verifyApkSignature(apkFile)) {
                     activity.runOnUiThread(() -> {
-                        Toast.makeText(activity, "APK 签名校验失败，可能已被篡改", Toast.LENGTH_LONG).show();
+                        AppToast.show(activity, "APK 签名校验失败，可能已被篡改", true);
                         resetBtn();
                     });
                     return;
@@ -237,7 +236,7 @@ public class UpdateManager {
             } catch (Exception e) {
                 Log.e(TAG, "下载失败", e);
                 activity.runOnUiThread(() -> {
-                    Toast.makeText(activity, "下载失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    AppToast.show(activity, "下载失败: " + e.getMessage(), true);
                     resetBtn();
                 });
             }
@@ -255,7 +254,7 @@ public class UpdateManager {
                         Intent permIntent = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
                         permIntent.setData(android.net.Uri.parse("package:" + activity.getPackageName()));
                         activity.startActivity(permIntent);
-                        Toast.makeText(activity, "请允许安装未知来源应用后重试", Toast.LENGTH_LONG).show();
+                        AppToast.show(activity, "请允许安装未知来源应用后重试", true);
                         resetBtn();
                         return;
                     }
@@ -267,7 +266,7 @@ public class UpdateManager {
                     install.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     activity.startActivity(install);
                     if (testOnly) {
-                        Toast.makeText(activity, "测试成功：ACTION_INSTALL_PACKAGE 可用", Toast.LENGTH_LONG).show();
+                        AppToast.show(activity, "测试成功：ACTION_INSTALL_PACKAGE 可用", true);
                         resetBtn();
                     }
                     return;
@@ -275,7 +274,7 @@ public class UpdateManager {
                     String errSuffix2 = testOnly ? "（测试结束）" : "，尝试 ACTION_VIEW";
                     Log.w(TAG, "ACTION_INSTALL_PACKAGE 不可用" + errSuffix2);
                     if (testOnly) {
-                        Toast.makeText(activity, "测试：ACTION_INSTALL_PACKAGE 不可用", Toast.LENGTH_LONG).show();
+                        AppToast.show(activity, "测试：ACTION_INSTALL_PACKAGE 不可用", true);
                         resetBtn();
                         return;
                     }
@@ -296,7 +295,7 @@ public class UpdateManager {
                 install.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 activity.startActivity(install);
                 if (testOnly) {
-                    Toast.makeText(activity, "测试成功：ACTION_VIEW 可用", Toast.LENGTH_LONG).show();
+                    AppToast.show(activity, "测试成功：ACTION_VIEW 可用", true);
                     resetBtn();
                 }
                 return;
@@ -304,7 +303,7 @@ public class UpdateManager {
                 String errSuffix3 = testOnly ? "（测试结束）" : "";
                 Log.w(TAG, "ACTION_VIEW 不可用" + errSuffix3);
                 if (testOnly) {
-                    Toast.makeText(activity, "测试：所有安装方式均不可用", Toast.LENGTH_LONG).show();
+                    AppToast.show(activity, "测试：所有安装方式均不可用", true);
                     resetBtn();
                     return;
                 }
@@ -315,7 +314,7 @@ public class UpdateManager {
         } catch (Exception e) {
             Log.e(TAG, "安装失败", e);
             if (testOnly) {
-                Toast.makeText(activity, "测试异常：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                AppToast.show(activity, "测试异常：" + e.getMessage(), true);
                 resetBtn();
             } else {
                 copyApkToDownloads(apkFile, e);
