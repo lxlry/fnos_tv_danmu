@@ -457,9 +457,12 @@ public class DanmuManager {
             else if (unit.equals("fps")) display = val + "fps";
             tv.setText(label + "  " + display);
         }
+        View ticks = v.findViewById(R.id.dm_ticks);
+        if (ticks != null) ticks.setVisibility(View.VISIBLE);
         if (sb != null) {
             sb.setMax(max - min);
             sb.setProgress(val - min);
+            if (ticks != null) sb.post(ticks::invalidate);
             sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override
                 public void onProgressChanged(SeekBar s, int p, boolean u) {

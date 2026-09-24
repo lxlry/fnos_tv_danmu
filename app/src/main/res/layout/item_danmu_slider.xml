@@ -15,12 +15,25 @@
         android:textSize="12sp"
         android:paddingBottom="2dp" />
 
-    <SeekBar
-        android:id="@+id/dm_seekbar"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="100"
-        android:progress="50"
-        android:focusable="true" />
+        android:layout_height="wrap_content">
+
+        <SeekBar
+            android:id="@+id/dm_seekbar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="50"
+            android:focusable="true" />
+
+        <com.fntv.app.SeekQuarterMarks
+            android:id="@+id/dm_ticks"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clickable="false"
+            android:focusable="false"
+            android:visibility="gone" />
+    </FrameLayout>
 
 </LinearLayout>

@@ -4211,7 +4211,7 @@ public class HomeActivity extends AppCompatActivity {
         if (!sortBtns.isEmpty() && !rows.isEmpty()) {
             TvFocus.bindVertical(sortBtns, rows.get(0));
         }
-        Button homeSearch = container == moviesContainer
+        View homeSearch = container == moviesContainer
                 ? findViewById(R.id.btnHomeSearch) : null;
         if (!sortBtns.isEmpty()) {
             if (container == libraryContainer && etSearch != null

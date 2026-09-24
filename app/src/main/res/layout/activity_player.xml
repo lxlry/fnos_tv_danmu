@@ -12,14 +12,16 @@
  />
 
     <!-- 缓冲 -->
-    <TextView
+    <com.fntv.app.WaveTextView
         android:id="@+id/tvBuffering"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
         android:text="加载中..."
-        android:textColor="#80FFFFFF"
-        android:textSize="14sp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="16sp"
         android:visibility="gone" />
 
     <!-- 弹幕层（视频上方，控件下方） -->
