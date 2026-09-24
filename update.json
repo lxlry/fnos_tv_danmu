@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527008,
-    "versionName": "9527.008",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.008/FNTV_release_v9527.008.apk",
-    "changelog": "弹幕进度条增加 25% 节点并支持吸附震动；加载提示更亮并带波动；字幕显示中文名；片尾延迟三秒跳过并在进度条标记；增加定时关闭；退到后台后保留登录和当前页面；首页支持刷新，手机可下拉刷新",
+    "versionCode": 9527009,
+    "versionName": "9527.009",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.009/FNTV_release_v9527.009.apk",
+    "changelog": "字幕使用逻辑优化；海报加载优化",
     "forceUpdate": false
 }

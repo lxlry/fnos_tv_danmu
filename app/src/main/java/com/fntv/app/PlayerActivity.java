@@ -401,12 +401,7 @@ public class PlayerActivity extends AppCompatActivity {
                         if (player != null) {
                             savedPlaybackUrl = fullUrl;
                             useHls = fullUrl.contains(".m3u8");
-                            com.google.android.exoplayer2.upstream.DataSource.Factory f = () -> new OkHttpExoDataSource(apiManager.getStreamClient());
-                            if (useHls) {
-                                player.setMediaSource(new com.google.android.exoplayer2.source.hls.HlsMediaSource.Factory(f).createMediaSource(MediaItem.fromUri(fullUrl)));
-                            } else {
-                                player.setMediaSource(new com.google.android.exoplayer2.source.ProgressiveMediaSource.Factory(f, new DefaultExtractorsFactory()).createMediaSource(MediaItem.fromUri(fullUrl)));
-                            }
+                            player.setMediaSource(buildMediaSource(fullUrl, useHls));
                             player.prepare();
                             player.setPlayWhenReady(true);
                             // 等播放器就绪后 seek 到切换前位置 + 更新信息面板
@@ -639,8 +634,13 @@ public class PlayerActivity extends AppCompatActivity {
         } else {
             rf.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
         }
+        DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+        trackSelector.setParameters(trackSelector.buildUponParameters()
+                .setPreferredTextLanguages("zh", "zh-Hans", "zh-CN", "chi", "zho", "cmn")
+                .setRendererDisabled(com.google.android.exoplayer2.C.TRACK_TYPE_TEXT, false)
+                .build());
         player = new SimpleExoPlayer.Builder(this, rf)
-                .setTrackSelector(new DefaultTrackSelector(this))
+                .setTrackSelector(trackSelector)
                 .setLoadControl(createLoadControl())
                 .build();
         playerView.setPlayer(player);
@@ -694,6 +694,7 @@ public class PlayerActivity extends AppCompatActivity {
                     if (firstReady) { scheduleInitialSave(); showCtrl(true); firstReady = false; }
                     syncPlayButton();
                     if (danmuManager != null) danmuManager.onPlayerReady();
+                    if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
                     // HDR 检测（延时等格式就绪）
                     checkHdr();
                     // 打印音轨信息
@@ -783,6 +784,9 @@ public class PlayerActivity extends AppCompatActivity {
                     }, 2000 * retryCount);
                 }
             }
+            @Override public void onTracksChanged(com.google.android.exoplayer2.Tracks tracks) {
+                if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
+            }
             @Override public void onCues(java.util.List<com.google.android.exoplayer2.text.Cue> cues) {
                 if (subtitleMerge != null) {
                     subtitleMerge.onNewCues(cues);
@@ -804,6 +808,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void loadPlayInfo() {
         hdrNotified = false;
+        if (cloudStreamManager != null) cloudStreamManager.resetSubtitleChoice();
         Map<String, String> b = new HashMap<>(); b.put("item_guid", itemGuid);
         Log.d(TAG, "play/info 请求: " + new com.google.gson.Gson().toJson(b));
         apiManager.getApi().getPlayInfo(b).enqueue(new retrofit2.Callback<ApiResponse<PlayInfoResponse>>() {
@@ -858,6 +863,40 @@ public class PlayerActivity extends AppCompatActivity {
         });
     }
 
+    /** 视频源。没有内嵌字幕时附上中文外部字幕。 */
+    private com.google.android.exoplayer2.source.MediaSource buildMediaSource(String url, boolean hls) {
+        com.google.android.exoplayer2.upstream.DataSource.Factory f = () -> new OkHttpExoDataSource(apiManager.getStreamClient());
+        CloudStreamManager.ExternalSubtitle side = cloudStreamManager != null
+                ? cloudStreamManager.defaultExternalSubtitle(baseUrl) : null;
+        if (side != null) Log.d(TAG, "外挂中文字幕: " + side.label + " " + side.url);
+        if (hls) {
+            com.google.android.exoplayer2.source.hls.HlsMediaSource video =
+                    new com.google.android.exoplayer2.source.hls.HlsMediaSource.Factory(f)
+                            .createMediaSource(MediaItem.fromUri(url));
+            return withExternalSubtitle(video, f, side);
+        }
+        com.google.android.exoplayer2.source.ProgressiveMediaSource video =
+                new ProgressiveMediaSource.Factory(f, new DefaultExtractorsFactory())
+                        .createMediaSource(MediaItem.fromUri(url));
+        return withExternalSubtitle(video, f, side);
+    }
+
+    private com.google.android.exoplayer2.source.MediaSource withExternalSubtitle(
+            com.google.android.exoplayer2.source.MediaSource video,
+            com.google.android.exoplayer2.upstream.DataSource.Factory f,
+            CloudStreamManager.ExternalSubtitle side) {
+        if (side == null) return video;
+        com.google.android.exoplayer2.source.MediaSource text =
+                new com.google.android.exoplayer2.source.SingleSampleMediaSource.Factory(f)
+                        .createMediaSource(new MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(side.url))
+                                .setMimeType(side.mimeType)
+                                .setLanguage(side.language)
+                                .setLabel(side.label)
+                                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                                .build(), C.TIME_UNSET);
+        return new com.google.android.exoplayer2.source.MergingMediaSource(video, text);
+    }
+
     /** 开始播放（加载到 ExoPlayer） */
     private void startPlayback() {
         if (mediaGuid == null) return;
@@ -865,14 +904,8 @@ public class PlayerActivity extends AppCompatActivity {
         OkHttpExoDataSource.setChunkedMode(cfg.chunkedModeSize);
         useHls = cfg.hls;
         savedPlaybackUrl = cfg.url;
-        com.google.android.exoplayer2.upstream.DataSource.Factory f = () -> new OkHttpExoDataSource(apiManager.getStreamClient());
-        if (useHls) {
-            player.setMediaSource(new com.google.android.exoplayer2.source.hls.HlsMediaSource.Factory(f).createMediaSource(MediaItem.fromUri(cfg.url)));
-            Log.d(TAG, "播放器: HLS");
-        } else {
-            player.setMediaSource(new com.google.android.exoplayer2.source.ProgressiveMediaSource.Factory(f, new DefaultExtractorsFactory()).createMediaSource(MediaItem.fromUri(cfg.url)));
-            Log.d(TAG, "播放器: 渐进式");
-        }
+        player.setMediaSource(buildMediaSource(cfg.url, useHls));
+        Log.d(TAG, useHls ? "播放器: HLS" : "播放器: 渐进式");
         player.prepare(); player.setPlayWhenReady(true);
         Log.d(TAG, "startPlayback: parentGuid=" + parentGuid + " episodeLoaded=" + (episodeManager != null && episodeManager.isLoaded()) + " loadingEp=" + (episodeManager != null && episodeManager.isLoading()));
         if (parentGuid != null && !parentGuid.isEmpty() && episodeManager != null && !episodeManager.isLoaded() && !episodeManager.isLoading())
@@ -943,6 +976,10 @@ public class PlayerActivity extends AppCompatActivity {
         playerView.setPlayer(player);
         playerView.setUseController(false);
         playerView.setKeepScreenOn(true);
+        if (cloudStreamManager != null) {
+            cloudStreamManager.setPlayer(player);
+            cloudStreamManager.resetSubtitleChoice();
+        }
         // 重新挂载事件监听（错误处理等）
         player.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int s) {
@@ -953,6 +990,7 @@ public class PlayerActivity extends AppCompatActivity {
                     ensureSaveLoop();
                     if (firstReady) { scheduleInitialSave(); showCtrl(true); firstReady = false; }
                     syncPlayButton();
+                    if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
                 } else if (s == Player.STATE_ENDED) {
                     noteProgress();
                     saveProgress(true);
@@ -981,12 +1019,7 @@ public class PlayerActivity extends AppCompatActivity {
         // 重放（直播和普通视频都用 savedPlaybackUrl）
         if (savedPlaybackUrl != null) {
             useHls = savedPlaybackUrl.contains(".m3u8");
-            com.google.android.exoplayer2.upstream.DataSource.Factory f = () -> new OkHttpExoDataSource(apiManager.getStreamClient());
-            if (useHls) {
-                player.setMediaSource(new com.google.android.exoplayer2.source.hls.HlsMediaSource.Factory(f).createMediaSource(MediaItem.fromUri(savedPlaybackUrl)));
-            } else {
-                player.setMediaSource(new com.google.android.exoplayer2.source.ProgressiveMediaSource.Factory(f, new DefaultExtractorsFactory()).createMediaSource(MediaItem.fromUri(savedPlaybackUrl)));
-            }
+            player.setMediaSource(buildMediaSource(savedPlaybackUrl, useHls));
             player.prepare();
             player.setPlayWhenReady(true);
             Log.d(TAG, "已切 Google 软解重试: " + savedPlaybackUrl);
@@ -1629,10 +1662,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (player == null || !cloudStreamManager.hasDirectUrl()) return;
         handler.post(() -> {
             String u = cloudStreamManager.getCloudDirectUrl();
-            com.google.android.exoplayer2.upstream.DataSource.Factory f2 = () -> new OkHttpExoDataSource(apiManager.getStreamClient());
-            com.google.android.exoplayer2.source.MediaSource ms = toHls
-                    ? new com.google.android.exoplayer2.source.hls.HlsMediaSource.Factory(f2).createMediaSource(MediaItem.fromUri(u))
-                    : new com.google.android.exoplayer2.source.ProgressiveMediaSource.Factory(f2, new DefaultExtractorsFactory()).createMediaSource(MediaItem.fromUri(u));
+            com.google.android.exoplayer2.source.MediaSource ms = buildMediaSource(u, toHls);
             player.stop();
             player.setMediaSource(ms);
             player.prepare();

@@ -219,9 +219,8 @@ public class QualitySelectHelper {
             body.put("audio_guid", a.guid != null ? a.guid : "");
             body.put("channels", a.channels);
         }
-        if (streamData.subtitleStreams != null && !streamData.subtitleStreams.isEmpty()) {
-            body.put("subtitle_guid", streamData.subtitleStreams.get(0).guid != null ? streamData.subtitleStreams.get(0).guid : "");
-        }
+        String subtitleGuid = CloudStreamManager.chooseSubtitleGuid(streamData.subtitleStreams);
+        if (!subtitleGuid.isEmpty()) body.put("subtitle_guid", subtitleGuid);
 
         Log.d(TAG, "play/play 请求: " + new com.google.gson.Gson().toJson(body));
 

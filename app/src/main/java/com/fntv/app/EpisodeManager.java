@@ -344,6 +344,7 @@ public class EpisodeManager {
         if (thumb != null) {
             thumb.setCornerRadius(tvLayout ? 6 : 8);
             String url = ep.getPosterUrl(cb.getBaseUrl());
+            thumb.setTag(url);
             SimpleImageLoader.load(url, thumb, cb.getApiManager().getClient());
         }
     }

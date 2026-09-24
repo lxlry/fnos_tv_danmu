@@ -3977,17 +3977,84 @@ public class HomeActivity extends AppCompatActivity {
     private void setupFeedback() {
         final String issuesUrl = "https://github.com/lxlry/fnos_tv_danmu/issues";
         btnFeedback.setOnClickListener(v -> {
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("问题反馈")
-                    .setMessage("如有问题或建议，请到 GitHub 提交 Issue：\n" + issuesUrl)
-                    .setPositiveButton("复制链接", (dialog, which) -> {
-                        android.content.ClipboardManager cm = (android.content.ClipboardManager)
-                                getSystemService(CLIPBOARD_SERVICE);
-                        cm.setText(issuesUrl);
-                        Toast.makeText(this, "链接已复制", Toast.LENGTH_SHORT).show();
-                    })
-                    .setNegativeButton("关闭", null)
-                    .show();
+            final android.app.Dialog dialog = new android.app.Dialog(
+                    this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.setBackgroundResource(R.drawable.bg_card);
+            root.setPadding(dp(20), dp(18), dp(20), dp(16));
+
+            TextView title = new TextView(this);
+            title.setText("问题反馈");
+            title.setTextColor(color(R.color.text_primary));
+            title.setTextSize(18);
+            title.setTypeface(null, android.graphics.Typeface.BOLD);
+            root.addView(title);
+
+            TextView message = new TextView(this);
+            message.setText("如有问题或建议，请到 GitHub 提交 Issue：\n" + issuesUrl);
+            message.setTextColor(color(R.color.text_secondary));
+            message.setTextSize(13);
+            LinearLayout.LayoutParams messageLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            messageLp.topMargin = dp(6);
+            message.setLayoutParams(messageLp);
+            root.addView(message);
+
+            LinearLayout actions = new LinearLayout(this);
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+            actions.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            actionsLp.topMargin = dp(16);
+            actions.setLayoutParams(actionsLp);
+
+            Button close = new Button(this);
+            close.setText("关闭");
+            close.setAllCaps(false);
+            close.setTextSize(15);
+            close.setTextColor(color(R.color.text_secondary));
+            close.setBackgroundResource(R.drawable.bg_chip);
+            close.setFocusable(true);
+            LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+            closeLp.rightMargin = dp(8);
+            close.setLayoutParams(closeLp);
+            close.setOnClickListener(view -> dialog.dismiss());
+
+            Button copy = new Button(this);
+            copy.setText("复制链接");
+            copy.setAllCaps(false);
+            copy.setTextSize(15);
+            copy.setTextColor(color(R.color.text_white));
+            copy.setTypeface(null, android.graphics.Typeface.BOLD);
+            copy.setBackgroundResource(R.drawable.bg_btn_primary);
+            copy.setFocusable(true);
+            LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+            copyLp.leftMargin = dp(8);
+            copy.setLayoutParams(copyLp);
+            copy.setOnClickListener(view -> {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        getSystemService(CLIPBOARD_SERVICE);
+                cm.setText(issuesUrl);
+                Toast.makeText(this, "链接已复制", Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+            });
+
+            actions.addView(close);
+            actions.addView(copy);
+            root.addView(actions);
+            dialog.setContentView(root);
+
+            android.view.Window window = dialog.getWindow();
+            if (window != null) {
+                window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+                int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.86f);
+                int max = dp(440);
+                if (width > max) width = max;
+                window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+            }
+            dialog.show();
+            copy.requestFocus();
         });
     }
 
@@ -4043,27 +4110,30 @@ public class HomeActivity extends AppCompatActivity {
         return m + "分" + s + "秒";
     }
 
-    /** 逐张加载图片 */
-
+    /** 已缓存的海报立刻贴上，没缓存的再去下载。 */
     private void loadImagesLazily(ViewGroup container, int index) {
         List<ImageView> targets = new ArrayList<>();
         collectImageViews(container, targets);
         if (targets.isEmpty() || index >= targets.size()) return;
 
-        ImageView iv = targets.get(index);
-        Object tag = iv.getTag();
-        if (tag instanceof String) {
+        for (int i = index; i < targets.size(); i++) {
+            ImageView iv = targets.get(i);
+            Object tag = iv.getTag();
+            if (!(tag instanceof String)) continue;
             String url = (String) tag;
-            if (url.startsWith("http")) {
+            if (!url.startsWith("http")) continue;
+            if (SimpleImageLoader.isMemoryCached(url)) {
                 SimpleImageLoader.load(url, iv, apiManager.getClient());
             }
         }
-        final int next = index + 1;
-        if (next < targets.size()) {
-            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-                @Override
-                public void run() { loadImagesLazily(container, next); }
-            }, 100);
+        for (int i = index; i < targets.size(); i++) {
+            ImageView iv = targets.get(i);
+            Object tag = iv.getTag();
+            if (!(tag instanceof String)) continue;
+            String url = (String) tag;
+            if (url.startsWith("http") && !SimpleImageLoader.isMemoryCached(url)) {
+                SimpleImageLoader.load(url, iv, apiManager.getClient());
+            }
         }
     }
 
