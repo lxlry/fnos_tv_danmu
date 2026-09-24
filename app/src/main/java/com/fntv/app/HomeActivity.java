@@ -135,6 +135,8 @@ public class HomeActivity extends AppCompatActivity {
     private View pendingReturnFocus;
     private String pendingReturnGuid;
     private LinearLayout pendingReturnContainer;
+    private int pendingReturnScrollY = -1;
+    private boolean suppressBrowseAutoFocus;
     private static final int EPISODE_PAGE = 30;
 
     /** 离开列表进详情时，把这一页的子视图先摘下来。 */
@@ -4662,6 +4664,7 @@ public class HomeActivity extends AppCompatActivity {
     /** 进入媒体库网格后，焦点落到第一张海报，而不是停在搜索或底栏。 */
     private void placeBrowseFocus(LinearLayout container) {
         if (container == null) return;
+        if (suppressBrowseAutoFocus) return;
         if (pendingReturnFocus != null || pendingReturnGuid != null) return;
         View focused = getCurrentFocus();
         if (isDescendantOf(focused, container)) return;
@@ -4978,11 +4981,19 @@ public class HomeActivity extends AppCompatActivity {
                 : (page.under != null && page.under.overview);
         revealTab(page.tab);
         syncHomeSwipe();
-        armReturnFocus(page.container, page.focus, page.focusGuid);
+        suppressBrowseAutoFocus = true;
+        armReturnFocus(page.container, page.focus, page.focusGuid, page.scrollY);
         if (page.container == moviesContainer && page.overview) {
             wireOverviewFocus();
         } else if (page.container != null) {
             wireBrowseGrid(page.container);
+        }
+        LinearLayout host = page.container;
+        if (host != null) {
+            host.post(() -> host.post(() -> {
+                suppressBrowseAutoFocus = false;
+                restoreScroll(host, page.scrollY);
+            }));
         }
     }
 
@@ -4995,34 +5006,53 @@ public class HomeActivity extends AppCompatActivity {
             }
             page.container.addView(child);
         }
-        ScrollView scroller = verticalScroller(page.container);
-        if (scroller != null) {
-            int y = page.scrollY;
-            scroller.post(() -> {
-                scroller.scrollTo(0, y);
-                scroller.post(() -> scroller.scrollTo(0, y));
-            });
-        }
+        restoreScroll(page.container, page.scrollY);
+    }
+
+    private void restoreScroll(LinearLayout container, int scrollY) {
+        if (scrollY < 0) return;
+        ScrollView scroller = verticalScroller(container);
+        if (scroller == null) return;
+        scroller.post(() -> {
+            scroller.scrollTo(0, scrollY);
+            scroller.post(() -> scroller.scrollTo(0, scrollY));
+        });
     }
 
     private void armReturnFocus(LinearLayout container, View focus, String guid) {
+        armReturnFocus(container, focus, guid, -1);
+    }
+
+    private void armReturnFocus(LinearLayout container, View focus, String guid, int scrollY) {
         pendingReturnContainer = container;
         pendingReturnFocus = focus;
         pendingReturnGuid = guid;
+        pendingReturnScrollY = scrollY;
         if (container != null) container.post(this::applyReturnFocus);
     }
 
     private boolean applyReturnFocus() {
         if (pendingReturnFocus == null && pendingReturnGuid == null) return false;
         View target = pendingReturnFocus;
-        if (!isUsableFocus(target) && pendingReturnContainer != null) {
-            target = findCardByGuid(pendingReturnContainer, pendingReturnGuid);
+        LinearLayout container = pendingReturnContainer;
+        int scrollY = pendingReturnScrollY;
+        if (!isUsableFocus(target) && container != null) {
+            target = findCardByGuid(container, pendingReturnGuid);
         }
-        if (!isUsableFocus(target)) return false;
+        if (!isUsableFocus(target)) {
+            if (scrollY >= 0) restoreScroll(container, scrollY);
+            return false;
+        }
         pendingReturnFocus = null;
         pendingReturnGuid = null;
         pendingReturnContainer = null;
-        focusOn(target);
+        pendingReturnScrollY = -1;
+        if (isTelevision()) {
+            focusOn(target);
+        } else {
+            // 手机不因焦点滚动，否则会在布局未完成时滚到顶端，冲掉已保存的位置
+            restoreScroll(container, scrollY);
+        }
         homeEntryFocused = true;
         initialFocusPlaced = true;
         holdRememberedFocus = false;
@@ -5201,6 +5231,7 @@ public class HomeActivity extends AppCompatActivity {
             applyReturnFocus();
             return;
         }
+        if (suppressBrowseAutoFocus) return;
         if (currentTab != 0 || !showingOverview) return;
         if (pendingHomeAnchor >= 0) return;
         View focused = getCurrentFocus();
@@ -5402,7 +5433,9 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void focusOn(View target) {
+        if (target == null) return;
         target.requestFocus();
+        if (!isTelevision()) return;
         target.requestRectangleOnScreen(
                 new android.graphics.Rect(0, 0,
                         Math.max(target.getWidth(), 1),
