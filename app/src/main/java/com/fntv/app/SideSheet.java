@@ -8,6 +8,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -24,7 +25,14 @@ import java.util.List;
 /** 播放器设置从右侧滑出，不再用居中弹窗。 */
 final class SideSheet {
 
+    private static Dialog open;
+
     private SideSheet() {}
+
+    /** 播放器仍持有按键时，把方向键交给正在显示的侧边栏。 */
+    static boolean onActivityKey(KeyEvent event) {
+        return open != null && open.isShowing() && onKey(open, event, false);
+    }
 
     static void place(Dialog dialog) {
         place(dialog, 320);
@@ -90,6 +98,7 @@ final class SideSheet {
 
         dialog.setContentView(root);
         place(dialog);
+        track(dialog);
         dialog.show();
         focusSheet(dialog, list);
     }
@@ -176,6 +185,7 @@ final class SideSheet {
         dialog.setContentView(root);
         place(dialog, widthDp);
         wireDismiss(body, dialog);
+        track(dialog);
         dialog.show();
         focusSheet(dialog, body);
     }
@@ -241,8 +251,11 @@ final class SideSheet {
         chip.setLayoutParams(lp);
         chip.setBackground(stroke(density, selected));
         chip.setFocusable(true);
+        chip.setFocusableInTouchMode(true);
         chip.setClickable(true);
         chip.setTag(new Click(listener, index));
+        chip.setOnFocusChangeListener((v, hasFocus) ->
+                v.setBackground(stroke(density, selected, hasFocus)));
 
         LinearLayout text = new LinearLayout(context);
         text.setOrientation(LinearLayout.VERTICAL);
@@ -296,8 +309,11 @@ final class SideSheet {
         card.setPadding((int) (14 * density), (int) (10 * density), (int) (14 * density), (int) (10 * density));
         card.setBackground(stroke(density, selected));
         card.setFocusable(true);
+        card.setFocusableInTouchMode(true);
         card.setClickable(true);
         card.setTag(new Click(listener, index));
+        card.setOnFocusChangeListener((v, hasFocus) ->
+                v.setBackground(stroke(density, selected, hasFocus)));
         if (selected) {
             TextView mark = new TextView(context);
             mark.setText("✓");
@@ -326,10 +342,15 @@ final class SideSheet {
     }
 
     private static GradientDrawable stroke(float density, boolean selected) {
+        return stroke(density, selected, false);
+    }
+
+    private static GradientDrawable stroke(float density, boolean selected, boolean focused) {
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x00000000);
+        bg.setColor(focused ? 0x33FFFFFF : 0x00000000);
         bg.setCornerRadius(10 * density);
-        bg.setStroke((int) ((selected ? 2 : 1) * density), selected ? 0xFF4C8DFF : 0x66FFFFFF);
+        int color = focused ? 0xFF81C784 : (selected ? 0xFF4C8DFF : 0x66FFFFFF);
+        bg.setStroke((int) ((focused || selected ? 2 : 1) * density), color);
         return bg;
     }
 
@@ -381,7 +402,12 @@ final class SideSheet {
                 width, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
         panel.setLayoutParams(panelLp);
         panel.setTag("side_panel");
+        panel.setClickable(true);
         panel.setMinimumHeight(dialog.getContext().getResources().getDisplayMetrics().heightPixels);
+        host.setClickable(true);
+        host.setOnClickListener(v -> {
+            if (dialog.isShowing()) dialog.dismiss();
+        });
         int inset = statusBarInset(dialog.getContext());
         if (inset > 0) {
             panel.setPadding(panel.getPaddingLeft(), panel.getPaddingTop() + inset,
@@ -401,10 +427,71 @@ final class SideSheet {
     /** 打开后把焦点放进第一条，并串起上下左右，避免停在滚动容器上。 */
     static void focus(Dialog dialog) {
         if (dialog == null || dialog.getWindow() == null) return;
+        track(dialog);
         View decor = dialog.getWindow().getDecorView();
         decor.setFocusable(true);
         decor.setFocusableInTouchMode(true);
         decor.post(() -> bindSheet(decor, true));
+    }
+
+    private static void track(Dialog dialog) {
+        open = dialog;
+        dialog.setOnKeyListener((d, keyCode, event) -> onKey(dialog, event, true));
+        dialog.setOnDismissListener(d -> {
+            if (open == dialog) open = null;
+        });
+    }
+
+    private static boolean onKey(Dialog dialog, KeyEvent event, boolean inDialogWindow) {
+        if (dialog == null || !dialog.isShowing() || event == null) return false;
+        int key = event.getKeyCode();
+        boolean dpad = key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN
+                || key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT;
+        boolean ok = key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER
+                || key == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        boolean back = key == KeyEvent.KEYCODE_BACK || key == KeyEvent.KEYCODE_ESCAPE;
+        if (!dpad && !ok && !back) return false;
+        if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
+        if (back) {
+            dialog.dismiss();
+            return true;
+        }
+        View focus = dialog.getCurrentFocus();
+        if (focus == null && dialog.getWindow() != null) {
+            bindSheet(dialog.getWindow().getDecorView(), false);
+            focus = dialog.getCurrentFocus();
+        }
+        if (focus == null) return true;
+        if (focus instanceof android.widget.NumberPicker
+                && (key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN)) {
+            if (inDialogWindow) return false;
+            android.widget.NumberPicker picker = (android.widget.NumberPicker) focus;
+            int delta = key == KeyEvent.KEYCODE_DPAD_UP ? -1 : 1;
+            int next = picker.getValue() + delta;
+            if (next > picker.getMaxValue()) next = picker.getMinValue();
+            if (next < picker.getMinValue()) next = picker.getMaxValue();
+            picker.setValue(next);
+            return true;
+        }
+        if (focus instanceof android.widget.SeekBar
+                && (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            if (inDialogWindow) return false;
+            android.widget.SeekBar bar = (android.widget.SeekBar) focus;
+            int step = Math.max(1, bar.getKeyProgressIncrement());
+            int delta = key == KeyEvent.KEYCODE_DPAD_LEFT ? -step : step;
+            bar.setProgress(Math.max(0, Math.min(bar.getMax(), bar.getProgress() + delta)));
+            return true;
+        }
+        if (ok) {
+            if (focus.isClickable()) focus.performClick();
+            return true;
+        }
+        if (!TvFocus.move(focus, key)) {
+            int dir = TvFocus.dirFromKey(key);
+            View next = dir == 0 ? null : focus.focusSearch(dir);
+            if (next != null && next != focus) next.requestFocus();
+        }
+        return true;
     }
 
     private static void focusSheet(Dialog dialog, View body) {

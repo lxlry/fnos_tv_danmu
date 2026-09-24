@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527011,
-    "versionName": "9527.011",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.011/FNTV_release_v9527.011.apk",
-    "changelog": "电视端焦点与设置图标优化；媒体库返回保持位置；提示改为半透明",
+    "versionCode": 9527012,
+    "versionName": "9527.012",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.012/FNTV_release_v9527.012.apk",
+    "changelog": "播放器侧边栏焦点修复；检查更新弹窗圆角；选集页默认落到当前季",
     "forceUpdate": false
 }

@@ -5289,6 +5289,12 @@ public class HomeActivity extends AppCompatActivity {
         if (!eps.isEmpty()) rows.add(eps);
 
         for (List<View> row : rows) TvFocus.bindRow(row);
+        for (View season : seasons) {
+            if (season.isSelected()) {
+                TvFocus.remember(season);
+                break;
+            }
+        }
         for (int i = 0; i < rows.size() - 1; i++) {
             TvFocus.bindVertical(rows.get(i), rows.get(i + 1));
         }
@@ -5303,11 +5309,26 @@ public class HomeActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        if (ev.getAction() == android.view.MotionEvent.ACTION_DOWN
+                && etSearch != null && etSearch.isShown() && etSearch.isFocused()
+                && !touchInside(etSearch, ev)) {
+            hideKeyboard();
+            etSearch.clearFocus();
+        }
         if (pendingHomeAnchor >= 0 && ev.getAction() == android.view.MotionEvent.ACTION_MOVE) {
             pendingHomeAnchor = -1;
             holdRememberedFocus = false;
         }
         return super.dispatchTouchEvent(ev);
+    }
+
+    private boolean touchInside(View view, android.view.MotionEvent ev) {
+        int[] loc = new int[2];
+        view.getLocationOnScreen(loc);
+        float x = ev.getRawX();
+        float y = ev.getRawY();
+        return x >= loc[0] && x < loc[0] + view.getWidth()
+                && y >= loc[1] && y < loc[1] + view.getHeight();
     }
 
     @Override

@@ -2103,11 +2103,13 @@ public class PlayerActivity extends AppCompatActivity {
             if (topBar != null) topBar.clearFocus();
             if (controller != null) controller.clearFocus();
             if (btnLock != null) btnLock.clearFocus();
+            if (playerView != null) playerView.setFocusable(false);
             if (moreScrim != null) {
                 moreScrim.setFocusable(false);
                 moreScrim.post(this::focusMorePanel);
             }
         } else if (ctrlVis && !isLocked) {
+            if (playerView != null) playerView.setFocusable(true);
             controller.setVisibility(View.VISIBLE);
             topBar.setVisibility(View.VISIBLE);
             btnLock.setVisibility(View.VISIBLE);
@@ -2522,6 +2524,25 @@ public class PlayerActivity extends AppCompatActivity {
 
     // ========== 按键 ==========
 
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (SideSheet.onActivityKey(event)) return true;
+        if (moreOpen && event.getAction() == KeyEvent.ACTION_DOWN) {
+            int k = event.getKeyCode();
+            if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_ESCAPE) {
+                showMore(false);
+                return true;
+            }
+            if (k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN
+                    || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                if (!focusInMore()) focusMorePanel();
+                else TvFocus.move(getCurrentFocus(), k);
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     @Override public boolean onKeyDown(int k, KeyEvent e) {
         if (episodeManager != null && episodeManager.isPickerShowing()) {
             if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_ESCAPE) {
@@ -2583,7 +2604,10 @@ public class PlayerActivity extends AppCompatActivity {
                     return true;
                 // LEFT/RIGHT 由 SeekBar 自身处理（已设 keyProgressIncrement=5000）
                 case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:
-                    if (moreOpen) return true;
+                    if (moreOpen) {
+                        if (!focusInMore()) focusMorePanel();
+                        return true;
+                    }
                     View subtitleBtn = findViewById(R.id.btnSubtitleTrack);
                     View audioBtn = findViewById(R.id.btnAudioTrack);
                     if (seekBar.hasFocus() || btnSpeed.hasFocus()
