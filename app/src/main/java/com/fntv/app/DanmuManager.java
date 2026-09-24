@@ -440,6 +440,7 @@ public class DanmuManager {
             }
             dialog.dismiss();
         });
+        SideSheet.place(dialog);
         dialog.show();
     }
 
@@ -535,6 +536,7 @@ public class DanmuManager {
         input.setText(autoFill);
         if (!autoFill.isEmpty()) input.setSelection(autoFill.length());
 
+        SideSheet.place(dialog);
         dialog.show();
 
         sBtn.setOnClickListener(v -> {
@@ -780,6 +782,7 @@ public class DanmuManager {
         }
 
         closeBtn.setOnClickListener(v -> dialog.dismiss());
+        SideSheet.place(dialog);
         dialog.show();
     }
 
@@ -898,7 +901,8 @@ public class DanmuManager {
                         showDanmuSearch();
                     });
 
-                    dialog.show();
+                    SideSheet.place(dialog);
+        dialog.show();
                 });
             } catch (Exception e) {
                 showDanmuStatus("弹幕失败: " + e.getMessage());

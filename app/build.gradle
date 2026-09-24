@@ -10,8 +10,8 @@ android {
         applicationId "com.fntv.app"
         minSdkVersion 19
         targetSdkVersion 32
-        versionCode 9527006
-        versionName "9527.006"
+        versionCode 9527007
+        versionName "9527.007"
         vectorDrawables.useSupportLibrary = true
         multiDexEnabled true
     }

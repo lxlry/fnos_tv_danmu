@@ -323,9 +323,7 @@ public class CloudStreamManager {
             for (int i = 0; i < qualityCount; i++) {
                 items[i] = (i == qualityIndex ? "✓ " : "  ") + qualityLabels[i];
             }
-            new android.app.AlertDialog.Builder(cb.getContext())
-                    .setTitle("画质选择")
-                    .setItems(items, (dialog, which) -> {
+            SideSheet.showGrid(cb.getContext(), "视频质量", qualityChoices(items), checkedIndex(items), (dialog, which) -> {
                         if (which < qualityCount) {
                             qualityIndex = which;
                             sp.edit().putInt("cloud_quality_index", qualityIndex).apply();
@@ -334,9 +332,7 @@ public class CloudStreamManager {
                             Toast.makeText(cb.getContext(), "切换画质：" + qualityLabels[qualityIndex], Toast.LENGTH_SHORT).show();
                             cb.runOnUiThread(() -> reloadPlayback());
                         }
-                    })
-                    .setNegativeButton("关闭", null)
-                    .show();
+                    });
         } else if (cloudDirectMode && qualityCount > 0 && qualityLabels != null) {
             // 直链模式：画质列表 + 切换代理
             final String[] items = new String[qualityCount + 1];
@@ -344,9 +340,7 @@ public class CloudStreamManager {
                 items[i] = (i == qualityIndex ? "✓ " : "  ") + qualityLabels[i];
             }
             items[qualityCount] = "切换到代理模式";
-            new android.app.AlertDialog.Builder(cb.getContext())
-                    .setTitle("播放设置")
-                    .setItems(items, (dialog, which) -> {
+            SideSheet.showList(cb.getContext(), "播放设置", items, (dialog, which) -> {
                         if (which < qualityCount) {
                             qualityIndex = which;
                             sp.edit().putInt("cloud_quality_index", qualityIndex)
@@ -363,23 +357,17 @@ public class CloudStreamManager {
                             Toast.makeText(cb.getContext(), "已切换为代理模式", Toast.LENGTH_SHORT).show();
                             cb.runOnUiThread(() -> reloadPlayback());
                         }
-                    })
-                    .setNegativeButton("关闭", null)
-                    .show();
+                    });
         } else {
             // 代理模式：切换到直链
-            new android.app.AlertDialog.Builder(cb.getContext())
-                    .setTitle("播放设置")
-                    .setItems(new String[]{"切换到直链模式"}, (dialog, which) -> {
+            SideSheet.showList(cb.getContext(), "播放设置", new String[]{"切换到直链模式"}, (dialog, which) -> {
                         cloudDirectMode = true;
                         sp.edit().putBoolean("cloud_direct_mode", true).apply();
                         updateCloudBtnText();
                         dialog.dismiss();
                         Toast.makeText(cb.getContext(), "已切换为直链模式", Toast.LENGTH_SHORT).show();
                         cb.runOnUiThread(() -> reloadPlayback());
-                    })
-                    .setNegativeButton("关闭", null)
-                    .show();
+                    });
         }
     }
 
@@ -451,10 +439,8 @@ public class CloudStreamManager {
         }
 
         final String[] items = itemLabels.toArray(new String[0]);
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle("选择音轨")
-                .setItems(items, (dialog, which) -> {
-                    if (which < 0 || which >= itemLabels.size()) return;
+        SideSheet.showCards(activity, "音频", null, trackChoices(items), trackSelected(items, lastAudioTrackLabel), "", (dialog, which) -> {
+            if (which < 0 || which >= itemLabels.size()) return;
                     int selGroup = itemGroupIdx.get(which);
                     int selTrack = itemTrackIdx.get(which);
                     if (selGroup >= 0 && selTrack >= 0) {
@@ -479,9 +465,7 @@ public class CloudStreamManager {
                     cb.onTrackChanged();
                     Toast.makeText(activity, "已切换: " + items[which], Toast.LENGTH_SHORT).show();
                     dialog.dismiss();
-                })
-                .setNegativeButton("取消", null)
-                .show();
+                });
     }
 
     /** ExoPlayer 无 TrackGroup（FFmpeg 软解）→ 用 stream API 试切换（语言匹配 + 重载） */
@@ -495,10 +479,8 @@ public class CloudStreamManager {
             String br = asi.bps > 0 ? " " + FormatUtils.formatBitrate(asi.bps) : "";
             items[i] = "音轨" + (i + 1) + "  " + lang + "  " + codec + (ch.isEmpty() ? "" : "  " + ch) + br;
         }
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle("选择音轨")
-                .setItems(items, (dialog, which) -> {
-                    if (which < 0 || which >= streamAudioTracks.size()) return;
+        SideSheet.showCards(activity, "音频", null, trackChoices(items), trackSelected(items, lastAudioTrackLabel), "", (dialog, which) -> {
+            if (which < 0 || which >= streamAudioTracks.size()) return;
                     StreamResponse.AudioStreamInfo sel = streamAudioTracks.get(which);
                     String lang = sel.language;
                     if (lang != null && !lang.isEmpty()) {
@@ -517,9 +499,7 @@ public class CloudStreamManager {
                         Toast.makeText(activity, "该音轨无语言标记，无法自动切换", Toast.LENGTH_SHORT).show();
                     }
                     dialog.dismiss();
-                })
-                .setNegativeButton("取消", null)
-                .show();
+                });
     }
 
     /** 显示字幕选择弹窗（匹配弹幕设置的美化风格） */
@@ -533,8 +513,11 @@ public class CloudStreamManager {
             showSubtitleTracksFromPlayer(activity, selector, groups);
         } else if (streamSubtitleTracks != null && !streamSubtitleTracks.isEmpty()) {
             showSubtitleTracksFromStreamApi(activity);
+        } else if (trackInfo == null) {
+            Toast.makeText(activity, "字幕信息尚未就绪", Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(activity, trackInfo == null ? "字幕信息尚未就绪" : "无可用字幕", Toast.LENGTH_SHORT).show();
+            SideSheet.showCards(activity, "字幕", "字幕列表",
+                    java.util.Collections.<SideSheet.Choice>emptyList(), -1, "当前没有字幕可选择", null);
         }
     }
 
@@ -573,9 +556,7 @@ public class CloudStreamManager {
         }
 
         final String[] items = itemLabels.toArray(new String[0]);
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle("选择字幕")
-                .setItems(items, (dialog, which) -> {
+        SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), trackSelected(items, lastSubtitleTrackLabel), "当前没有字幕可选择", (dialog, which) -> {
                     if (which < 0 || which >= itemLabels.size()) return;
                     int selGroup = itemGroupIdx.get(which);
                     int selTrack = itemTrackIdx.get(which);
@@ -608,9 +589,7 @@ public class CloudStreamManager {
                     cb.onTrackChanged();
                     Toast.makeText(activity, "已切换: " + items[which], Toast.LENGTH_SHORT).show();
                     dialog.dismiss();
-                })
-                .setNegativeButton("取消", null)
-                .show();
+                });
     }
 
     /** ExoPlayer 无 TrackGroup（FFmpeg 软解）→ 用 stream API 试切换（语言匹配） */
@@ -624,9 +603,7 @@ public class CloudStreamManager {
             String def = ssi.isDefault != 0 ? " [默认]" : "";
             items[i + 1] = "字幕" + (i + 1) + "  " + lang + "  " + codec + def;
         }
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle("选择字幕")
-                .setItems(items, (dialog, which) -> {
+        SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), trackSelected(items, lastSubtitleTrackLabel), "当前没有字幕可选择", (dialog, which) -> {
                     if (which < 0) return;
                     DefaultTrackSelector selector = (DefaultTrackSelector) player.getTrackSelector();
                     if (which == 0) {
@@ -658,12 +635,50 @@ public class CloudStreamManager {
                     cb.onTrackChanged();
                     Toast.makeText(activity, "已切换: " + items[which], Toast.LENGTH_SHORT).show();
                     dialog.dismiss();
-                })
-                .setNegativeButton("取消", null)
-                .show();
+                });
     }
 
     // ========== 内部 ==========
+
+    private java.util.ArrayList<SideSheet.Choice> qualityChoices(String[] items) {
+        java.util.ArrayList<SideSheet.Choice> list = new java.util.ArrayList<>();
+        if (items == null) return list;
+        for (String raw : items) {
+            String text = raw.startsWith("✓") ? raw.substring(1).trim() : raw.trim();
+            list.add(new SideSheet.Choice(text, "", null));
+        }
+        return list;
+    }
+
+    private int checkedIndex(String[] items) {
+        if (items == null) return 0;
+        for (int i = 0; i < items.length; i++) {
+            if (items[i].startsWith("✓")) return i;
+        }
+        return 0;
+    }
+
+    private java.util.ArrayList<SideSheet.Choice> trackChoices(String[] items) {
+        java.util.ArrayList<SideSheet.Choice> list = new java.util.ArrayList<>();
+        if (items == null) return list;
+        for (String raw : items) {
+            String text = raw == null ? "" : raw.trim();
+            int cut = text.indexOf("  ");
+            String title = cut < 0 ? text : text.substring(0, cut).trim();
+            String detail = cut < 0 ? "" : text.substring(cut).trim();
+            list.add(new SideSheet.Choice(title, detail, null));
+        }
+        return list;
+    }
+
+    private int trackSelected(String[] items, String current) {
+        if (items == null || items.length == 0) return -1;
+        if (current == null || current.isEmpty()) return 0;
+        for (int i = 0; i < items.length; i++) {
+            if (current.equals(items[i])) return i;
+        }
+        return 0;
+    }
 
     public void reloadPlayback() {
         resetForQualitySwitch();

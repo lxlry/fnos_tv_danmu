@@ -1,0 +1,340 @@
+package com.fntv.app;
+
+import android.app.Dialog;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.graphics.drawable.GradientDrawable;
+import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import java.util.List;
+
+/** 播放器设置从右侧滑出，不再用居中弹窗。 */
+final class SideSheet {
+
+    private SideSheet() {}
+
+    static void place(Dialog dialog) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        float density = dialog.getContext().getResources().getDisplayMetrics().density;
+        int width = (int) (320 * density);
+        window.setGravity(Gravity.END | Gravity.TOP);
+        window.setLayout(width, ViewGroup.LayoutParams.MATCH_PARENT);
+        window.setBackgroundDrawable(new ColorDrawable(0xF0121212));
+    }
+
+    static void showList(Context context, String title, String[] items, DialogInterface.OnClickListener listener) {
+        Dialog dialog = new Dialog(context, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        dialog.setCanceledOnTouchOutside(true);
+        float density = context.getResources().getDisplayMetrics().density;
+        int pad = (int) (18 * density);
+
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xF0121212);
+        root.setPadding(pad, pad, pad, pad);
+
+        TextView heading = new TextView(context);
+        heading.setText(title);
+        heading.setTextColor(Color.WHITE);
+        heading.setTextSize(20);
+        heading.setTypeface(Typeface.DEFAULT_BOLD);
+        heading.setPadding(0, 0, 0, (int) (10 * density));
+        root.addView(heading);
+
+        View line = new View(context);
+        line.setBackgroundColor(0x33FFFFFF);
+        LinearLayout.LayoutParams lineLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, (int) density));
+        lineLp.bottomMargin = (int) (8 * density);
+        line.setLayoutParams(lineLp);
+        root.addView(line);
+
+        ScrollView scroll = new ScrollView(context);
+        scroll.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        LinearLayout list = new LinearLayout(context);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list);
+        root.addView(scroll);
+
+        if (items != null) {
+            for (int i = 0; i < items.length; i++) {
+                final int index = i;
+                Button row = new Button(context);
+                row.setLayoutParams(new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, (int) (44 * density)));
+                row.setBackgroundResource(R.drawable.bg_player_action);
+                row.setMinWidth(0);
+                row.setMinHeight(0);
+                row.setGravity(Gravity.CENTER_VERTICAL | Gravity.LEFT);
+                row.setPadding((int) (8 * density), 0, (int) (8 * density), 0);
+                row.setAllCaps(false);
+                row.setText(items[i]);
+                row.setTextColor(Color.WHITE);
+                row.setTextSize(15);
+                row.setFocusable(true);
+                row.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    if (listener != null) listener.onClick(dialog, index);
+                });
+                list.addView(row);
+            }
+        }
+
+        dialog.setContentView(root);
+        place(dialog);
+        dialog.show();
+    }
+
+    /** 画质、音轨、字幕卡片。detail 和 badge 可空。 */
+    static final class Choice {
+        final String title;
+        final String detail;
+        final String badge;
+
+        Choice(String title, String detail, String badge) {
+            this.title = title == null ? "" : title;
+            this.detail = detail;
+            this.badge = badge;
+        }
+    }
+
+    /** 画质格子：一行三个，选中项蓝框。 */
+    static void showGrid(Context context, String title, List<Choice> choices, int selected,
+                         DialogInterface.OnClickListener listener) {
+        showPanel(context, title, 420, buildGrid(context, choices, selected, listener));
+    }
+
+    /** 音轨/字幕卡片。没有条目时显示 emptyText。 */
+    static void showCards(Context context, String title, String section, List<Choice> choices, int selected,
+                          String emptyText, DialogInterface.OnClickListener listener) {
+        float density = context.getResources().getDisplayMetrics().density;
+        LinearLayout body = new LinearLayout(context);
+        body.setOrientation(LinearLayout.VERTICAL);
+        if (section != null && !section.isEmpty()) {
+            TextView sec = new TextView(context);
+            sec.setText(section);
+            sec.setTextColor(Color.WHITE);
+            sec.setTextSize(16);
+            sec.setPadding(0, (int) (8 * density), 0, (int) (12 * density));
+            body.addView(sec);
+        }
+        if (choices == null || choices.isEmpty()) {
+            TextView empty = new TextView(context);
+            empty.setText(emptyText == null ? "" : emptyText);
+            empty.setTextColor(0xFFB0B0B0);
+            empty.setTextSize(14);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(0, (int) (48 * density), 0, 0);
+            body.addView(empty);
+        } else {
+            for (int i = 0; i < choices.size(); i++) {
+                body.addView(trackCard(context, choices.get(i), i == selected, i, listener));
+            }
+        }
+        showPanel(context, title, 360, body);
+    }
+
+    private static void showPanel(Context context, String title, int widthDp, View body) {
+        Dialog dialog = new Dialog(context, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        dialog.setCanceledOnTouchOutside(true);
+        float density = context.getResources().getDisplayMetrics().density;
+        int pad = (int) (18 * density);
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xF0121212);
+        root.setPadding(pad, pad, pad, pad);
+
+        TextView heading = new TextView(context);
+        heading.setText(title);
+        heading.setTextColor(Color.WHITE);
+        heading.setTextSize(18);
+        heading.setGravity(Gravity.CENTER);
+        heading.setPadding(0, (int) (8 * density), 0, (int) (16 * density));
+        root.addView(heading);
+
+        ScrollView scroll = new ScrollView(context);
+        scroll.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        scroll.addView(body);
+        root.addView(scroll);
+        dialog.setContentView(root);
+        place(dialog, widthDp);
+        wireDismiss(body, dialog);
+        dialog.show();
+    }
+
+    private static final class Click {
+        final DialogInterface.OnClickListener listener;
+        final int index;
+
+        Click(DialogInterface.OnClickListener listener, int index) {
+            this.listener = listener;
+            this.index = index;
+        }
+    }
+
+    private static void wireDismiss(View view, Dialog dialog) {
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) wireDismiss(group.getChildAt(i), dialog);
+        }
+        Object tag = view.getTag();
+        if (tag instanceof Click) {
+            Click click = (Click) tag;
+            view.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (click.listener != null) click.listener.onClick(dialog, click.index);
+            });
+        }
+    }
+
+    private static LinearLayout buildGrid(Context context, List<Choice> choices, int selected,
+                                          DialogInterface.OnClickListener listener) {
+        LinearLayout grid = new LinearLayout(context);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        if (choices == null) return grid;
+        LinearLayout row = null;
+        for (int i = 0; i < choices.size(); i++) {
+            if (i % 3 == 0) {
+                row = new LinearLayout(context);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                grid.addView(row);
+            }
+            row.addView(qualityChip(context, choices.get(i), i == selected, i, listener));
+        }
+        if (row != null) {
+            int remain = choices.size() % 3;
+            if (remain != 0) {
+                for (int i = remain; i < 3; i++) {
+                    View pad = new View(context);
+                    row.addView(pad, new LinearLayout.LayoutParams(0, 1, 1));
+                }
+            }
+        }
+        return grid;
+    }
+
+    private static View qualityChip(Context context, Choice choice, boolean selected, int index,
+                                    DialogInterface.OnClickListener listener) {
+        float density = context.getResources().getDisplayMetrics().density;
+        FrameLayout chip = new FrameLayout(context);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (78 * density), 1);
+        int gap = (int) (6 * density);
+        lp.setMargins(gap, gap, gap, gap);
+        chip.setLayoutParams(lp);
+        chip.setBackground(stroke(density, selected));
+        chip.setFocusable(true);
+        chip.setClickable(true);
+        chip.setTag(new Click(listener, index));
+
+        LinearLayout text = new LinearLayout(context);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams textLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        text.setLayoutParams(textLp);
+        TextView title = new TextView(context);
+        title.setText(choice.title);
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(16);
+        title.setGravity(Gravity.CENTER);
+        text.addView(title);
+        if (choice.detail != null && !choice.detail.isEmpty()) {
+            TextView detail = new TextView(context);
+            detail.setText(choice.detail);
+            detail.setTextColor(0xFFB0B0B0);
+            detail.setTextSize(12);
+            detail.setGravity(Gravity.CENTER);
+            detail.setPadding(0, (int) (2 * density), 0, 0);
+            text.addView(detail);
+        }
+        chip.addView(text);
+        if (choice.badge != null && !choice.badge.isEmpty()) {
+            TextView badge = new TextView(context);
+            badge.setText(choice.badge);
+            badge.setTextColor(0xFFB0B0B0);
+            badge.setTextSize(10);
+            FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            badgeLp.gravity = Gravity.TOP | Gravity.RIGHT;
+            badgeLp.topMargin = (int) (6 * density);
+            badgeLp.rightMargin = (int) (8 * density);
+            badge.setLayoutParams(badgeLp);
+            chip.addView(badge);
+        }
+        return chip;
+    }
+
+    private static View trackCard(Context context, Choice choice, boolean selected, int index,
+                                  DialogInterface.OnClickListener listener) {
+        float density = context.getResources().getDisplayMetrics().density;
+        LinearLayout card = new LinearLayout(context);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = (int) (10 * density);
+        card.setLayoutParams(lp);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setMinimumHeight((int) (64 * density));
+        card.setPadding((int) (14 * density), (int) (10 * density), (int) (14 * density), (int) (10 * density));
+        card.setBackground(stroke(density, selected));
+        card.setFocusable(true);
+        card.setClickable(true);
+        card.setTag(new Click(listener, index));
+        if (selected) {
+            TextView mark = new TextView(context);
+            mark.setText("✓");
+            mark.setTextColor(0xFF4C8DFF);
+            mark.setTextSize(18);
+            mark.setPadding(0, 0, (int) (10 * density), 0);
+            card.addView(mark);
+        }
+        LinearLayout text = new LinearLayout(context);
+        text.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(context);
+        title.setText(choice.title);
+        title.setTextColor(selected ? 0xFF4C8DFF : Color.WHITE);
+        title.setTextSize(15);
+        text.addView(title);
+        if (choice.detail != null && !choice.detail.isEmpty()) {
+            TextView detail = new TextView(context);
+            detail.setText(choice.detail);
+            detail.setTextColor(0xFFB0B0B0);
+            detail.setTextSize(12);
+            detail.setPadding(0, (int) (2 * density), 0, 0);
+            text.addView(detail);
+        }
+        card.addView(text);
+        return card;
+    }
+
+    private static GradientDrawable stroke(float density, boolean selected) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0x00000000);
+        bg.setCornerRadius(10 * density);
+        bg.setStroke((int) ((selected ? 2 : 1) * density), selected ? 0xFF4C8DFF : 0x66FFFFFF);
+        return bg;
+    }
+
+    private static void place(Dialog dialog, int widthDp) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        float density = dialog.getContext().getResources().getDisplayMetrics().density;
+        window.setGravity(Gravity.END | Gravity.TOP);
+        window.setLayout((int) (widthDp * density), ViewGroup.LayoutParams.MATCH_PARENT);
+        window.setBackgroundDrawable(new ColorDrawable(0xF0121212));
+    }
+}

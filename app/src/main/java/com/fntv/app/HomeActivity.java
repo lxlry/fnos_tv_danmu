@@ -53,6 +53,8 @@ public class HomeActivity extends AppCompatActivity {
     private int currentTab = 0;
     private final List<MediaDbItem> mediaLibraries = new ArrayList<>();
     private boolean showingOverview = true;
+    /** 正在切栏目或清掉当前页内容。这段时间焦点乱跳不能再触发切页。 */
+    private boolean tabSwitching;
     private boolean showingEpisodes = false;
     private boolean loadingPreviews = false;
     private boolean overviewLoading = false;
@@ -265,7 +267,7 @@ public class HomeActivity extends AppCompatActivity {
         tabSettings.setOnClickListener(v -> openTab(2, true));
         if (!isTelevision()) return;
         View.OnFocusChangeListener onTabFocus = (v, hasFocus) -> {
-            if (!hasFocus) return;
+            if (!hasFocus || tabSwitching) return;
             if (v == tabMovies) openTab(0, false);
             else if (v == tabLibrary) openTab(1, false);
             else if (v == tabSettings) openTab(2, false);
@@ -277,6 +279,7 @@ public class HomeActivity extends AppCompatActivity {
 
     /** 底部栏目。电视上焦点移入即切换；再按一次「影视」仍回到首页。 */
     private void openTab(int index, boolean fromClick) {
+        if (tabSwitching) return;
         if (index == 0 && currentTab == 0 && !showingOverview) {
             if (fromClick) restoreHomeOverview();
             return;
@@ -291,6 +294,9 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void switchTab(int index) {
+        if (tabSwitching) return;
+        tabSwitching = true;
+        try {
         int prevTab = currentTab;
         if (prevTab == 0 && index != 0) captureHomeScroll();
         currentTab = index;
@@ -299,19 +305,21 @@ public class HomeActivity extends AppCompatActivity {
         if (prevTab == 1 && isSearching) clearSearch();
         // 切换标签时清除保存的页面状态，防止横竖屏切回时错误恢复
         savedBrowseList = null; savedBrowseGuid = null;
-        panelMovies.setVisibility(index == 0 ? View.VISIBLE : View.GONE);
-        panelLibrary.setVisibility(index == 1 ? View.VISIBLE : View.GONE);
-        panelSettings.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
         tabMovies.setSelected(index == 0);
         tabLibrary.setSelected(index == 1);
         tabSettings.setSelected(index == 2);
         boolean backToHome = index == 0 && prevTab != 0 && !showingOverview;
         setDetailChrome(index == 0 && savedDetailItem != null && !showingOverview && !backToHome);
-        if (index == 0) tabMovies.requestFocus();
-        else if (index == 1) tabLibrary.requestFocus();
-        else tabSettings.requestFocus();
+        View tab = index == 1 ? tabLibrary : index == 2 ? tabSettings : tabMovies;
+        if (tab != null) tab.requestFocus();
+        panelMovies.setVisibility(index == 0 ? View.VISIBLE : View.GONE);
+        panelLibrary.setVisibility(index == 1 ? View.VISIBLE : View.GONE);
+        panelSettings.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
         if (backToHome) restoreHomeOverview();
         refreshTabFocusTargets();
+        } finally {
+            tabSwitching = false;
+        }
     }
 
     private void refreshTabFocusTargets() {
@@ -416,6 +424,7 @@ public class HomeActivity extends AppCompatActivity {
         setDetailChrome(false);
         savedLiveChannelTitle = null;
         showingEpisodes = false;
+        parkFocusOutside(moviesContainer);
         moviesContainer.removeAllViews();
         showingOverview = true;
         overviewBuilt = true;
@@ -1139,6 +1148,7 @@ public class HomeActivity extends AppCompatActivity {
             captureHomeScroll();
             showingOverview = false;
         }
+        parkFocusOutside(container);
 
         // 存储当前浏览上下文，排序变化时用于重新加载
         currentBrowseGuid = ancestorGuid;
@@ -3693,6 +3703,7 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void clearContainer(LinearLayout c, TextView l, TextView e) {
+        parkFocusOutside(c);
         l.setVisibility(View.GONE);
         e.setVisibility(View.GONE);
         for (int i = c.getChildCount() - 1; i >= 0; i--) {
@@ -4153,6 +4164,21 @@ public class HomeActivity extends AppCompatActivity {
             }
         }
         if (isUsableFocus(target)) focusOn(target);
+    }
+
+    /** 清掉一块内容前，先把焦点移出这块，避免焦点掉进其他栏目把页面切走。 */
+    private void parkFocusOutside(View container) {
+        View focused = getCurrentFocus();
+        if (container == null || focused == null || !isDescendantOf(focused, container)) return;
+        View park = currentTab == 1 ? tabLibrary : currentTab == 2 ? tabSettings : tabMovies;
+        if (park == null) return;
+        boolean locked = tabSwitching;
+        tabSwitching = true;
+        try {
+            park.requestFocus();
+        } finally {
+            if (!locked) tabSwitching = false;
+        }
     }
 
     private boolean isDescendantOf(View child, View parent) {

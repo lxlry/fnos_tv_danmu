@@ -1,7 +1,6 @@
 package com.fntv.app;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.util.Log;
 
@@ -103,11 +102,8 @@ public class QualitySelectHelper {
                         || response.body().data.qualities.isEmpty()) {
                     Log.w(TAG, "画质列表为空");
                     if (activity != null && !activity.isFinishing()) {
-                        new AlertDialog.Builder(activity)
-                                .setTitle("画质选择")
-                                .setMessage("无可用画质")
-                                .setPositiveButton("关闭", null)
-                                .show();
+                        SideSheet.showCards(activity, "视频质量", null,
+                                java.util.Collections.<SideSheet.Choice>emptyList(), -1, "无可用画质", null);
                     }
                     return;
                 }
@@ -164,6 +160,12 @@ public class QualitySelectHelper {
         try { return Integer.parseInt(res.replaceAll("[^0-9]", "")); } catch (Exception e) { return 0; }
     }
 
+    private static String bitrateText(int bitrate) {
+        if (bitrate >= 100000) return FormatUtils.formatBitrate(bitrate);
+        if (bitrate >= 1000) return (bitrate / 1000) + " Mbps";
+        return bitrate + " Mbps";
+    }
+
     /** 分辨率显示标签（4K→"4K", 1080→"1080p"） */
     private static String formatResLabel(String res) {
         if (res == null) return "";
@@ -176,28 +178,24 @@ public class QualitySelectHelper {
     private void showDialog() {
         if (options == null || options.isEmpty()) return;
 
-        final String[] items = new String[options.size()];
-        for (int i = 0; i < options.size(); i++) {
-            QualityOption opt = options.get(i);
-            String check = (i == selectedIndex) ? " ✓" : "";
-            items[i] = opt.label + check;
+        java.util.ArrayList<SideSheet.Choice> chips = new java.util.ArrayList<>();
+        for (QualityOption opt : options) {
+            String title = opt.label == null ? "" : opt.label.replace("p", "P").replace("k", "K");
+            String detail = opt.bitrate > 0 ? bitrateText(opt.bitrate) : "";
+            chips.add(new SideSheet.Choice(title, detail, opt.isOriginal ? null : null));
         }
 
-        new AlertDialog.Builder(activity)
-                .setTitle("画质选择")
-                .setItems(items, (dialog, which) -> {
-                    if (which < 0 || which >= options.size() || which == selectedIndex) return;
-                    selectedIndex = which;
-                    QualityOption selected = options.get(which);
-                    prefs.edit().putInt("stream_quality_idx_" + qCallback.getMediaGuid(), selectedIndex).apply();
-                    if (selected.isOriginal) {
-                        qCallback.onQualityChanged(which);
-                    } else {
-                        switchToQuality(selected);
-                    }
-                })
-                .setNegativeButton("关闭", null)
-                .show();
+        SideSheet.showGrid(activity, "视频质量", chips, selectedIndex, (dialog, which) -> {
+            if (which < 0 || which >= options.size() || which == selectedIndex) return;
+            selectedIndex = which;
+            QualityOption selected = options.get(which);
+            prefs.edit().putInt("stream_quality_idx_" + qCallback.getMediaGuid(), selectedIndex).apply();
+            if (selected.isOriginal) {
+                qCallback.onQualityChanged(which);
+            } else {
+                switchToQuality(selected);
+            }
+        });
     }
 
     /** 非原画：调 play/play 获取新链接后切换 */

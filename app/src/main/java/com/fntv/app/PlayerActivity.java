@@ -38,7 +38,7 @@ public class PlayerActivity extends AppCompatActivity {
     private SimpleExoPlayer player;
     private TextView tvBuffering, tvTime, infoText;
     private SeekBar seekBar;
-    private Button btnRewind, btnForward, btnSpeed, btnInfo, btnCloseInfo, btnEpisodeList, btnDanmu, btnHdrToggle, btnHdrRow, btnQuality;
+    private Button btnSpeed, btnInfo, btnCloseInfo, btnEpisodeList, btnDanmu, btnHdrToggle, btnHdrRow, btnQuality;
     private ImageView btnMore;
     private ImageView btnPlayPause, btnNextEp, btnBack;
     private Button[] ratioChips;
@@ -134,8 +134,6 @@ public class PlayerActivity extends AppCompatActivity {
         tvTime = findViewById(R.id.tvTime);
         seekBar = findViewById(R.id.seekBar);
         btnPlayPause = findViewById(R.id.btnPlayPause);
-        btnRewind = findViewById(R.id.btnRewind);
-        btnForward = findViewById(R.id.btnForward);
         btnSpeed = findViewById(R.id.btnSpeed);
         btnInfo = findViewById(R.id.btnInfo);
         btnQuality = findViewById(R.id.btnQuality);
@@ -360,10 +358,6 @@ public class PlayerActivity extends AppCompatActivity {
         }, btnEpisodeList, btnNextEp);
 
         btnPlayPause.setOnClickListener(v -> togglePlay());
-        btnRewind.setOnClickListener(v -> seekRel(-seekStep));
-        btnForward.setOnClickListener(v -> seekRel(seekStep));
-        btnRewind.setText("-" + (seekStep / 1000) + "秒");
-        btnForward.setText("+" + (seekStep / 1000) + "秒");
         btnSpeed.setOnClickListener(v -> cycleSpeed());
         btnMore.setOnClickListener(v -> showMore(true));
         if (moreScrim != null) moreScrim.setOnClickListener(v -> showMore(false));
@@ -1031,11 +1025,11 @@ public class PlayerActivity extends AppCompatActivity {
     private void onZoneDoubleTap(float x, int width) {
         int zone = gestureZone(x, width);
         if (zone < 0) {
-            seekRel(-10_000);
-            showGestureHint("快退 10秒");
+            seekRel(-seekStep);
+            showGestureHint("快退 " + (seekStep / 1000) + "秒");
         } else if (zone > 0) {
-            seekRel(10_000);
-            showGestureHint("快进 10秒");
+            seekRel(seekStep);
+            showGestureHint("快进 " + (seekStep / 1000) + "秒");
         } else {
             togglePlay();
             return;
@@ -1260,67 +1254,318 @@ public class PlayerActivity extends AppCompatActivity {
 
 
     private void showIntroOutroDialog() {
-        SharedPreferences p = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
-        String skipId = parentGuid != null && !parentGuid.isEmpty() ? parentGuid : itemTV;
-        String key = "skip_" + skipId;
-        int defIntro = p.getInt(key + "_intro", 0);
-        int defOutro = p.getInt(key + "_outro", 0);
-
         final android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
-        dialog.setContentView(R.layout.dialog_skip);
-        dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xDD1A1A1A));
-
-        // 标题
-        TextView tvTitle = dialog.findViewById(R.id.tv_skip_title);
-        if (tvTitle != null) tvTitle.setText((itemTV != null ? itemTV : "当前视频") + " - 跳过设置");
-
-        // 片头滑条
-        final TextView introLabel = dialog.findViewById(R.id.dm_label);
-        final SeekBar introSb = dialog.findViewById(R.id.dm_seekbar);
-        // 片尾滑条（第二个 include 的 ID 是 dm_outro，里面的子控件 ID 相同）
-        final TextView outroLabel = ((ViewGroup)dialog.findViewById(R.id.dm_outro)).findViewById(R.id.dm_label);
-        final SeekBar outroSb = ((ViewGroup)dialog.findViewById(R.id.dm_outro)).findViewById(R.id.dm_seekbar);
-
-        if (introLabel != null) introLabel.setText("跳过片头: " + defIntro + "秒");
-        if (outroLabel != null) outroLabel.setText("跳过片尾: " + defOutro + "秒");
-
-        if (introSb != null) {
-            introSb.setMax(600);
-            introSb.setProgress(defIntro);
-            introSb.setKeyProgressIncrement(1);
-            introSb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onProgressChanged(SeekBar sb, int v, boolean u) {
-                    if (introLabel != null) introLabel.setText("跳过片头: " + v + "秒");
-                }
-                @Override public void onStartTrackingTouch(SeekBar s) {}
-                @Override public void onStopTrackingTouch(SeekBar s) {}
-            });
-        }
-        if (outroSb != null) {
-            outroSb.setMax(600);
-            outroSb.setProgress(defOutro);
-            outroSb.setKeyProgressIncrement(1);
-            outroSb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onProgressChanged(SeekBar sb, int v, boolean u) {
-                    if (outroLabel != null) outroLabel.setText("跳过片尾: " + v + "秒");
-                }
-                @Override public void onStartTrackingTouch(SeekBar s) {}
-                @Override public void onStopTrackingTouch(SeekBar s) {}
-            });
-        }
-
-        Button reset = dialog.findViewById(R.id.dm_reset);
-        Button cancel = dialog.findViewById(R.id.dm_cancel);
-        Button ok = dialog.findViewById(R.id.dm_ok);
-
-        if (reset != null) reset.setOnClickListener(v -> { if (introSb != null) introSb.setProgress(0); if (outroSb != null) outroSb.setProgress(0); });
-        if (cancel != null) cancel.setOnClickListener(v -> dialog.dismiss());
-        if (ok != null) ok.setOnClickListener(v -> {
-            if (introSb != null) p.edit().putInt(key + "_intro", introSb.getProgress()).apply();
-            if (outroSb != null) p.edit().putInt(key + "_outro", outroSb.getProgress()).apply();
-            dialog.dismiss();
-        });
+        showSkipMenu(dialog);
         dialog.show();
+    }
+
+    private String skipPrefsKey() {
+        String skipId = parentGuid != null && !parentGuid.isEmpty() ? parentGuid : itemTV;
+        return "skip_" + skipId;
+    }
+
+    private int readSkipSec(boolean intro) {
+        return getSharedPreferences("fntv_prefs", MODE_PRIVATE)
+                .getInt(skipPrefsKey() + (intro ? "_intro" : "_outro"), 0);
+    }
+
+    private void writeSkipSec(boolean intro, int sec) {
+        int saved = Math.max(0, Math.min(sec, 20 * 60));
+        getSharedPreferences("fntv_prefs", MODE_PRIVATE).edit()
+                .putInt(skipPrefsKey() + (intro ? "_intro" : "_outro"), saved).apply();
+        if (intro) introSkipped = false;
+        else outroSkipped = false;
+    }
+
+    private String formatSkipClock(int sec) {
+        int s = Math.max(0, sec);
+        return (s / 60) + "分" + (s % 60) + "秒";
+    }
+
+    private String skipScopeText() {
+        String name = itemTV != null && !itemTV.isEmpty() ? itemTV
+                : (itemTitle != null && !itemTitle.isEmpty() ? itemTitle : "当前视频");
+        if (itemTV != null && !itemTV.isEmpty()) {
+            name = name + " · " + (seasonNumber == 0 ? "特别篇" : "第" + seasonNumber + "季");
+        }
+        return "生效范围: " + name;
+    }
+
+    private int dpPx(int dp) {
+        return (int) (dp * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private void placeSkipDialog(android.app.Dialog dialog) {
+        SideSheet.place(dialog);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(dpPx(360), ViewGroup.LayoutParams.MATCH_PARENT);
+        }
+    }
+
+    private void showSkipContent(android.app.Dialog dialog, View content) {
+        dialog.setContentView(content);
+        placeSkipDialog(dialog);
+    }
+
+    private void showSkipMenu(android.app.Dialog dialog) {
+        LinearLayout root = skipSheetRoot();
+        root.addView(skipHeader(null, "片头片尾", null));
+        TextView scope = skipHint(skipScopeText());
+        scope.setPadding(0, 0, 0, dpPx(16));
+        root.addView(scope);
+        root.addView(skipLinkRow("片头时长", formatSkipClock(readSkipSec(true)),
+                () -> showSkipEditor(dialog, true)));
+        View gap = new View(this);
+        gap.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpPx(10)));
+        root.addView(gap);
+        root.addView(skipLinkRow("片尾时长", formatSkipClock(readSkipSec(false)),
+                () -> showSkipEditor(dialog, false)));
+        showSkipContent(dialog, root);
+    }
+
+    private void showSkipEditor(android.app.Dialog dialog, boolean intro) {
+        LinearLayout root = skipSheetRoot();
+        TextView clock = new TextView(this);
+        clock.setGravity(Gravity.CENTER);
+        clock.setTextColor(Color.WHITE);
+        clock.setTextSize(32);
+        clock.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        clock.setPadding(0, dpPx(28), 0, dpPx(28));
+        Runnable refresh = () -> clock.setText(formatSkipClock(readSkipSec(intro)));
+        refresh.run();
+        root.addView(skipHeader(() -> showSkipMenu(dialog), intro ? "片头时长" : "片尾时长", () -> {
+            writeSkipSec(intro, 0);
+            refresh.run();
+        }));
+        TextView scope = skipHint(skipScopeText());
+        scope.setGravity(Gravity.CENTER);
+        scope.setPadding(0, dpPx(4), 0, 0);
+        root.addView(scope);
+        root.addView(clock);
+        root.addView(skipPositionRow(intro, () -> {
+            int sec = currentSkipSeconds(intro);
+            if (sec < 0) return;
+            writeSkipSec(intro, sec);
+            refresh.run();
+        }));
+        View gap = new View(this);
+        gap.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpPx(10)));
+        root.addView(gap);
+        root.addView(skipLinkRow("自定义", "", () -> showSkipCustom(dialog, intro)));
+        showSkipContent(dialog, root);
+    }
+
+    private int currentSkipSeconds(boolean intro) {
+        if (player == null) return 0;
+        int pos = (int) Math.max(0, player.getCurrentPosition() / 1000);
+        if (intro) return pos;
+        long dur = player.getDuration();
+        if (dur <= 0) {
+            Toast.makeText(this, "还不知道片长，稍后再设片尾", Toast.LENGTH_SHORT).show();
+            return -1;
+        }
+        return (int) Math.max(0, dur / 1000 - pos);
+    }
+
+    private void showSkipCustom(android.app.Dialog dialog, boolean intro) {
+        int current = readSkipSec(intro);
+        LinearLayout root = skipSheetRoot();
+        root.addView(skipHeader(() -> showSkipEditor(dialog, intro),
+                intro ? "自定义片头时长" : "自定义片尾时长", null));
+
+        android.widget.NumberPicker minutes = skipPicker(0, 20, current / 60);
+        android.widget.NumberPicker seconds = skipPicker(0, 59, current % 60);
+        LinearLayout wheels = new LinearLayout(this);
+        LinearLayout.LayoutParams wheelLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dpPx(180));
+        wheelLp.topMargin = dpPx(24);
+        wheels.setLayoutParams(wheelLp);
+        wheels.setOrientation(LinearLayout.HORIZONTAL);
+        wheels.setGravity(Gravity.CENTER);
+        wheels.addView(minutes, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        TextView minUnit = skipHint("分");
+        minUnit.setTextSize(16);
+        minUnit.setTextColor(Color.WHITE);
+        minUnit.setPadding(0, 0, dpPx(12), 0);
+        wheels.addView(minUnit);
+        wheels.addView(seconds, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        TextView secUnit = skipHint("秒");
+        secUnit.setTextSize(16);
+        secUnit.setTextColor(Color.WHITE);
+        wheels.addView(secUnit);
+        root.addView(wheels);
+
+        View spacer = new View(this);
+        spacer.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        root.addView(spacer);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setPadding(0, dpPx(12), 0, 0);
+        Button reset = skipActionButton("重置", false);
+        reset.setOnClickListener(v -> {
+            minutes.setValue(0);
+            seconds.setValue(0);
+        });
+        Button ok = skipActionButton("确定", true);
+        ok.setOnClickListener(v -> {
+            writeSkipSec(intro, minutes.getValue() * 60 + seconds.getValue());
+            showSkipEditor(dialog, intro);
+        });
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(0, dpPx(44), 1);
+        btnLp.rightMargin = dpPx(8);
+        actions.addView(reset, btnLp);
+        actions.addView(ok, new LinearLayout.LayoutParams(0, dpPx(44), 1));
+        root.addView(actions);
+        showSkipContent(dialog, root);
+        minutes.requestFocus();
+    }
+
+    private LinearLayout skipSheetRoot() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xF0121212);
+        root.setPadding(dpPx(18), dpPx(16), dpPx(18), dpPx(16));
+        root.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return root;
+    }
+
+    private View skipHeader(Runnable back, String title, Runnable reset) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dpPx(44)));
+        if (back != null) {
+            Button backBtn = skipTextButton("〈");
+            backBtn.setOnClickListener(v -> back.run());
+            row.addView(backBtn);
+        }
+        TextView heading = new TextView(this);
+        heading.setText(title);
+        heading.setTextColor(Color.WHITE);
+        heading.setTextSize(18);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        heading.setGravity(Gravity.CENTER);
+        heading.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(heading);
+        if (reset != null) {
+            Button resetBtn = skipTextButton("重置");
+            resetBtn.setOnClickListener(v -> reset.run());
+            row.addView(resetBtn);
+        } else {
+            View pad = new View(this);
+            pad.setLayoutParams(new LinearLayout.LayoutParams(dpPx(48), 1));
+            row.addView(pad);
+        }
+        return row;
+    }
+
+    private TextView skipHint(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(0xFFB0B0B0);
+        tv.setTextSize(13);
+        return tv;
+    }
+
+    private View skipPositionRow(boolean intro, Runnable onSet) {
+        LinearLayout row = skipCard();
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView title = new TextView(this);
+        title.setText("当前播放时间");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(15);
+        text.addView(title);
+        TextView time = skipHint(formatSkipClock(player == null ? 0
+                : (int) Math.max(0, player.getCurrentPosition() / 1000)));
+        time.setPadding(0, dpPx(4), 0, 0);
+        text.addView(time);
+        row.addView(text);
+        Button set = skipTextButton(intro ? "设为片头" : "设为片尾");
+        set.setOnClickListener(v -> onSet.run());
+        row.addView(set);
+        return row;
+    }
+
+    private View skipLinkRow(String title, String value, Runnable onClick) {
+        LinearLayout row = skipCard();
+        row.setOnClickListener(v -> onClick.run());
+        TextView name = new TextView(this);
+        name.setText(title);
+        name.setTextColor(Color.WHITE);
+        name.setTextSize(15);
+        name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(name);
+        if (value != null && !value.isEmpty()) {
+            TextView val = skipHint(value);
+            val.setPadding(dpPx(8), 0, dpPx(8), 0);
+            row.addView(val);
+        }
+        TextView arrow = new TextView(this);
+        arrow.setText(">");
+        arrow.setTextColor(0xFFB0B0B0);
+        arrow.setTextSize(18);
+        row.addView(arrow);
+        return row;
+    }
+
+    private LinearLayout skipCard() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dpPx(64));
+        row.setPadding(dpPx(14), dpPx(10), dpPx(14), dpPx(10));
+        row.setFocusable(true);
+        row.setClickable(true);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0x00000000);
+        bg.setCornerRadius(dpPx(10));
+        bg.setStroke(dpPx(1), 0x66FFFFFF);
+        row.setBackground(bg);
+        return row;
+    }
+
+    private Button skipTextButton(String text) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setAllCaps(false);
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(15);
+        btn.setMinWidth(0);
+        btn.setMinHeight(0);
+        btn.setPadding(dpPx(8), 0, dpPx(8), 0);
+        btn.setBackgroundResource(R.drawable.bg_player_action);
+        btn.setFocusable(true);
+        return btn;
+    }
+
+    private Button skipActionButton(String text, boolean primary) {
+        Button btn = skipTextButton(text);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dpPx(8));
+        bg.setColor(primary ? 0xFF3B6FFF : 0xFF3A4150);
+        btn.setBackground(bg);
+        return btn;
+    }
+
+    private android.widget.NumberPicker skipPicker(int min, int max, int value) {
+        android.widget.NumberPicker picker = new android.widget.NumberPicker(this);
+        picker.setMinValue(min);
+        picker.setMaxValue(max);
+        picker.setValue(Math.max(min, Math.min(max, value)));
+        picker.setWrapSelectorWheel(true);
+        picker.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        try {
+            java.lang.reflect.Field paint = android.widget.NumberPicker.class.getDeclaredField("mSelectorWheelPaint");
+            paint.setAccessible(true);
+            ((android.graphics.Paint) paint.get(picker)).setColor(Color.WHITE);
+        } catch (Exception ignored) {}
+        return picker;
     }
 
     private void switchMediaSource(boolean toHls) {
@@ -1373,6 +1618,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (sb != null) p.edit().putInt("video_brightness", sb.getProgress()).apply();
             dialog.dismiss();
         });
+        SideSheet.place(dialog);
         dialog.show();
     }
 
@@ -1585,7 +1831,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (moreScrim != null) {
                 moreScrim.post(() -> {
                     wireMoreFocus();
-                    List<View> rows = TvFocus.present(btnCloudMode, btnRewind, btnForward, btnInfo, btnBrightness, btnHdrRow);
+                    List<View> rows = TvFocus.present(btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
                     if (!rows.isEmpty()) rows.get(0).requestFocus();
                 });
             }
@@ -1640,7 +1886,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void wireMoreFocus() {
-        List<View> rows = TvFocus.present(btnCloudMode, btnRewind, btnForward, btnInfo, btnBrightness, btnHdrRow);
+        List<View> rows = TvFocus.present(btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
         List<View> ratios = new java.util.ArrayList<>();
         if (ratioChips != null) {
             for (Button chip : ratioChips) {
@@ -1673,8 +1919,6 @@ public class PlayerActivity extends AppCompatActivity {
             if (hasFocus) resetHideTimer();
         };
         btnPlayPause.setOnFocusChangeListener(l);
-        btnRewind.setOnFocusChangeListener(l);
-        btnForward.setOnFocusChangeListener(l);
         btnSpeed.setOnFocusChangeListener(l);
         btnInfo.setOnFocusChangeListener(l);
         if (btnQuality != null) btnQuality.setOnFocusChangeListener(l);
