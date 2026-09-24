@@ -1,9 +1,17 @@
 package com.fntv.app;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.util.Log;
+import android.view.Gravity;
+import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -152,23 +160,92 @@ public class UpdateManager {
     private void showUpdateDialog(final String title, final String changelog,
                                    final boolean forceUpdate, final String apkUrl,
                                    final int remoteVersion, final boolean isTestInstall) {
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle(title)
-                .setMessage(changelog)
-                .setCancelable(!forceUpdate)
-                .setPositiveButton(isTestInstall ? "测试安装器" : "立即更新", (dialog, which) -> {
-                    dialog.dismiss();
-                    downloadAndInstall(apkUrl, remoteVersion, isTestInstall);
-                })
-                .setNegativeButton(forceUpdate ? "退出应用" : "稍后再说", (dialog, which) -> {
-                    if (forceUpdate) {
-                        activity.finishAffinity();
-                    } else {
-                        dialog.dismiss();
-                        resetBtn();
-                    }
-                })
-                .show();
+        final Dialog dialog = new Dialog(activity, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        dialog.setCancelable(!forceUpdate);
+        dialog.setCanceledOnTouchOutside(!forceUpdate);
+        final boolean[] accepted = {false};
+        dialog.setOnDismissListener(d -> {
+            if (!accepted[0] && !forceUpdate) resetBtn();
+        });
+
+        float density = activity.getResources().getDisplayMetrics().density;
+        int dp = (int) (density + 0.5f);
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundResource(R.drawable.bg_card);
+        root.setPadding(20 * dp, 18 * dp, 20 * dp, 16 * dp);
+
+        TextView heading = new TextView(activity);
+        heading.setText(title);
+        heading.setTextColor(activity.getResources().getColor(R.color.text_primary));
+        heading.setTextSize(18);
+        heading.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(heading);
+
+        TextView message = new TextView(activity);
+        message.setText(changelog == null || changelog.isEmpty() ? "暂无更新说明" : changelog);
+        message.setTextColor(activity.getResources().getColor(R.color.text_secondary));
+        message.setTextSize(13);
+        LinearLayout.LayoutParams messageLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        messageLp.topMargin = 8 * dp;
+        message.setLayoutParams(messageLp);
+        root.addView(message);
+
+        LinearLayout actions = new LinearLayout(activity);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionsLp.topMargin = 16 * dp;
+        actions.setLayoutParams(actionsLp);
+
+        Button later = new Button(activity);
+        later.setText(forceUpdate ? "退出应用" : "稍后再说");
+        later.setAllCaps(false);
+        later.setTextSize(15);
+        later.setTextColor(activity.getResources().getColor(R.color.text_secondary));
+        later.setBackgroundResource(R.drawable.bg_chip);
+        later.setFocusable(true);
+        LinearLayout.LayoutParams laterLp = new LinearLayout.LayoutParams(0, 44 * dp, 1f);
+        laterLp.rightMargin = 8 * dp;
+        later.setLayoutParams(laterLp);
+        later.setOnClickListener(v -> {
+            if (forceUpdate) activity.finishAffinity();
+            else dialog.dismiss();
+        });
+
+        Button update = new Button(activity);
+        update.setText(isTestInstall ? "测试安装器" : "立即更新");
+        update.setAllCaps(false);
+        update.setTextSize(15);
+        update.setTextColor(activity.getResources().getColor(R.color.text_white));
+        update.setTypeface(Typeface.DEFAULT_BOLD);
+        update.setBackgroundResource(R.drawable.bg_btn_primary);
+        update.setFocusable(true);
+        LinearLayout.LayoutParams updateLp = new LinearLayout.LayoutParams(0, 44 * dp, 1f);
+        updateLp.leftMargin = 8 * dp;
+        update.setLayoutParams(updateLp);
+        update.setOnClickListener(v -> {
+            accepted[0] = true;
+            dialog.dismiss();
+            downloadAndInstall(apkUrl, remoteVersion, isTestInstall);
+        });
+
+        actions.addView(later);
+        actions.addView(update);
+        root.addView(actions);
+        dialog.setContentView(root);
+
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            int width = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.86f);
+            int max = 440 * dp;
+            if (width > max) width = max;
+            dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        dialog.show();
+        update.requestFocus();
     }
 
     // ========== 下载 ==========
