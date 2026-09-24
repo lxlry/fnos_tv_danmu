@@ -58,57 +58,61 @@
             android:scaleType="fitCenter"
             android:src="@drawable/ic_player_back" />
 
-        <Button android:id="@+id/btnMore"
+        <androidx.appcompat.widget.AppCompatImageView
+            android:id="@+id/btnMore"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_alignParentRight="true"
             android:layout_alignParentTop="true"
             android:layout_marginRight="6dp"
             android:background="@drawable/bg_player_action"
+            android:clickable="true"
+            android:contentDescription="更多"
             android:focusable="true"
-            android:gravity="center"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
             android:nextFocusDown="@+id/btnLock"
             android:nextFocusLeft="@+id/btnBack"
-            android:padding="0dp"
-            android:text="···"
-            android:textColor="#FFF"
-            android:textSize="22sp" />
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_player_more" />
 
-        <TextView android:id="@+id/tvTitle"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_alignTop="@id/btnBack"
             android:layout_alignBottom="@id/btnBack"
             android:layout_marginLeft="2dp"
-            android:layout_marginRight="8dp"
+            android:layout_marginRight="4dp"
             android:layout_toLeftOf="@id/btnMore"
             android:layout_toRightOf="@id/btnBack"
-            android:ellipsize="end"
             android:gravity="center_vertical"
-            android:singleLine="true"
-            android:text=""
-            android:textColor="#FFF"
-            android:textSize="15sp" />
+            android:orientation="horizontal">
 
-        <TextView android:id="@+id/tvDanmuMatch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_above="@id/tvTitle"
-            android:layout_alignParentRight="true"
-            android:layout_marginRight="56dp"
-            android:ellipsize="marquee"
-            android:focusable="false"
-            android:focusableInTouchMode="false"
-            android:marqueeRepeatLimit="marquee_forever"
-            android:maxWidth="200dp"
-            android:scrollHorizontally="true"
-            android:singleLine="true"
-            android:text=""
-            android:textColor="#FF81C784"
-            android:textSize="12sp"
-            android:visibility="gone" />
+            <TextView android:id="@+id/tvTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:singleLine="true"
+                android:text=""
+                android:textColor="#FFF"
+                android:textSize="15sp" />
+
+            <TextView android:id="@+id/tvDanmuMatch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="8dp"
+                android:ellipsize="end"
+                android:focusable="false"
+                android:focusableInTouchMode="false"
+                android:gravity="center_vertical"
+                android:maxWidth="220dp"
+                android:singleLine="true"
+                android:text=""
+                android:textColor="#FF81C784"
+                android:textSize="14sp"
+                android:visibility="gone" />
+        </LinearLayout>
     </RelativeLayout>
 
     <!-- 弹幕状态提示（覆盖在视频上） -->
@@ -259,6 +263,35 @@
                 android:textSize="16sp"
                 android:visibility="gone" />
 
+            <Button android:id="@+id/btnSkip"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_player_action"
+                android:focusable="true"
+                android:gravity="center"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:paddingLeft="10dp"
+                android:paddingRight="10dp"
+                android:text="片头尾"
+                android:textColor="#FFF"
+                android:textSize="16sp" />
+
+            <Button android:id="@+id/btnDanmu"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_player_action"
+                android:focusable="true"
+                android:gravity="center"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:paddingLeft="10dp"
+                android:paddingRight="10dp"
+                android:text="弹幕"
+                android:textAllCaps="false"
+                android:textColor="#FFF"
+                android:textSize="16sp" />
+
             <Button android:id="@+id/btnSpeed"
                 android:layout_width="wrap_content"
                 android:layout_height="44dp"
@@ -312,20 +345,6 @@
                 android:paddingLeft="10dp"
                 android:paddingRight="10dp"
                 android:text="原画"
-                android:textColor="#FFF"
-                android:textSize="16sp" />
-
-            <Button android:id="@+id/btnSkip"
-                android:layout_width="wrap_content"
-                android:layout_height="44dp"
-                android:background="@drawable/bg_player_action"
-                android:focusable="true"
-                android:gravity="center"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:paddingLeft="10dp"
-                android:paddingRight="10dp"
-                android:text="片头尾"
                 android:textColor="#FFF"
                 android:textSize="16sp" />
 
@@ -472,21 +491,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
-
-                    <Button
-                        android:id="@+id/btnDanmu"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/bg_player_action"
-                        android:focusable="true"
-                        android:gravity="center_vertical"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:paddingLeft="8dp"
-                        android:text="弹幕"
-                        android:textAllCaps="false"
-                        android:textColor="#FFF"
-                        android:textSize="15sp" />
 
                     <Button
                         android:id="@+id/btnCloudMode"

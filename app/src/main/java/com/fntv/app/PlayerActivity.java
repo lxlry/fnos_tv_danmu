@@ -38,7 +38,8 @@ public class PlayerActivity extends AppCompatActivity {
     private SimpleExoPlayer player;
     private TextView tvBuffering, tvTime, infoText;
     private SeekBar seekBar;
-    private Button btnRewind, btnForward, btnSpeed, btnInfo, btnCloseInfo, btnEpisodeList, btnMore, btnDanmu, btnHdrToggle, btnHdrRow, btnQuality;
+    private Button btnRewind, btnForward, btnSpeed, btnInfo, btnCloseInfo, btnEpisodeList, btnDanmu, btnHdrToggle, btnHdrRow, btnQuality;
+    private ImageView btnMore;
     private ImageView btnPlayPause, btnNextEp, btnBack;
     private Button[] ratioChips;
     private ImageView btnLock;
@@ -194,10 +195,16 @@ public class PlayerActivity extends AppCompatActivity {
         }
 
         findViewById(android.R.id.content).setOnTouchListener(new View.OnTouchListener() {
+            private static final int GESTURE_NONE = 0;
+            private static final int GESTURE_SEEK = 1;
+            private static final int GESTURE_BRIGHT = 2;
+            private static final int GESTURE_VOLUME = 3;
             private boolean longPressing = false;
-            private boolean draggingSeek = false;
+            private int gesture = GESTURE_NONE;
             private float downX, downY;
             private long dragOriginMs;
+            private float brightOrigin;
+            private int volumeOrigin;
             private long lastTapAt = 0;
             private final int touchSlop = android.view.ViewConfiguration.get(PlayerActivity.this).getScaledTouchSlop();
             private final android.os.Handler longPressHandler = new android.os.Handler(Looper.getMainLooper());
@@ -217,11 +224,11 @@ public class PlayerActivity extends AppCompatActivity {
                     case android.view.MotionEvent.ACTION_DOWN:
                         longPressHandler.removeCallbacks(singleTapR);
                         longPressing = false;
-                        draggingSeek = false;
+                        gesture = GESTURE_NONE;
                         downX = event.getX();
                         downY = event.getY();
                         longPressHandler.postDelayed(() -> {
-                            if (draggingSeek) return;
+                            if (gesture != GESTURE_NONE) return;
                             longPressing = true;
                             if (player != null) {
                                 speedBeforeLongPress = player.getPlaybackParameters().speed;
@@ -236,16 +243,35 @@ public class PlayerActivity extends AppCompatActivity {
                         return true;
                     case android.view.MotionEvent.ACTION_MOVE:
                         if (longPressing) return true;
-                        if (!draggingSeek) {
-                            float dx = event.getX() - downX;
-                            float dy = event.getY() - downY;
-                            if (Math.abs(dx) < touchSlop || Math.abs(dx) < Math.abs(dy)) return true;
-                            if (player == null || player.getDuration() <= 0) return true;
-                            draggingSeek = true;
-                            longPressHandler.removeCallbacksAndMessages(null);
-                            dragOriginMs = pendingSeekMs >= 0 ? pendingSeekMs : player.getCurrentPosition();
+                        float dx = event.getX() - downX;
+                        float dy = event.getY() - downY;
+                        if (gesture == GESTURE_NONE) {
+                            if (Math.abs(dy) >= touchSlop && Math.abs(dy) > Math.abs(dx)) {
+                                int zone = gestureZone(downX, v.getWidth());
+                                if (zone < 0) {
+                                    gesture = GESTURE_BRIGHT;
+                                    brightOrigin = currentBrightness();
+                                } else if (zone > 0) {
+                                    gesture = GESTURE_VOLUME;
+                                    volumeOrigin = currentVolume();
+                                }
+                                if (gesture != GESTURE_NONE) {
+                                    longPressHandler.removeCallbacksAndMessages(null);
+                                }
+                            } else if (Math.abs(dx) >= touchSlop && Math.abs(dx) > Math.abs(dy)) {
+                                if (player == null || player.getDuration() <= 0) return true;
+                                gesture = GESTURE_SEEK;
+                                longPressHandler.removeCallbacksAndMessages(null);
+                                dragOriginMs = pendingSeekMs >= 0 ? pendingSeekMs : player.getCurrentPosition();
+                            }
                         }
-                        applyScreenDrag(event.getX() - downX, dragOriginMs);
+                        if (gesture == GESTURE_SEEK) {
+                            applyScreenDrag(dx, dragOriginMs);
+                        } else if (gesture == GESTURE_BRIGHT) {
+                            applyBrightnessDrag(dy, v.getHeight(), brightOrigin);
+                        } else if (gesture == GESTURE_VOLUME) {
+                            applyVolumeDrag(dy, v.getHeight(), volumeOrigin);
+                        }
                         return true;
                     case android.view.MotionEvent.ACTION_UP:
                     case android.view.MotionEvent.ACTION_CANCEL:
@@ -261,17 +287,24 @@ public class PlayerActivity extends AppCompatActivity {
                             }
                             return true;
                         }
-                        if (draggingSeek) {
+                        if (gesture == GESTURE_SEEK) {
                             boolean commit = event.getAction() == android.view.MotionEvent.ACTION_UP;
-                            draggingSeek = false;
+                            gesture = GESTURE_NONE;
                             finishScreenDrag(commit);
+                            return true;
+                        }
+                        if (gesture == GESTURE_BRIGHT || gesture == GESTURE_VOLUME) {
+                            if (gesture == GESTURE_BRIGHT) saveBrightnessGesture();
+                            gesture = GESTURE_NONE;
+                            handler.removeCallbacks(hideSeekOverlayR);
+                            handler.postDelayed(hideSeekOverlayR, 700);
                             return true;
                         }
                         if (event.getAction() == android.view.MotionEvent.ACTION_CANCEL) return true;
                         long now = event.getEventTime();
                         if (now - lastTapAt < 300) {
                             lastTapAt = 0;
-                            togglePlay();
+                            onZoneDoubleTap(downX, v.getWidth());
                         } else {
                             lastTapAt = now;
                             longPressHandler.postDelayed(singleTapR, 280);
@@ -493,13 +526,6 @@ public class PlayerActivity extends AppCompatActivity {
             }
             @Override public void probeWithMediaExtractor() { PlayerActivity.this.probeWithMediaExtractor(); }
             @Override public void onCloudBtnVisibilityChanged(boolean vis) {
-                if (tvDanmuMatch != null) {
-                    ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) tvDanmuMatch.getLayoutParams();
-                    if (lp != null) {
-                        lp.rightMargin = vis ? (int) (100 * getResources().getDisplayMetrics().density) : 20;
-                        tvDanmuMatch.setLayoutParams(lp);
-                    }
-                }
                 // 直链/STRM 按钮显示时，隐藏画质按钮
                 if (vis && btnQuality != null) btnQuality.setVisibility(View.GONE);
                 if (ctrlVis) wirePlayerFocus();
@@ -994,6 +1020,80 @@ public class PlayerActivity extends AppCompatActivity {
         if (danmuManager != null) danmuManager.onSeekTo(p);
     }
 
+    /** 左 25%、中 50%、右 25%。 */
+    private int gestureZone(float x, int width) {
+        int w = Math.max(1, width);
+        if (x < w * 0.25f) return -1;
+        if (x > w * 0.75f) return 1;
+        return 0;
+    }
+
+    private void onZoneDoubleTap(float x, int width) {
+        int zone = gestureZone(x, width);
+        if (zone < 0) {
+            seekRel(-10_000);
+            showGestureHint("快退 10秒");
+        } else if (zone > 0) {
+            seekRel(10_000);
+            showGestureHint("快进 10秒");
+        } else {
+            togglePlay();
+            return;
+        }
+        handler.removeCallbacks(hideSeekOverlayR);
+        handler.postDelayed(hideSeekOverlayR, 700);
+    }
+
+    private void showGestureHint(String text) {
+        if (tvSeekOverlay == null) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tvSeekOverlay.getLayoutParams();
+        if (lp.gravity != Gravity.CENTER) {
+            lp.gravity = Gravity.CENTER;
+            tvSeekOverlay.setLayoutParams(lp);
+        }
+        tvSeekOverlay.setText(text);
+        tvSeekOverlay.setVisibility(View.VISIBLE);
+    }
+
+    private float currentBrightness() {
+        float b = getWindow().getAttributes().screenBrightness;
+        return b >= 0f ? b : 0.5f;
+    }
+
+    private void applyBrightnessDrag(float dy, int height, float origin) {
+        float h = Math.max(1, height);
+        float next = origin - dy / h;
+        next = Math.max(0.01f, Math.min(1f, next));
+        android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+        lp.screenBrightness = next;
+        getWindow().setAttributes(lp);
+        showGestureHint("亮度 " + Math.round(next * 100) + "%");
+    }
+
+    private void saveBrightnessGesture() {
+        float b = currentBrightness();
+        int stored = Math.round(b * 100);
+        if (stored >= 100) stored = 200;
+        getSharedPreferences("fntv_prefs", MODE_PRIVATE).edit().putInt("video_brightness", stored).apply();
+    }
+
+    private int currentVolume() {
+        android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        if (am == null) return 0;
+        return am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC);
+    }
+
+    private void applyVolumeDrag(float dy, int height, int origin) {
+        android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        if (am == null) return;
+        int max = Math.max(1, am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC));
+        float h = Math.max(1, height);
+        int next = origin + Math.round(-dy / h * max);
+        next = Math.max(0, Math.min(max, next));
+        am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, next, 0);
+        showGestureHint("音量 " + Math.round(next * 100f / max) + "%");
+    }
+
     /** 横向拖动画面：一整屏大约快进或快退 10 分钟，短片则对应整段时长。 */
     private void applyScreenDrag(float dx, long originMs) {
         if (player == null || tvSeekOverlay == null) return;
@@ -1485,7 +1585,8 @@ public class PlayerActivity extends AppCompatActivity {
             if (moreScrim != null) {
                 moreScrim.post(() -> {
                     wireMoreFocus();
-                    if (btnDanmu != null) btnDanmu.requestFocus();
+                    List<View> rows = TvFocus.present(btnCloudMode, btnRewind, btnForward, btnInfo, btnBrightness, btnHdrRow);
+                    if (!rows.isEmpty()) rows.get(0).requestFocus();
                 });
             }
         } else if (ctrlVis && !isLocked) {
@@ -1520,8 +1621,8 @@ public class PlayerActivity extends AppCompatActivity {
         List<View> seek = TvFocus.present(seekBar);
         View btnSubtitleTrack = findViewById(R.id.btnSubtitleTrack);
         View btnAudioTrack = findViewById(R.id.btnAudioTrack);
-        List<View> bottom = TvFocus.present(btnPlayPause, btnNextEp, btnEpisodeList, btnSpeed,
-                btnAudioTrack, btnSubtitleTrack, btnQuality, btnSkip);
+        List<View> bottom = TvFocus.present(btnPlayPause, btnNextEp, btnEpisodeList, btnSkip, btnDanmu, btnSpeed,
+                btnAudioTrack, btnSubtitleTrack, btnQuality);
         TvFocus.bindRow(top);
         TvFocus.bindRow(sides);
         TvFocus.bindRow(bottom);
@@ -1539,7 +1640,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void wireMoreFocus() {
-        List<View> rows = TvFocus.present(btnDanmu, btnCloudMode, btnRewind, btnForward, btnInfo, btnBrightness, btnHdrRow);
+        List<View> rows = TvFocus.present(btnCloudMode, btnRewind, btnForward, btnInfo, btnBrightness, btnHdrRow);
         List<View> ratios = new java.util.ArrayList<>();
         if (ratioChips != null) {
             for (Button chip : ratioChips) {
