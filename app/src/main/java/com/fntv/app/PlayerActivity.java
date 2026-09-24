@@ -420,6 +420,11 @@ public class PlayerActivity extends AppCompatActivity {
                         }
                     }
                     @Override public String getMediaGuid() { return mediaGuid; }
+                    @Override public String getSubtitlePrefId() {
+                        if (parentGuid != null && !parentGuid.isEmpty()) return parentGuid;
+                        if (itemGuid != null && !itemGuid.isEmpty()) return itemGuid;
+                        return mediaGuid != null ? mediaGuid : "";
+                    }
                     @Override public String getAccount() {
                         return getSharedPreferences("fntv_prefs", MODE_PRIVATE).getString("user", "video");
                     }
@@ -468,6 +473,11 @@ public class PlayerActivity extends AppCompatActivity {
         cloudStreamManager = new CloudStreamManager(new CloudStreamManager.Callback() {
             @Override public String getBaseUrl() { return baseUrl; }
             @Override public String getMediaGuid() { return mediaGuid; }
+            @Override public String getSubtitlePrefId() {
+                if (parentGuid != null && !parentGuid.isEmpty()) return parentGuid;
+                if (itemGuid != null && !itemGuid.isEmpty()) return itemGuid;
+                return mediaGuid != null ? mediaGuid : "";
+            }
             @Override public FnApiManager getApiManager() { return apiManager; }
             @Override public Context getContext() { return PlayerActivity.this; }
             @Override public SharedPreferences getPrefs() { return getSharedPreferences("fntv_prefs", MODE_PRIVATE); }
@@ -556,6 +566,7 @@ public class PlayerActivity extends AppCompatActivity {
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
                 if (fromUser && player != null) {
+                    resetHideTimer();
                     // 立即更新 UI（时间显示）
                     tvTime.setText(playClock(p, player.getDuration()));
                     if (tvSeekOverlay.getVisibility() == View.VISIBLE) {
@@ -2316,17 +2327,20 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void resetHideTimer() {
         handler.removeCallbacks(hideC);
-        handler.postDelayed(hideC, 5000);
+        handler.postDelayed(hideC, 3000);
     }
     private final Runnable hideC = () -> {
         if (moreOpen || infoVis) {
             resetHideTimer();
             return;
         }
-        if (controller.hasFocus() || topBar.hasFocus() || btnLock.hasFocus()
-                || (infoPanel != null && infoPanel.hasFocus())) {
-            resetHideTimer();
-            return;
+        // 有焦点也要收起（TV 首次进播放器焦点在进度条上，否则菜单永远不消失）
+        if (controller != null) controller.clearFocus();
+        if (topBar != null) topBar.clearFocus();
+        if (btnLock != null) btnLock.clearFocus();
+        if (playerView != null) {
+            playerView.setFocusable(true);
+            playerView.requestFocus();
         }
         showCtrl(false);
     };
@@ -2341,10 +2355,7 @@ public class PlayerActivity extends AppCompatActivity {
         List<View> top = TvFocus.present(btnBack, btnMore);
         List<View> sides = TvFocus.present(btnLock);
         List<View> seek = TvFocus.present(seekBar);
-        View btnSubtitleTrack = findViewById(R.id.btnSubtitleTrack);
-        View btnAudioTrack = findViewById(R.id.btnAudioTrack);
-        List<View> bottom = TvFocus.present(btnPlayPause, btnNextEp, btnEpisodeList, btnSkip, btnDanmu, btnSpeed,
-                btnAudioTrack, btnSubtitleTrack, btnQuality);
+        List<View> bottom = bottomControlButtons();
         TvFocus.bindRow(top);
         TvFocus.bindRow(sides);
         TvFocus.bindRow(bottom);
@@ -2352,13 +2363,31 @@ public class PlayerActivity extends AppCompatActivity {
         else if (!top.isEmpty() && !seek.isEmpty()) TvFocus.bindVertical(top, seek);
         if (!sides.isEmpty() && !seek.isEmpty()) TvFocus.bindVertical(sides, seek);
         else if (!top.isEmpty() && !seek.isEmpty()) TvFocus.bindVertical(top, seek);
-        if (!seek.isEmpty() && !bottom.isEmpty()) TvFocus.bindVertical(seek, bottom);
+        if (!seek.isEmpty() && !bottom.isEmpty()) {
+            // 进度条下移：首次暂停，之后回到上次选过的底栏按钮
+            TvFocus.bindDownToRow(seek, bottom);
+            TvFocus.bindUp(bottom, seek.get(0));
+        }
         for (View v : top) TvFocus.point(v, View.FOCUS_UP, v);
         for (View v : bottom) TvFocus.point(v, View.FOCUS_DOWN, v);
         TvFocus.sealAll(top);
         TvFocus.sealAll(sides);
         TvFocus.sealAll(seek);
         TvFocus.sealAll(bottom);
+    }
+
+    /** 底栏可落焦点的按钮（顺序：暂停优先为首次下移目标）。 */
+    private List<View> bottomControlButtons() {
+        View btnSubtitleTrack = findViewById(R.id.btnSubtitleTrack);
+        View btnAudioTrack = findViewById(R.id.btnAudioTrack);
+        return TvFocus.present(btnPlayPause, btnNextEp, btnEpisodeList, btnSkip, btnDanmu, btnSpeed,
+                btnAudioTrack, btnSubtitleTrack, btnQuality);
+    }
+
+    /** 从进度条/画面下移时的落点：有记忆用记忆，否则暂停。 */
+    private View seekBarDownTarget() {
+        View pick = TvFocus.pickEntry(bottomControlButtons());
+        return pick != null ? pick : btnPlayPause;
     }
 
     private void focusMorePanel() {
@@ -2436,6 +2465,7 @@ public class PlayerActivity extends AppCompatActivity {
         View.OnFocusChangeListener l = (v, hasFocus) -> {
             if (hasFocus) resetHideTimer();
         };
+        if (seekBar != null) seekBar.setOnFocusChangeListener(l);
         btnPlayPause.setOnFocusChangeListener(l);
         btnSpeed.setOnFocusChangeListener(l);
         btnInfo.setOnFocusChangeListener(l);
@@ -2789,6 +2819,8 @@ public class PlayerActivity extends AppCompatActivity {
             return true;
         }
         if (ctrlVis) {
+            // 遥控操作中保持控制栏，松手空闲后再自动收起
+            if (k != KeyEvent.KEYCODE_BACK) resetHideTimer();
             switch (k) {
                 case KeyEvent.KEYCODE_BACK:
                     if (moreOpen) { showMore(false); return true; }
@@ -2839,6 +2871,13 @@ public class PlayerActivity extends AppCompatActivity {
                     && seekBar != null && seekBar.hasFocus() && !moreOpen) {
                 return super.onKeyDown(k, e);
             }
+            if (k == KeyEvent.KEYCODE_DPAD_DOWN && seekBar != null && seekBar.hasFocus() && !moreOpen) {
+                View target = seekBarDownTarget();
+                if (target != null) {
+                    target.requestFocus();
+                    return true;
+                }
+            }
             if (k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN
                     || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 if (moreOpen && !focusInMore()) {
@@ -2846,7 +2885,9 @@ public class PlayerActivity extends AppCompatActivity {
                     return true;
                 }
                 if (isTvDevice() && k == KeyEvent.KEYCODE_DPAD_DOWN && !chromeHasFocus()) {
-                    if (btnPlayPause != null) btnPlayPause.requestFocus();
+                    View target = seekBarDownTarget();
+                    if (target == null) target = btnPlayPause;
+                    if (target != null) target.requestFocus();
                     return true;
                 }
                 if (TvFocus.move(getCurrentFocus(), k)) return true;
@@ -2867,7 +2908,12 @@ public class PlayerActivity extends AppCompatActivity {
                     return true;
                 case KeyEvent.KEYCODE_DPAD_DOWN:
                     showCtrl(true);
-                    btnPlayPause.postDelayed(new Runnable() { @Override public void run() { btnPlayPause.requestFocus(); } }, 50);
+                    final View downTarget = seekBarDownTarget();
+                    if (downTarget != null) {
+                        downTarget.postDelayed(() -> {
+                            if (downTarget.isShown()) downTarget.requestFocus();
+                        }, 50);
+                    }
                     return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
                 case KeyEvent.KEYCODE_DPAD_RIGHT: {

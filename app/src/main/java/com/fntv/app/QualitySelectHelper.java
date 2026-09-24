@@ -53,6 +53,8 @@ public class QualitySelectHelper {
         void onQualityChanged(int level);
         void onPlayLinkChanged(String playLink, String resolution, int bitrate);
         String getMediaGuid();
+        /** 与播放器字幕偏好同一键：剧集 parent / 单集 item。 */
+        String getSubtitlePrefId();
         String getAccount();
         long getPlaybackPosition(); // 当前播放进度（秒）
     }
@@ -219,7 +221,11 @@ public class QualitySelectHelper {
             body.put("audio_guid", a.guid != null ? a.guid : "");
             body.put("channels", a.channels);
         }
-        String subtitleGuid = CloudStreamManager.chooseSubtitleGuid(streamData.subtitleStreams);
+        String prefId = qCallback.getSubtitlePrefId();
+        if (prefId == null || prefId.isEmpty()) prefId = qCallback.getMediaGuid();
+        if (prefId == null) prefId = "default";
+        String savedSub = prefs.getString("subtitle_manual_" + prefId, "");
+        String subtitleGuid = CloudStreamManager.chooseSubtitleGuid(streamData.subtitleStreams, savedSub);
         if (!subtitleGuid.isEmpty()) body.put("subtitle_guid", subtitleGuid);
 
         Log.d(TAG, "play/play 请求: " + new com.google.gson.Gson().toJson(body));

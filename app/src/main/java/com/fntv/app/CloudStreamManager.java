@@ -33,6 +33,8 @@ public class CloudStreamManager {
     public interface Callback {
         String getBaseUrl();
         String getMediaGuid();
+        /** 字幕偏好记忆键：剧集用 parent，单集/电影用 item。 */
+        String getSubtitlePrefId();
         FnApiManager getApiManager();
         Context getContext();
         SharedPreferences getPrefs();
@@ -151,28 +153,40 @@ public class CloudStreamManager {
     /** 获取用户最后选择的字幕标签（供信息面板展示） */
     public String getLastSubtitleTrackLabel() { return lastSubtitleTrackLabel; }
 
-    /** 换片时清掉上一集的字幕选择，重新按内嵌/中文默认。 */
+    /** 换片时清掉内存里的选择，重新按偏好或默认顺序应用。 */
     public void resetSubtitleChoice() {
         defaultSubtitleApplied = false;
         lastSubtitleTrackLabel = "";
     }
 
     /**
-     * 有内嵌字幕时只选内嵌（简体优先，其次中文、繁体、中英，再没有就用默认或第一条内嵌）。
-     * 没有内嵌时，只选已挂上的中文外部字幕。
+     * 字幕默认：有手动记忆用记忆；否则按 中英双语 → 中文 → 英文 → 其他 → 无字幕。
      */
     public void applyDefaultChineseSubtitle() {
         if (defaultSubtitleApplied || player == null) return;
-        if (lastSubtitleTrackLabel != null && !lastSubtitleTrackLabel.isEmpty()) {
-            defaultSubtitleApplied = true;
-            return;
-        }
         DefaultTrackSelector selector = (DefaultTrackSelector) player.getTrackSelector();
         if (selector == null) return;
         MappingTrackSelector.MappedTrackInfo trackInfo = selector.getCurrentMappedTrackInfo();
         if (trackInfo == null) return;
         TrackGroupArray groups = trackInfo.getTrackGroups(C.TRACK_TYPE_TEXT);
-        if (groups == null || groups.length == 0) return;
+        if (groups == null || groups.length == 0) {
+            defaultSubtitleApplied = true;
+            return;
+        }
+
+        String saved = loadManualSubtitlePref();
+        if (saved != null && !saved.isEmpty()) {
+            if (applySavedSubtitle(selector, groups, saved)) {
+                defaultSubtitleApplied = true;
+                return;
+            }
+        }
+        if (lastSubtitleTrackLabel != null && !lastSubtitleTrackLabel.isEmpty()) {
+            if (applySavedSubtitle(selector, groups, lastSubtitleTrackLabel)) {
+                defaultSubtitleApplied = true;
+                return;
+            }
+        }
 
         boolean embeddedOnly = hasEmbeddedSubtitle(streamSubtitleTracks);
         int trackCount = 0;
@@ -180,7 +194,7 @@ public class CloudStreamManager {
         boolean aligned = streamSubtitleTracks != null && streamSubtitleTracks.size() == trackCount;
         int bestGroup = -1;
         int bestTrack = -1;
-        int bestRank = 0;
+        int bestRank = -1;
         String bestLabel = null;
         int seen = 0;
         for (int g = 0; g < groups.length; g++) {
@@ -197,17 +211,13 @@ public class CloudStreamManager {
                 String title = ssi != null && ssi.title != null && !ssi.title.isEmpty() ? ssi.title : fmt.label;
                 String language = fmt.language;
                 if ((language == null || language.isEmpty()) && ssi != null) language = ssi.language;
-                int score = chineseSubtitleScore(title, language);
-                int rank;
-                if (embeddedOnly) {
-                    rank = score * 10 + 1;
-                    if (ssi != null && ssi.isDefault != 0) rank += 2;
-                } else if (score > 0) {
-                    rank = score;
-                } else {
+                int score = subtitlePreferenceScore(title, language);
+                if (score <= 0) {
                     seen++;
                     continue;
                 }
+                int rank = score * 10;
+                if (ssi != null && ssi.isDefault != 0) rank += 1;
                 if (rank > bestRank) {
                     bestRank = rank;
                     bestGroup = g;
@@ -223,7 +233,14 @@ public class CloudStreamManager {
             }
         }
         defaultSubtitleApplied = true;
-        if (bestGroup < 0) return;
+        if (bestGroup < 0) {
+            selector.setParameters(selector.buildUponParameters()
+                    .clearSelectionOverrides(C.TRACK_TYPE_TEXT)
+                    .setRendererDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build());
+            lastSubtitleTrackLabel = "关闭字幕";
+            return;
+        }
         selector.setParameters(selector.buildUponParameters()
                 .clearSelectionOverrides(C.TRACK_TYPE_TEXT)
                 .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
@@ -233,10 +250,88 @@ public class CloudStreamManager {
         lastSubtitleTrackLabel = bestLabel != null ? bestLabel : "";
     }
 
-    /** 没有内嵌字幕时，返回应挂到播放器上的中文外部字幕。有内嵌则返回 null。 */
+    private boolean applySavedSubtitle(DefaultTrackSelector selector, TrackGroupArray groups, String saved) {
+        if ("关闭字幕".equals(saved) || "__off__".equals(saved)) {
+            selector.setParameters(selector.buildUponParameters()
+                    .clearSelectionOverrides(C.TRACK_TYPE_TEXT)
+                    .setRendererDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build());
+            lastSubtitleTrackLabel = "关闭字幕";
+            return true;
+        }
+        int trackCount = 0;
+        for (int g = 0; g < groups.length; g++) trackCount += groups.get(g).length;
+        boolean aligned = streamSubtitleTracks != null && streamSubtitleTracks.size() == trackCount;
+        int seen = 0;
+        for (int g = 0; g < groups.length; g++) {
+            TrackGroup group = groups.get(g);
+            for (int t = 0; t < group.length; t++) {
+                Format fmt = group.getFormat(t);
+                StreamResponse.SubtitleStreamInfo ssi = null;
+                if (aligned && seen < streamSubtitleTracks.size()) ssi = streamSubtitleTracks.get(seen);
+                else ssi = matchSubtitleInfo(fmt.label, fmt.language);
+                String title = ssi != null && ssi.title != null && !ssi.title.isEmpty() ? ssi.title : fmt.label;
+                String language = fmt.language;
+                if ((language == null || language.isEmpty()) && ssi != null) language = ssi.language;
+                String codecStr = fmt.codecs != null ? fmt.codecs
+                        : (fmt.sampleMimeType != null ? fmt.sampleMimeType.replace("text/", "") : "");
+                if ((codecStr == null || codecStr.isEmpty()) && ssi != null && ssi.codecName != null) {
+                    codecStr = ssi.codecName;
+                }
+                String label = subtitleChoiceText(title, language, codecStr, seen + 1);
+                String key = subtitleMatchKey(title, language);
+                if (saved.equals(key) || saved.equals(label) || label.contains(saved) || saved.contains(key)) {
+                    selector.setParameters(selector.buildUponParameters()
+                            .clearSelectionOverrides(C.TRACK_TYPE_TEXT)
+                            .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
+                            .setSelectionOverride(C.TRACK_TYPE_TEXT, groups,
+                                    new DefaultTrackSelector.SelectionOverride(g, t))
+                            .build());
+                    lastSubtitleTrackLabel = label;
+                    return true;
+                }
+                seen++;
+            }
+        }
+        return false;
+    }
+
+    private String subtitlePrefKey() {
+        String id = null;
+        try { id = cb.getSubtitlePrefId(); } catch (Throwable ignored) {}
+        if (id == null || id.isEmpty()) id = cb.getMediaGuid();
+        if (id == null || id.isEmpty()) id = "default";
+        return "subtitle_manual_" + id;
+    }
+
+    private void saveManualSubtitlePref(String label, String matchKey) {
+        lastSubtitleTrackLabel = label != null ? label : "";
+        String value = matchKey != null && !matchKey.isEmpty() ? matchKey
+                : (label != null ? label : "");
+        prefs.edit().putString(subtitlePrefKey(), value).apply();
+    }
+
+    private String loadManualSubtitlePref() {
+        return prefs.getString(subtitlePrefKey(), "");
+    }
+
+    private static String subtitleMatchKey(String title, String language) {
+        String lang = language == null ? "" : language.trim().toLowerCase(java.util.Locale.US);
+        String t = cleanSubtitleTitle(title);
+        if (t == null) t = "";
+        return lang + "|" + t;
+    }
+
+    /** 没有内嵌字幕时，返回应按偏好挂到播放器上的外部字幕。有内嵌则返回 null。 */
     public ExternalSubtitle defaultExternalSubtitle(String baseUrl) {
         if (hasEmbeddedSubtitle(streamSubtitleTracks) || baseUrl == null) return null;
-        StreamResponse.SubtitleStreamInfo chosen = chooseChineseExternal(streamSubtitleTracks);
+        String saved = loadManualSubtitlePref();
+        if ("关闭字幕".equals(saved) || "__off__".equals(saved)) return null;
+        StreamResponse.SubtitleStreamInfo chosen = null;
+        if (saved != null && !saved.isEmpty()) {
+            chosen = findSubtitleBySaved(streamSubtitleTracks, saved, true);
+        }
+        if (chosen == null) chosen = choosePreferredExternal(streamSubtitleTracks);
         if (chosen == null || chosen.guid == null || chosen.guid.isEmpty()) return null;
         String mime = textSubtitleMime(chosen.codecName);
         if (mime == null) return null;
@@ -246,15 +341,56 @@ public class CloudStreamManager {
         return new ExternalSubtitle(baseUrl + "/v/api/v1/subtitle/dl/" + chosen.guid, mime, language, label);
     }
 
-    /** 转码时传给服务端的字幕：有内嵌用内嵌，否则用中文外部。 */
+    /** 转码时传给服务端的字幕：手动记忆优先，否则按偏好顺序。 */
+    public String chooseSubtitleGuidForPlay(List<StreamResponse.SubtitleStreamInfo> tracks) {
+        return chooseSubtitleGuid(tracks, loadManualSubtitlePref());
+    }
+
+    /** 转码时传给服务端的字幕：按同样偏好顺序。 */
     public static String chooseSubtitleGuid(List<StreamResponse.SubtitleStreamInfo> tracks) {
+        return chooseSubtitleGuid(tracks, null);
+    }
+
+    public static String chooseSubtitleGuid(List<StreamResponse.SubtitleStreamInfo> tracks, String savedManual) {
+        if ("关闭字幕".equals(savedManual) || "__off__".equals(savedManual)) return "";
+        if (savedManual != null && !savedManual.isEmpty()) {
+            StreamResponse.SubtitleStreamInfo hit = findSubtitleBySaved(tracks, savedManual, false);
+            if (hit != null && hit.guid != null) return hit.guid;
+        }
         if (hasEmbeddedSubtitle(tracks)) {
-            StreamResponse.SubtitleStreamInfo embedded = chooseEmbedded(tracks);
+            StreamResponse.SubtitleStreamInfo embedded = choosePreferredEmbedded(tracks);
             if (embedded != null && embedded.guid != null) return embedded.guid;
         }
-        StreamResponse.SubtitleStreamInfo external = chooseChineseExternal(tracks);
+        StreamResponse.SubtitleStreamInfo external = choosePreferredExternal(tracks);
         if (external != null && external.guid != null) return external.guid;
         return "";
+    }
+
+    private static StreamResponse.SubtitleStreamInfo findSubtitleBySaved(
+            List<StreamResponse.SubtitleStreamInfo> tracks, String saved, boolean externalOnly) {
+        if (tracks == null || saved == null || saved.isEmpty()) return null;
+        int i = 0;
+        for (StreamResponse.SubtitleStreamInfo s : tracks) {
+            if (s == null) continue;
+            if (externalOnly && s.isExternal == 0) continue;
+            if (externalOnly && textSubtitleMime(s.codecName) == null) continue;
+            String key = subtitleMatchKey(s.title, s.language);
+            String label = subtitleChoiceTextStatic(s.title, s.language,
+                    s.codecName != null ? s.codecName : "", i + 1);
+            if (saved.equals(key) || saved.equals(label) || label.contains(saved) || saved.contains(key)) {
+                return s;
+            }
+            i++;
+        }
+        return null;
+    }
+
+    private static String subtitleChoiceTextStatic(String title, String language, String codec, int index) {
+        String name = subtitleChineseName(title, language);
+        if (name == null || name.isEmpty()) name = "字幕" + index;
+        String extra = codec == null ? "" : codec.trim();
+        if (!extra.isEmpty()) extra = extra.toUpperCase();
+        return extra.isEmpty() ? name : name + "  " + extra;
     }
 
     public static class ExternalSubtitle {
@@ -279,14 +415,14 @@ public class CloudStreamManager {
         return false;
     }
 
-    private static StreamResponse.SubtitleStreamInfo chooseEmbedded(List<StreamResponse.SubtitleStreamInfo> tracks) {
+    private static StreamResponse.SubtitleStreamInfo choosePreferredEmbedded(List<StreamResponse.SubtitleStreamInfo> tracks) {
         StreamResponse.SubtitleStreamInfo best = null;
-        int bestRank = 0;
+        int bestRank = -1;
         if (tracks == null) return null;
         for (StreamResponse.SubtitleStreamInfo s : tracks) {
             if (s == null || s.isExternal != 0) continue;
-            int rank = chineseSubtitleScore(s.title, s.language) * 10 + 1;
-            if (s.isDefault != 0) rank += 2;
+            int rank = subtitlePreferenceScore(s.title, s.language) * 10;
+            if (s.isDefault != 0) rank += 1;
             if (rank > bestRank) {
                 bestRank = rank;
                 best = s;
@@ -295,14 +431,14 @@ public class CloudStreamManager {
         return best;
     }
 
-    private static StreamResponse.SubtitleStreamInfo chooseChineseExternal(List<StreamResponse.SubtitleStreamInfo> tracks) {
+    private static StreamResponse.SubtitleStreamInfo choosePreferredExternal(List<StreamResponse.SubtitleStreamInfo> tracks) {
         StreamResponse.SubtitleStreamInfo best = null;
-        int bestScore = 0;
+        int bestScore = -1;
         if (tracks == null) return null;
         for (StreamResponse.SubtitleStreamInfo s : tracks) {
             if (s == null || s.isExternal == 0) continue;
             if (textSubtitleMime(s.codecName) == null) continue;
-            int score = chineseSubtitleScore(s.title, s.language);
+            int score = subtitlePreferenceScore(s.title, s.language);
             if (score > bestScore) {
                 bestScore = score;
                 best = s;
@@ -323,30 +459,46 @@ public class CloudStreamManager {
         return com.google.android.exoplayer2.util.MimeTypes.APPLICATION_SUBRIP;
     }
 
-    /** 简体 4，中文 3，繁体 2，中英 1，其余 0。 */
-    private static int chineseSubtitleScore(String title, String language) {
-        int score = rankChineseLabel(languageToChinese(language));
-        score = Math.max(score, rankChineseLabel(languageToChinese(cleanSubtitleTitle(title))));
+    /**
+     * 中英双语 40，中文 30，英文 20，其他 10，无法识别当其他。
+     */
+    private static int subtitlePreferenceScore(String title, String language) {
         String blob = ((title == null ? "" : title) + " " + (language == null ? "" : language))
                 .toLowerCase(java.util.Locale.US);
-        int hint = 0;
-        if (blob.contains("简体") || blob.contains("简中") || blob.contains("chs")
-                || blob.contains("zh-cn") || blob.contains("zh-hans") || blob.contains("simplified")) hint = 4;
-        else if (blob.contains("繁体") || blob.contains("繁中") || blob.contains("cht")
-                || blob.contains("zh-tw") || blob.contains("zh-hk") || blob.contains("zh-hant")
-                || blob.contains("traditional")) hint = 2;
-        else if (blob.contains("中英") || blob.contains("双语")) hint = 1;
-        else if (blob.contains("中文") || blob.contains("chinese") || blob.contains("国语")
-                || blob.contains("chi") || blob.contains("zho") || blob.contains("cmn")) hint = 3;
-        return Math.max(score, hint);
+        String fromLang = languageToChinese(language);
+        String fromTitle = languageToChinese(cleanSubtitleTitle(title));
+
+        if (isBilingualZhEn(blob, fromLang, fromTitle)) return 40;
+        if (isChineseLabel(fromLang) || isChineseLabel(fromTitle)
+                || blob.contains("简体") || blob.contains("简中") || blob.contains("繁体")
+                || blob.contains("繁中") || blob.contains("中文") || blob.contains("chinese")
+                || blob.contains("chs") || blob.contains("cht") || blob.contains("zh-cn")
+                || blob.contains("zh-tw") || blob.contains("zh-hk") || blob.contains("zh-hans")
+                || blob.contains("zh-hant") || blob.contains("simplified") || blob.contains("traditional")
+                || blob.contains("国语") || blob.matches(".*\\b(chi|zho|cmn)\\b.*")) {
+            return 30;
+        }
+        if ("英语".equals(fromLang) || "英语".equals(fromTitle)
+                || blob.contains("english") || blob.matches(".*\\b(eng|en)\\b.*")) {
+            return 20;
+        }
+        return 10;
     }
 
-    private static int rankChineseLabel(String name) {
-        if ("简体中文".equals(name)) return 4;
-        if ("中文".equals(name)) return 3;
-        if ("繁体中文".equals(name)) return 2;
-        if ("中英".equals(name)) return 1;
-        return 0;
+    private static boolean isBilingualZhEn(String blob, String fromLang, String fromTitle) {
+        if ("中英".equals(fromLang) || "中英".equals(fromTitle)) return true;
+        if (blob.contains("中英") || blob.contains("双语") || blob.contains("chin&eng")
+                || blob.contains("chi&eng") || blob.contains("chs&eng") || blob.contains("cht&eng")
+                || blob.contains("zh&en") || blob.contains("zh-en") || blob.contains("en&zh")
+                || blob.contains("dual")) return true;
+        boolean zh = blob.contains("中") || blob.contains("chi") || blob.contains("chs")
+                || blob.contains("cht") || blob.contains("zh");
+        boolean en = blob.contains("英") || blob.contains("eng") || blob.matches(".*\\ben\\b.*");
+        return zh && en;
+    }
+
+    private static boolean isChineseLabel(String name) {
+        return "简体中文".equals(name) || "繁体中文".equals(name) || "中文".equals(name);
     }
 
     // ========== Stream API ==========
@@ -721,13 +873,16 @@ public class CloudStreamManager {
     /** ExoPlayer 有 TrackGroup → 可切换字幕 */
     private void showSubtitleTracksFromPlayer(Activity activity, DefaultTrackSelector selector, TrackGroupArray groups) {
         final java.util.ArrayList<String> itemLabels = new java.util.ArrayList<>();
+        final java.util.ArrayList<String> itemKeys = new java.util.ArrayList<>();
         final java.util.ArrayList<Integer> itemGroupIdx = new java.util.ArrayList<>();
         final java.util.ArrayList<Integer> itemTrackIdx = new java.util.ArrayList<>();
 
         itemLabels.add("关闭字幕");
+        itemKeys.add("关闭字幕");
         itemGroupIdx.add(-2);
         itemTrackIdx.add(-2);
         itemLabels.add("默认");
+        itemKeys.add("");
         itemGroupIdx.add(-1);
         itemTrackIdx.add(-1);
 
@@ -750,6 +905,7 @@ public class CloudStreamManager {
                         : (fmt.sampleMimeType != null ? fmt.sampleMimeType.replace("text/", "") : "");
                 if (codecStr.isEmpty() && ssi != null && ssi.codecName != null) codecStr = ssi.codecName;
                 itemLabels.add(subtitleChoiceText(title, language, codecStr, seen + 1));
+                itemKeys.add(subtitleMatchKey(title, language));
                 itemGroupIdx.add(g);
                 itemTrackIdx.add(t);
                 seen++;
@@ -778,15 +934,23 @@ public class CloudStreamManager {
                                 .build()
                         );
                     } else {
+                        // 默认：清掉手动记忆，下次按偏好顺序
+                        prefs.edit().remove(subtitlePrefKey()).apply();
                         selector.setParameters(
                             selector.buildUponParameters()
                                 .clearSelectionOverrides(C.TRACK_TYPE_TEXT)
                                 .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
                                 .build()
                         );
+                        lastSubtitleTrackLabel = items[which];
+                        defaultSubtitleApplied = false;
+                        applyDefaultChineseSubtitle();
+                        cb.onTrackChanged();
+                        AppToast.show(activity, "已切换: " + items[which]);
+                        dialog.dismiss();
+                        return;
                     }
-                    lastAudioTrackLabel = items[which];
-                    lastSubtitleTrackLabel = items[which];
+                    saveManualSubtitlePref(items[which], itemKeys.get(which));
                     cb.onTrackChanged();
                     AppToast.show(activity, "已切换: " + items[which]);
                     dialog.dismiss();
@@ -796,19 +960,21 @@ public class CloudStreamManager {
     /** ExoPlayer 无 TrackGroup（FFmpeg 软解）→ 用 stream API 试切换（语言匹配） */
     private void showSubtitleTracksFromStreamApi(Activity activity) {
         final String[] items = new String[streamSubtitleTracks.size() + 1];
+        final String[] keys = new String[streamSubtitleTracks.size() + 1];
         items[0] = "关闭字幕";
+        keys[0] = "关闭字幕";
         for (int i = 0; i < streamSubtitleTracks.size(); i++) {
             StreamResponse.SubtitleStreamInfo ssi = streamSubtitleTracks.get(i);
             String codec = ssi.codecName != null ? ssi.codecName : "";
             String text = subtitleChoiceText(ssi.title, ssi.language, codec, i + 1);
             if (ssi.isDefault != 0) text = text + "  默认";
             items[i + 1] = text;
+            keys[i + 1] = subtitleMatchKey(ssi.title, ssi.language);
         }
         SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), trackSelected(items, lastSubtitleTrackLabel), "当前没有字幕可选择", (dialog, which) -> {
                     if (which < 0) return;
                     DefaultTrackSelector selector = (DefaultTrackSelector) player.getTrackSelector();
                     if (which == 0) {
-                        // 关闭字幕
                         selector.setParameters(
                             selector.buildUponParameters()
                                 .clearSelectionOverrides(C.TRACK_TYPE_TEXT)
@@ -831,8 +997,7 @@ public class CloudStreamManager {
                             }
                         }
                     }
-                    lastAudioTrackLabel = items[which];
-                    lastSubtitleTrackLabel = items[which];
+                    saveManualSubtitlePref(items[which], keys[which]);
                     cb.onTrackChanged();
                     AppToast.show(activity, "已切换: " + items[which]);
                     dialog.dismiss();
@@ -841,11 +1006,7 @@ public class CloudStreamManager {
 
     /** 卡片标题用中文名（有标题或能识别的语言才用），编码放在副标题。 */
     private String subtitleChoiceText(String title, String language, String codec, int index) {
-        String name = subtitleChineseName(title, language);
-        if (name == null || name.isEmpty()) name = "字幕" + index;
-        String extra = codec == null ? "" : codec.trim();
-        if (!extra.isEmpty()) extra = extra.toUpperCase();
-        return extra.isEmpty() ? name : name + "  " + extra;
+        return subtitleChoiceTextStatic(title, language, codec, index);
     }
 
     private StreamResponse.SubtitleStreamInfo matchSubtitleInfo(String label, String language) {
