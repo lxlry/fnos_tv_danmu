@@ -11,6 +11,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.Window;
 import android.view.WindowManager;
 import android.graphics.drawable.GradientDrawable;
@@ -447,7 +448,6 @@ final class SideSheet {
         boolean tv = television(dialog.getContext());
         decor.setFocusable(tv);
         decor.setFocusableInTouchMode(tv);
-        if (tv) decor.requestFocus();
         decor.post(() -> bindSheet(decor, true));
     }
 
@@ -499,6 +499,12 @@ final class SideSheet {
             picker.setValue(next);
             return true;
         }
+        if (focus instanceof android.widget.NumberPicker
+                && (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            View other = siblingPicker(focus, key == KeyEvent.KEYCODE_DPAD_RIGHT);
+            if (other != null) other.requestFocus();
+            return true;
+        }
         if (focus instanceof android.widget.SeekBar
                 && (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT)) {
             if (inDialogWindow) return false;
@@ -509,6 +515,14 @@ final class SideSheet {
             return true;
         }
         if (ok) {
+            if (focus instanceof android.widget.NumberPicker) {
+                View confirm = findTagged(dialog.getWindow() != null
+                        ? dialog.getWindow().getDecorView() : focus, "wheel_confirm");
+                if (confirm != null && confirm.isFocusable()) {
+                    confirm.requestFocus();
+                    return true;
+                }
+            }
             if (focus.isClickable()) focus.performClick();
             return true;
         }
@@ -520,13 +534,62 @@ final class SideSheet {
         return true;
     }
 
+    private static View siblingPicker(View focus, boolean right) {
+        ViewParent parent = focus.getParent();
+        while (parent instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) parent;
+            java.util.ArrayList<View> pickers = new java.util.ArrayList<>();
+            collectPickers(group, pickers);
+            if (pickers.size() >= 2) {
+                java.util.Collections.sort(pickers, (a, b) -> {
+                    int[] la = new int[2];
+                    int[] lb = new int[2];
+                    a.getLocationOnScreen(la);
+                    b.getLocationOnScreen(lb);
+                    return Integer.compare(la[0], lb[0]);
+                });
+                int idx = pickers.indexOf(focus);
+                if (idx < 0) return null;
+                int next = right ? idx + 1 : idx - 1;
+                if (next < 0 || next >= pickers.size()) return null;
+                return pickers.get(next);
+            }
+            parent = group.getParent();
+        }
+        return null;
+    }
+
+    private static void collectPickers(ViewGroup root, java.util.List<View> out) {
+        for (int i = 0; i < root.getChildCount(); i++) {
+            View child = root.getChildAt(i);
+            if (child instanceof android.widget.NumberPicker && child.isFocusable()
+                    && child.getVisibility() == View.VISIBLE) {
+                out.add(child);
+            } else if (child instanceof ViewGroup) {
+                collectPickers((ViewGroup) child, out);
+            }
+        }
+    }
+
+    private static View findTagged(View root, Object tag) {
+        if (root == null) return null;
+        if (tag.equals(root.getTag())) return root;
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findTagged(group.getChildAt(i), tag);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private static void focusSheet(Dialog dialog, View body) {
         if (dialog.getWindow() != null) {
             View decor = dialog.getWindow().getDecorView();
             boolean tv = television(dialog.getContext());
             decor.setFocusable(tv);
             decor.setFocusableInTouchMode(tv);
-            if (tv) decor.requestFocus();
         }
         body.post(() -> bindSheet(body, true));
     }
@@ -551,35 +614,44 @@ final class SideSheet {
                 body.post(() -> bindSheet(body, false));
                 return;
             }
-            // 用屏幕坐标分行：横排（定时关闭、画质）左右移动，多行上下移动。
+            // 用屏幕坐标分行：横排左右，竖排上下。
+            // 全宽竖排项若尚未量好 Y，会被误合成一行，这里单独按竖排处理。
             java.util.ArrayList<java.util.ArrayList<View>> rows = new java.util.ArrayList<>();
-            for (View item : items) {
-                int[] loc = new int[2];
-                item.getLocationOnScreen(loc);
-                java.util.ArrayList<View> row = rows.isEmpty() ? null : rows.get(rows.size() - 1);
-                if (row == null) {
-                    row = new java.util.ArrayList<>();
-                    rows.add(row);
+            if (looksLikeWideVerticalStack(items)) {
+                for (View item : items) {
+                    java.util.ArrayList<View> row = new java.util.ArrayList<>();
                     row.add(item);
-                    continue;
-                }
-                int[] rowLoc = new int[2];
-                row.get(0).getLocationOnScreen(rowLoc);
-                int threshold = Math.max(1, Math.max(item.getHeight(), row.get(0).getHeight()) / 2);
-                if (Math.abs(loc[1] - rowLoc[1]) > threshold) {
-                    row = new java.util.ArrayList<>();
                     rows.add(row);
                 }
-                row.add(item);
-            }
-            for (java.util.ArrayList<View> row : rows) {
-                java.util.Collections.sort(row, (a, b) -> {
-                    int[] la = new int[2];
-                    int[] lb = new int[2];
-                    a.getLocationOnScreen(la);
-                    b.getLocationOnScreen(lb);
-                    return Integer.compare(la[0], lb[0]);
-                });
+            } else {
+                for (View item : items) {
+                    int[] loc = new int[2];
+                    item.getLocationOnScreen(loc);
+                    java.util.ArrayList<View> row = rows.isEmpty() ? null : rows.get(rows.size() - 1);
+                    if (row == null) {
+                        row = new java.util.ArrayList<>();
+                        rows.add(row);
+                        row.add(item);
+                        continue;
+                    }
+                    int[] rowLoc = new int[2];
+                    row.get(0).getLocationOnScreen(rowLoc);
+                    int threshold = Math.max(1, Math.max(item.getHeight(), row.get(0).getHeight()) / 2);
+                    if (Math.abs(loc[1] - rowLoc[1]) > threshold) {
+                        row = new java.util.ArrayList<>();
+                        rows.add(row);
+                    }
+                    row.add(item);
+                }
+                for (java.util.ArrayList<View> row : rows) {
+                    java.util.Collections.sort(row, (a, b) -> {
+                        int[] la = new int[2];
+                        int[] lb = new int[2];
+                        a.getLocationOnScreen(la);
+                        b.getLocationOnScreen(lb);
+                        return Integer.compare(la[0], lb[0]);
+                    });
+                }
             }
             for (int r = 0; r < rows.size(); r++) {
                 java.util.ArrayList<View> row = rows.get(r);
@@ -593,8 +665,36 @@ final class SideSheet {
             }
             for (java.util.ArrayList<View> row : rows) TvFocus.sealAll(row);
             if (!tv) return;
-            View first = items.get(0);
+            View first = body.findViewWithTag("skip_focus");
+            if (first == null || !items.contains(first)) first = items.get(0);
             if (!first.requestFocus()) first.post(first::requestFocus);
+            View target = first;
+            target.post(() -> {
+                if (!target.isFocused()) target.requestFocus();
+            });
+    }
+
+    /** 片头尾这类全宽竖排选项：还没量出不同 Y 时，不要当成横排。 */
+    private static boolean looksLikeWideVerticalStack(java.util.List<View> items) {
+        if (items == null || items.size() < 2) return false;
+        int wide = 0;
+        for (View item : items) {
+            ViewParent parent = item.getParent();
+            int parentW = parent instanceof View ? ((View) parent).getWidth() : 0;
+            if (parentW <= 0) parentW = item.getResources().getDisplayMetrics().widthPixels;
+            if (item.getWidth() >= parentW * 3 / 4) wide++;
+        }
+        if (wide < items.size()) return false;
+        int[] first = new int[2];
+        items.get(0).getLocationOnScreen(first);
+        for (int i = 1; i < items.size(); i++) {
+            int[] loc = new int[2];
+            items.get(i).getLocationOnScreen(loc);
+            if (Math.abs(loc[1] - first[1]) > Math.max(1, items.get(0).getHeight() / 2)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean television(Context context) {

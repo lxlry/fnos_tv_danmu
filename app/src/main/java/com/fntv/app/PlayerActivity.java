@@ -1369,8 +1369,10 @@ public class PlayerActivity extends AppCompatActivity {
         TextView scope = skipHint(skipScopeText());
         scope.setPadding(0, 0, 0, dpPx(16));
         root.addView(scope);
-        root.addView(skipLinkRow("片头时长", formatSkipClock(readSkipSec(true)),
-                () -> showSkipEditor(dialog, true)));
+        View intro = skipLinkRow("片头时长", formatSkipClock(readSkipSec(true)),
+                () -> showSkipEditor(dialog, true));
+        intro.setTag("skip_focus");
+        root.addView(intro);
         View gap = new View(this);
         gap.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpPx(10)));
         root.addView(gap);
@@ -1398,12 +1400,14 @@ public class PlayerActivity extends AppCompatActivity {
         scope.setPadding(0, dpPx(4), 0, 0);
         root.addView(scope);
         root.addView(clock);
-        root.addView(skipPositionRow(intro, () -> {
+        View position = skipPositionRow(intro, () -> {
             int sec = currentSkipSeconds(intro);
             if (sec < 0) return;
             writeSkipSec(intro, sec);
             refresh.run();
-        }));
+        });
+        position.setTag("skip_focus");
+        root.addView(position);
         View gap = new View(this);
         gap.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpPx(10)));
         root.addView(gap);
@@ -1470,6 +1474,7 @@ public class PlayerActivity extends AppCompatActivity {
             seconds.setValue(0);
         });
         Button ok = skipActionButton("确定", true);
+        ok.setTag("wheel_confirm");
         ok.setOnClickListener(v -> {
             writeSkipSec(intro, minutes.getValue() * 60 + seconds.getValue());
             showSkipEditor(dialog, intro);
@@ -1480,6 +1485,20 @@ public class PlayerActivity extends AppCompatActivity {
         actions.addView(ok, new LinearLayout.LayoutParams(0, dpPx(44), 1));
         root.addView(actions);
         focusSkipPage(dialog);
+        skipSheetBody.post(() -> wireTimeWheels(minutes, seconds, ok));
+    }
+
+    /** 滚轮左右只互切，上下改数值；确认键再落到确定。 */
+    private void wireTimeWheels(android.widget.NumberPicker left, android.widget.NumberPicker right, View confirm) {
+        if (left == null || right == null) return;
+        java.util.List<View> wheels = java.util.Arrays.asList(left, right);
+        TvFocus.bindRow(wheels);
+        for (View w : wheels) {
+            TvFocus.point(w, View.FOCUS_UP, w);
+            TvFocus.point(w, View.FOCUS_DOWN, w);
+        }
+        TvFocus.sealAll(wheels);
+        if (confirm != null) confirm.setTag("wheel_confirm");
     }
 
     private LinearLayout skipSheetPage() {
@@ -1487,15 +1506,20 @@ public class PlayerActivity extends AppCompatActivity {
         return skipSheetBody;
     }
 
-    /** 换页后旧控件被清掉，把焦点重新落到本页的第一个选项。 */
+    /** 换页后旧控件被清掉，把焦点落到主选项，避开返回按钮。 */
     private void focusSkipPage(android.app.Dialog dialog) {
         if (dialog == null || skipSheetBody == null) return;
         SideSheet.focus(dialog);
         skipSheetBody.post(() -> {
-            View first = findFirstSkipType(skipSheetBody, android.widget.NumberPicker.class);
+            View first = skipSheetBody.findViewWithTag("skip_focus");
+            if (first == null) first = findFirstSkipType(skipSheetBody, android.widget.NumberPicker.class);
             if (first == null) first = firstSkipFocusable(skipSheetBody);
             if (first == null) return;
-            if (!first.requestFocus()) first.post(first::requestFocus);
+            View target = first;
+            if (!target.requestFocus()) target.post(target::requestFocus);
+            target.post(() -> {
+                if (!target.isFocused()) target.requestFocus();
+            });
         });
     }
 
@@ -1516,6 +1540,13 @@ public class PlayerActivity extends AppCompatActivity {
         for (int i = 0; i < root.getChildCount(); i++) {
             View child = root.getChildAt(i);
             if (child.getVisibility() != View.VISIBLE) continue;
+            if (isSkipChrome(child)) {
+                if (child instanceof ViewGroup) {
+                    View found = firstSkipFocusable((ViewGroup) child);
+                    if (found != null) return found;
+                }
+                continue;
+            }
             if (child.isFocusable() && child.isClickable()) return child;
             if (child instanceof ViewGroup) {
                 View found = firstSkipFocusable((ViewGroup) child);
@@ -1523,6 +1554,16 @@ public class PlayerActivity extends AppCompatActivity {
             }
         }
         return null;
+    }
+
+    private boolean isSkipChrome(View v) {
+        CharSequence desc = v.getContentDescription();
+        if (desc != null && "返回".contentEquals(desc)) return true;
+        if (v instanceof Button) {
+            CharSequence text = ((Button) v).getText();
+            if (text != null && "重置".contentEquals(text)) return true;
+        }
+        return false;
     }
 
     private View sheetDivider() {
@@ -1743,10 +1784,34 @@ public class PlayerActivity extends AppCompatActivity {
     private void showSleepDialog() {
         if (!SleepTimer.isRunning()) sleepChoiceMinutes = 0;
         final android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
-        dialog.setContentView(sleepOptionView(dialog));
+        View page = sleepOptionView(dialog);
+        dialog.setContentView(page);
         SideSheet.place(dialog);
+        if (isTvDevice() && playerView != null) {
+            playerView.setFocusable(false);
+            SideSheet.afterDismiss(dialog, () -> {
+                if (playerView != null && !moreOpen) playerView.setFocusable(true);
+            });
+        }
         dialog.show();
         SideSheet.focus(dialog);
+        focusSleepFirst(page);
+    }
+
+    private void focusSleepFirst(View page) {
+        if (page == null) return;
+        page.post(() -> {
+            View first = page.findViewWithTag("sleep_first");
+            if (first == null && page instanceof ViewGroup) {
+                first = firstSkipFocusable((ViewGroup) page);
+            }
+            if (first == null) return;
+            View target = first;
+            if (!target.requestFocus()) target.post(target::requestFocus);
+            target.post(() -> {
+                if (!target.isFocused()) target.requestFocus();
+            });
+        });
     }
 
     private View sleepOptionView(android.app.Dialog dialog) {
@@ -1781,7 +1846,9 @@ public class PlayerActivity extends AppCompatActivity {
         String[] labels = {"不开启", "15:00", "30:00", "60:00"};
         for (int i = 0; i < minutes.length; i++) {
             if (i > 0) row.addView(sleepDivider());
-            row.addView(sleepChip(dialog, labels[i], minutes[i], false));
+            TextView chip = sleepChip(dialog, labels[i], minutes[i], false);
+            if (i == 0) chip.setTag("sleep_first");
+            row.addView(chip);
         }
         row.addView(sleepDivider());
         row.addView(sleepChip(dialog, "自定义", -1, true));
@@ -1807,6 +1874,8 @@ public class PlayerActivity extends AppCompatActivity {
         chip.setText(label);
         chip.setTextSize(13);
         chip.setFocusable(true);
+        chip.setFocusableInTouchMode(isTvDevice());
+        chip.setClickable(true);
         boolean on = !custom && minutes == sleepChoiceMinutes && (minutes == 0 || SleepTimer.isRunning());
         chip.setTextColor(on ? 0xFF4C8DFF : Color.WHITE);
         chip.setBackgroundResource(R.drawable.bg_player_action);
@@ -1818,6 +1887,13 @@ public class PlayerActivity extends AppCompatActivity {
                 SideSheet.ensurePinned(dialog, 320);
                 SideSheet.focus(dialog);
                 View hours = page.findViewWithTag("sleep_hours");
+                View mins = page.findViewWithTag("sleep_mins");
+                View confirm = page.findViewWithTag("wheel_confirm");
+                if (hours instanceof android.widget.NumberPicker
+                        && mins instanceof android.widget.NumberPicker) {
+                    wireTimeWheels((android.widget.NumberPicker) hours,
+                            (android.widget.NumberPicker) mins, confirm);
+                }
                 if (hours != null) {
                     hours.post(() -> {
                         if (!hours.requestFocus()) hours.post(hours::requestFocus);
@@ -1885,6 +1961,7 @@ public class PlayerActivity extends AppCompatActivity {
         ok.setBackgroundResource(R.drawable.bg_player_action);
         ok.setFocusable(true);
         ok.setClickable(true);
+        ok.setTag("wheel_confirm");
         LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dpPx(44));
         okLp.topMargin = dpPx(8);
@@ -1903,6 +1980,7 @@ public class PlayerActivity extends AppCompatActivity {
             dialog.dismiss();
         });
         root.addView(ok);
+        wireTimeWheels(hours, mins, ok);
         return root;
     }
 

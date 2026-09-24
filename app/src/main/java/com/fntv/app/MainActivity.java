@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
         boolean skipAuto = getIntent().getBooleanExtra("skip_auto_login", false);
         if (!skipAuto && restoreSession()) {
             startActivity(new Intent(this, HomeActivity.class));
+            finish();
             return;
         }
         density = getResources().getDisplayMetrics().density;
@@ -482,6 +483,7 @@ public class MainActivity extends AppCompatActivity {
         Log.i(TAG, "FN ID 登录成功！fnId=" + rawFnId + " domain=" + domain);
         AppToast.show(this, "FN ID 登录成功！");
         startActivity(new Intent(this, HomeActivity.class));
+        finish();
     }
 
     private void doLoginHttp(String host, String user, String pass) {
@@ -512,6 +514,7 @@ public class MainActivity extends AppCompatActivity {
                         Log.i(TAG, "HTTP 登录成功！耗时 " + (System.currentTimeMillis() - loginStartTime) + "ms");
                         AppToast.show(MainActivity.this, "登录成功！");
                         startActivity(new Intent(MainActivity.this, HomeActivity.class));
+                        finish();
                         return;
                     } else {
                         AppToast.show(MainActivity.this, "登录失败: " + response.body().msg, true);

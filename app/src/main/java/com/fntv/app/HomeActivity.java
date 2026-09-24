@@ -5489,7 +5489,7 @@ public class HomeActivity extends AppCompatActivity {
         return super.onKeyUp(keyCode, event);
     }
 
-    /** 首页根层级再按一次只退到后台，任务和登录态都留着。 */
+    /** 首页根层级再按一次退到后台，回到进入本应用前的界面，登录态保留。 */
     private boolean handleBack() {
         if (showingSeasonEpisodes && savedDetailItem != null && savedDetailInfo != null) {
             showingSeasonEpisodes = false;
@@ -5525,43 +5525,11 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (backPressedTime + 2000 > System.currentTimeMillis()) {
             backPressedTime = 0;
-            if (isTelevision()) returnToDesktop();
-            else moveTaskToBack(true);
+            moveTaskToBack(true);
         } else {
             backPressedTime = System.currentTimeMillis();
-            AppToast.show(this, "再按一次返回桌面");
+            AppToast.show(this, "再按一次返回");
         }
         return true;
-    }
-
-    /** 本应用也是 LEANBACK_LAUNCHER，直接发 HOME 会又把自己打开，要跳过本包。 */
-    private void returnToDesktop() {
-        getWindow().getDecorView().post(() -> {
-            try {
-                Intent home = new Intent(Intent.ACTION_MAIN);
-                home.addCategory(Intent.CATEGORY_HOME);
-                home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-                android.content.pm.PackageManager pm = getPackageManager();
-                java.util.List<android.content.pm.ResolveInfo> apps =
-                        pm.queryIntentActivities(home, 0);
-                String self = getPackageName();
-                boolean started = false;
-                if (apps != null) {
-                    for (android.content.pm.ResolveInfo info : apps) {
-                        if (info.activityInfo == null) continue;
-                        if (self.equals(info.activityInfo.packageName)) continue;
-                        Intent launch = new Intent(home);
-                        launch.setClassName(info.activityInfo.packageName, info.activityInfo.name);
-                        startActivity(launch);
-                        started = true;
-                        break;
-                    }
-                }
-                if (!started) startActivity(home);
-            } catch (Exception ignored) {
-            }
-            moveTaskToBack(true);
-        });
     }
 }
