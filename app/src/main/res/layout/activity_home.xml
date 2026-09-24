@@ -163,6 +163,11 @@ DPAD 遥控器友好
                 android:textCursorDrawable="@null"
                 android:textSize="15sp" />
 
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/librarySwipeRefresh"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
             <ScrollView
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
@@ -205,6 +210,8 @@ DPAD 遥控器友好
                 </LinearLayout>
 
             </ScrollView>
+
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
         </LinearLayout>
 

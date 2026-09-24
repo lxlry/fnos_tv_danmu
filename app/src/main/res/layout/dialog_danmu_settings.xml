@@ -10,246 +10,281 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="弹幕设置"
-            android:textColor="#FFF"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:paddingBottom="12dp" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="弹幕开关"
-                android:textColor="#EEE" />
-
-            <Switch
-                android:id="@+id/dm_sw"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:focusable="true" />
-
-        </LinearLayout>
-
-        <!-- 弹幕类型开关 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingTop="4dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="  滚动弹幕"
-                android:textColor="#CCC"
-                android:textSize="13sp" />
-
-            <Switch
-                android:id="@+id/dm_show_scroll"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:focusable="true" />
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingTop="4dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="  顶部弹幕"
-                android:textColor="#CCC"
-                android:textSize="13sp" />
-
-            <Switch
-                android:id="@+id/dm_show_top"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:focusable="true" />
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingTop="4dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="  底部弹幕"
-                android:textColor="#CCC"
-                android:textSize="13sp" />
-
-            <Switch
-                android:id="@+id/dm_show_bottom"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:focusable="true" />
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingTop="4dp"
             android:paddingBottom="4dp">
 
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="时间比例缩放"
-                android:textColor="#EEE" />
+                android:includeFontPadding="false"
+                android:text="弹幕设置"
+                android:textColor="#FFF"
+                android:textSize="20sp"
+                android:textStyle="bold" />
 
-            <Switch
-                android:id="@+id/dm_time_scale"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:focusable="true" />
-
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/dm_settings_reset"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_text_action"
+                android:clickable="true"
+                android:contentDescription="重置"
+                android:focusable="true"
+                android:padding="6dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_refresh" />
         </LinearLayout>
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:background="#333"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp" />
-
-        <Button
-            android:id="@+id/dm_matchBtn"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_chip"
-            android:text="手动匹配弹幕"
-            android:textColor="#FFF"
-            android:focusable="true" />
-
-        <Button
-            android:id="@+id/dm_listBtn"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_chip"
-            android:text="弹幕列表"
-            android:textColor="#FFF"
-            android:focusable="true"
-            android:layout_marginTop="8dp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#333"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp" />
-
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_area" />
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_speed" />
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_opacity" />
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_fontsize" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="文字描边"
-            android:textColor="#EEE"
-            android:paddingTop="8dp"
-            android:paddingBottom="4dp"
-            android:focusable="true"
-            android:nextFocusDown="@+id/dm_outline" />
-
-        <Switch
-            android:id="@+id/dm_outline"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:focusable="true"
-            android:clickable="true"
-            android:nextFocusUp="@+id/dm_outline"
-            android:nextFocusDown="@+id/dm_density"
-            android:layout_marginBottom="8dp" />
-
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_density" />
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_maxactive" />
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_rowspacing" />
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_offset" />
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_maxcomments" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="自定义刷新率"
-            android:textColor="#EEE"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:focusable="true"
-            android:nextFocusDown="@+id/dm_custom_fps" />
-
-        <Switch
-            android:id="@+id/dm_custom_fps"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:focusable="true"
-            android:clickable="true"
-            android:nextFocusUp="@+id/dm_custom_fps"
-            android:nextFocusDown="@+id/dm_fps"
-            android:layout_marginBottom="8dp" />
-
-        <include layout="@layout/item_danmu_slider" android:id="@+id/dm_fps" />
+            android:layout_marginBottom="10dp"
+            android:background="#33FFFFFF" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:paddingTop="12dp">
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:paddingLeft="12dp"
+            android:paddingTop="8dp"
+            android:paddingRight="12dp"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="弹幕开关"
+                    android:textColor="#EEE" />
+
+                <Switch
+                    android:id="@+id/dm_sw"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <include
+                android:id="@+id/dm_area"
+                layout="@layout/item_danmu_slider" />
+
+            <include
+                android:id="@+id/dm_speed"
+                layout="@layout/item_danmu_slider" />
+
+            <include
+                android:id="@+id/dm_opacity"
+                layout="@layout/item_danmu_slider" />
+
+            <include
+                android:id="@+id/dm_fontsize"
+                layout="@layout/item_danmu_slider" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="12dp">
 
             <Button
-                android:id="@+id/dm_cancel"
-                android:layout_width="0dp"
+                android:id="@+id/dm_matchBtn"
+                android:layout_width="match_parent"
                 android:layout_height="40dp"
-                android:layout_weight="1"
-                android:layout_marginRight="6dp"
                 android:background="@drawable/bg_chip"
-                android:text="取消"
-                android:textColor="#999"
-                android:focusable="true" />
+                android:focusable="true"
+                android:text="手动匹配弹幕"
+                android:textColor="#FFF" />
 
             <Button
-                android:id="@+id/dm_ok"
-                android:layout_width="0dp"
+                android:id="@+id/dm_listBtn"
+                android:layout_width="match_parent"
                 android:layout_height="40dp"
-                android:layout_weight="1"
-                android:layout_marginLeft="6dp"
+                android:layout_marginTop="8dp"
                 android:background="@drawable/bg_chip"
-                android:text="确定"
-                android:textColor="#FFF"
-                android:focusable="true" />
+                android:focusable="true"
+                android:text="弹幕列表"
+                android:textColor="#FFF" />
+        </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:paddingLeft="12dp"
+            android:paddingTop="8dp"
+            android:paddingRight="12dp"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="4dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="滚动弹幕"
+                    android:textColor="#CCC"
+                    android:textSize="13sp" />
+
+                <Switch
+                    android:id="@+id/dm_show_scroll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="4dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="顶部弹幕"
+                    android:textColor="#CCC"
+                    android:textSize="13sp" />
+
+                <Switch
+                    android:id="@+id/dm_show_top"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="4dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="底部弹幕"
+                    android:textColor="#CCC"
+                    android:textSize="13sp" />
+
+                <Switch
+                    android:id="@+id/dm_show_bottom"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="时间比例缩放"
+                    android:textColor="#EEE" />
+
+                <Switch
+                    android:id="@+id/dm_time_scale"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@+id/dm_outline"
+                android:paddingTop="8dp"
+                android:paddingBottom="4dp"
+                android:text="文字描边"
+                android:textColor="#EEE" />
+
+            <Switch
+                android:id="@+id/dm_outline"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginBottom="8dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:nextFocusDown="@+id/dm_density"
+                android:nextFocusUp="@+id/dm_outline" />
+
+            <include
+                android:id="@+id/dm_density"
+                layout="@layout/item_danmu_slider" />
+
+            <include
+                android:id="@+id/dm_maxactive"
+                layout="@layout/item_danmu_slider" />
+
+            <include
+                android:id="@+id/dm_rowspacing"
+                layout="@layout/item_danmu_slider" />
+
+            <include
+                android:id="@+id/dm_offset"
+                layout="@layout/item_danmu_slider" />
+
+            <include
+                android:id="@+id/dm_maxcomments"
+                layout="@layout/item_danmu_slider" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@+id/dm_custom_fps"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:text="自定义刷新率"
+                android:textColor="#EEE" />
+
+            <Switch
+                android:id="@+id/dm_custom_fps"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginBottom="8dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:nextFocusDown="@+id/dm_fps"
+                android:nextFocusUp="@+id/dm_custom_fps" />
+
+            <include
+                android:id="@+id/dm_fps"
+                layout="@layout/item_danmu_slider" />
         </LinearLayout>
 
     </LinearLayout>

@@ -124,7 +124,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="56dp"
+        android:layout_marginTop="96dp"
         android:background="@drawable/bg_danmu_status"
         android:forceDarkAllowed="false"
         android:paddingLeft="14dp"
@@ -494,7 +494,8 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingBottom="10dp"
+                android:includeFontPadding="false"
+                android:paddingBottom="4dp"
                 android:text="设置"
                 android:textColor="#FFF"
                 android:textSize="20sp"
@@ -503,7 +504,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:layout_marginBottom="8dp"
+                android:layout_marginBottom="4dp"
                 android:background="#33FFFFFF" />
 
             <ScrollView

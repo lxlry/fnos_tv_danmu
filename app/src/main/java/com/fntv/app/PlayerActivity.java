@@ -1448,12 +1448,26 @@ public class PlayerActivity extends AppCompatActivity {
         return root;
     }
 
+    private View sheetDivider() {
+        View line = new View(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dpPx(1)));
+        lp.bottomMargin = dpPx(4);
+        line.setLayoutParams(lp);
+        line.setBackgroundColor(0x33FFFFFF);
+        return line;
+    }
+
     private View skipHeader(Runnable back, String title, Runnable reset) {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dpPx(44)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dpPx(32)));
         if (back != null) {
             Button backBtn = skipTextButton("〈");
             backBtn.setOnClickListener(v -> back.run());
@@ -1462,7 +1476,8 @@ public class PlayerActivity extends AppCompatActivity {
         TextView heading = new TextView(this);
         heading.setText(title);
         heading.setTextColor(Color.WHITE);
-        heading.setTextSize(18);
+        heading.setTextSize(20);
+        heading.setIncludeFontPadding(false);
         heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         heading.setGravity(Gravity.CENTER);
         heading.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -1476,7 +1491,9 @@ public class PlayerActivity extends AppCompatActivity {
             pad.setLayoutParams(new LinearLayout.LayoutParams(dpPx(48), 1));
             row.addView(pad);
         }
-        return row;
+        wrap.addView(row);
+        wrap.addView(sheetDivider());
+        return wrap;
     }
 
     private TextView skipHint(String text) {
@@ -1643,9 +1660,12 @@ public class PlayerActivity extends AppCompatActivity {
         TextView title = new TextView(this);
         title.setText("定时关闭");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(18);
+        title.setTextSize(20);
+        title.setIncludeFontPadding(false);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setPadding(0, 0, 0, dpPx(4));
         root.addView(title);
+        root.addView(sheetDivider());
 
         TextView hint = new TextView(this);
         hint.setText("到时间后退出播放");

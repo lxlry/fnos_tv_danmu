@@ -60,6 +60,8 @@ public class HomeActivity extends AppCompatActivity {
     private boolean overviewLoading = false;
     private boolean homeRefreshRequested = false;
     private androidx.swiperefreshlayout.widget.SwipeRefreshLayout homeSwipeRefresh;
+    private androidx.swiperefreshlayout.widget.SwipeRefreshLayout librarySwipeRefresh;
+    private boolean pageRefreshRequested = false;
     private boolean continueLoading = false;
     private boolean continueRefreshPending = false;
     private int recordWaitTicks = 0;
@@ -228,12 +230,20 @@ public class HomeActivity extends AppCompatActivity {
             homeSwipeRefresh = homeSwipe;
             homeSwipe.setColorSchemeColors(color(R.color.text_primary));
             homeSwipe.setProgressBackgroundColorSchemeColor(color(R.color.bg_card));
-            homeSwipe.setOnRefreshListener(this::refreshHome);
+            homeSwipe.setOnRefreshListener(this::refreshCurrentPage);
+            syncHomeSwipe();
+        }
+        androidx.swiperefreshlayout.widget.SwipeRefreshLayout librarySwipe = findViewById(R.id.librarySwipeRefresh);
+        if (librarySwipe != null) {
+            librarySwipeRefresh = librarySwipe;
+            librarySwipe.setColorSchemeColors(color(R.color.text_primary));
+            librarySwipe.setProgressBackgroundColorSchemeColor(color(R.color.bg_card));
+            librarySwipe.setOnRefreshListener(this::refreshCurrentPage);
             syncHomeSwipe();
         }
         View btnHomeRefresh = findViewById(R.id.btnHomeRefresh);
         if (btnHomeRefresh != null) {
-            btnHomeRefresh.setOnClickListener(v -> refreshHome());
+            btnHomeRefresh.setOnClickListener(v -> refreshCurrentPage());
         }
         View btnHomeSearch = findViewById(R.id.btnHomeSearch);
         if (btnHomeSearch != null) {
@@ -331,6 +341,7 @@ public class HomeActivity extends AppCompatActivity {
         panelSettings.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
         if (backToHome) restoreHomeOverview();
         refreshTabFocusTargets();
+        syncHomeSwipe();
         } finally {
             tabSwitching = false;
         }
@@ -354,17 +365,67 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
-    /** 手机首页可下拉刷新；电视不拦截滚动。离开首页概览时关掉。 */
+    /** 手机可下拉刷新当前页。详情页关掉，避免把页面刷走。 */
     private void syncHomeSwipe() {
-        if (homeSwipeRefresh == null) return;
-        boolean allow = !isTelevision() && showingOverview && currentTab == 0;
-        homeSwipeRefresh.setEnabled(allow);
-        if (!allow) homeSwipeRefresh.setRefreshing(false);
+        boolean phone = !isTelevision();
+        boolean movies = phone && currentTab == 0 && savedDetailItem == null
+                && (showingOverview || savedBrowseGuid != null || savedLiveChannelTitle != null);
+        if (homeSwipeRefresh != null) {
+            homeSwipeRefresh.setEnabled(movies);
+            if (!movies) homeSwipeRefresh.setRefreshing(false);
+        }
+        boolean library = phone && currentTab == 1 && savedDetailItem == null;
+        if (librarySwipeRefresh != null) {
+            librarySwipeRefresh.setEnabled(library);
+            if (!library) librarySwipeRefresh.setRefreshing(false);
+        }
     }
 
     private void finishHomeSwipe() {
         if (homeSwipeRefresh != null) homeSwipeRefresh.setRefreshing(false);
+        if (librarySwipeRefresh != null) librarySwipeRefresh.setRefreshing(false);
         syncHomeSwipe();
+    }
+
+    private void noteListRefreshDone(boolean ok) {
+        if (!pageRefreshRequested) return;
+        pageRefreshRequested = false;
+        Toast.makeText(this, ok ? "已刷新" : "刷新失败", Toast.LENGTH_SHORT).show();
+        finishHomeSwipe();
+    }
+
+    /** 刷新当前这一页：首页、某个媒体库，或直播列表。 */
+    private void refreshCurrentPage() {
+        if (apiManager.getApi() == null || savedDetailItem != null) {
+            finishHomeSwipe();
+            return;
+        }
+        if (currentTab == 1) {
+            if (isSearching && etSearch != null && etSearch.getText().length() > 0) {
+                pageRefreshRequested = true;
+                performSearch(etSearch.getText().toString().trim());
+                return;
+            }
+            if (savedBrowseGuid != null) {
+                pageRefreshRequested = true;
+                reFetchLibraryItems();
+                return;
+            }
+            pageRefreshRequested = true;
+            loadMediaLibraries();
+            return;
+        }
+        if (!showingOverview && savedBrowseGuid != null) {
+            pageRefreshRequested = true;
+            reFetchLibraryItems();
+            return;
+        }
+        if (!showingOverview && savedLiveChannelTitle != null) {
+            pageRefreshRequested = true;
+            browseLiveChannels();
+            return;
+        }
+        refreshHome();
     }
 
     /** 重新拉取首页：继续观看、媒体库和各库预览。 */
@@ -1304,10 +1365,13 @@ public class HomeActivity extends AppCompatActivity {
                     e.setTextSize(14);
                     container.addView(e);
                 }
+                noteListRefreshDone(response.isSuccessful() && response.body() != null
+                        && response.body().code == 0);
             }
             @Override
             public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
                 loadingView.setVisibility(View.GONE);
+                noteListRefreshDone(false);
             }
         });
     }
@@ -3157,15 +3221,18 @@ public class HomeActivity extends AppCompatActivity {
                     }
                     mediaLibraries.addAll(filteredLibs);
                     populateLibGrid(libraryContainer, filteredLibs);
+                    noteListRefreshDone(true);
                     return;
                 }
                 tvLibraryEmpty.setVisibility(View.VISIBLE);
+                noteListRefreshDone(false);
             }
             @Override
             public void onFailure(Call<ApiResponse<List<MediaDbItem>>> call, Throwable t) {
                 tvLibraryLoading.setVisibility(View.GONE);
                 tvLibraryEmpty.setText("加载失败: " + t.getMessage());
                 tvLibraryEmpty.setVisibility(View.VISIBLE);
+                noteListRefreshDone(false);
             }
         });
     }
@@ -3175,7 +3242,8 @@ public class HomeActivity extends AppCompatActivity {
     private void setupSearch() {
         if (etSearch == null) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            etSearch.setShowSoftInputOnFocus(false);
+            // 电视遥控器移到搜索框时不弹键盘；手机第一次点就要能输入
+            etSearch.setShowSoftInputOnFocus(!isTelevision());
         }
         etSearch.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH
@@ -3190,6 +3258,7 @@ public class HomeActivity extends AppCompatActivity {
         etSearch.setOnClickListener(v -> submitLibrarySearch());
         etSearch.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus && searchEntryTab < 0) searchEntryTab = currentTab;
+            if (hasFocus && !isTelevision()) v.post(this::showLibraryKeyboard);
         });
         etSearch.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
@@ -3297,12 +3366,14 @@ public class HomeActivity extends AppCompatActivity {
             public void onResults(List<PlayListItem> results) {
                 tvLibraryLoading.setVisibility(View.GONE);
                 showSearchResults(results);
+                noteListRefreshDone(true);
             }
 
             @Override
             public void onEmpty() {
                 tvLibraryLoading.setVisibility(View.GONE);
                 showSearchEmpty();
+                noteListRefreshDone(true);
             }
 
             @Override
@@ -3310,6 +3381,7 @@ public class HomeActivity extends AppCompatActivity {
                 tvLibraryLoading.setVisibility(View.GONE);
                 tvLibraryEmpty.setText(msg);
                 tvLibraryEmpty.setVisibility(View.VISIBLE);
+                noteListRefreshDone(false);
             }
         });
     }
@@ -4025,6 +4097,7 @@ public class HomeActivity extends AppCompatActivity {
                     e.setTextColor(color(R.color.text_hint));
                     e.setTextSize(14);
                     moviesContainer.addView(e);
+                    noteListRefreshDone(true);
                     return;
                 }
                 List<PlayListItem> list = response.body().data.list;
@@ -4032,11 +4105,13 @@ public class HomeActivity extends AppCompatActivity {
                 Log.d("LiveChannel", "直播频道查看全部: total=" + total + " items=" + list.size()
                         + " resp=" + new com.google.gson.Gson().toJson(response.body()));
                 renderLiveChannelGrid(list, total);
+                noteListRefreshDone(true);
             }
             @Override
             public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
                 tvMoviesLoading.setVisibility(View.GONE);
                 Toast.makeText(HomeActivity.this, "加载直播频道失败", Toast.LENGTH_SHORT).show();
+                noteListRefreshDone(false);
             }
         });
     }

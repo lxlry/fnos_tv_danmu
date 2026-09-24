@@ -6,10 +6,12 @@ import android.content.DialogInterface;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
 import android.graphics.drawable.GradientDrawable;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -25,13 +27,7 @@ final class SideSheet {
     private SideSheet() {}
 
     static void place(Dialog dialog) {
-        Window window = dialog.getWindow();
-        if (window == null) return;
-        float density = dialog.getContext().getResources().getDisplayMetrics().density;
-        int width = (int) (320 * density);
-        window.setGravity(Gravity.END | Gravity.TOP);
-        window.setLayout(width, ViewGroup.LayoutParams.MATCH_PARENT);
-        window.setBackgroundDrawable(new ColorDrawable(0xF0121212));
+        place(dialog, 320);
     }
 
     static void showList(Context context, String title, String[] items, DialogInterface.OnClickListener listener) {
@@ -50,14 +46,15 @@ final class SideSheet {
         heading.setTextColor(Color.WHITE);
         heading.setTextSize(20);
         heading.setTypeface(Typeface.DEFAULT_BOLD);
-        heading.setPadding(0, 0, 0, (int) (10 * density));
+        heading.setIncludeFontPadding(false);
+        heading.setPadding(0, 0, 0, (int) (4 * density));
         root.addView(heading);
 
         View line = new View(context);
         line.setBackgroundColor(0x33FFFFFF);
         LinearLayout.LayoutParams lineLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, (int) density));
-        lineLp.bottomMargin = (int) (8 * density);
+        lineLp.bottomMargin = (int) (4 * density);
         line.setLayoutParams(lineLp);
         root.addView(line);
 
@@ -160,10 +157,19 @@ final class SideSheet {
         TextView heading = new TextView(context);
         heading.setText(title);
         heading.setTextColor(Color.WHITE);
-        heading.setTextSize(18);
-        heading.setGravity(Gravity.CENTER);
-        heading.setPadding(0, (int) (8 * density), 0, (int) (16 * density));
+        heading.setTextSize(20);
+        heading.setTypeface(Typeface.DEFAULT_BOLD);
+        heading.setIncludeFontPadding(false);
+        heading.setPadding(0, 0, 0, (int) (4 * density));
         root.addView(heading);
+
+        View line = new View(context);
+        line.setBackgroundColor(0x33FFFFFF);
+        LinearLayout.LayoutParams lineLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, (int) density));
+        lineLp.bottomMargin = (int) (4 * density);
+        line.setLayoutParams(lineLp);
+        root.addView(line);
 
         ScrollView scroll = new ScrollView(context);
         scroll.setLayoutParams(new LinearLayout.LayoutParams(
@@ -333,8 +339,51 @@ final class SideSheet {
         Window window = dialog.getWindow();
         if (window == null) return;
         float density = dialog.getContext().getResources().getDisplayMetrics().density;
-        window.setGravity(Gravity.END | Gravity.TOP);
-        window.setLayout((int) (widthDp * density), ViewGroup.LayoutParams.MATCH_PARENT);
         window.setBackgroundDrawable(new ColorDrawable(0xF0121212));
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            window.setStatusBarColor(Color.TRANSPARENT);
+            window.setNavigationBarColor(Color.TRANSPARENT);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+        }
+        window.getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        window.getDecorView().setPadding(0, 0, 0, 0);
+        WindowManager.LayoutParams lp = window.getAttributes();
+        lp.gravity = Gravity.END | Gravity.TOP;
+        lp.width = (int) (widthDp * density);
+        lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+        lp.x = 0;
+        lp.y = 0;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+        window.setAttributes(lp);
+        int inset = statusBarInset(dialog.getContext());
+        if (inset <= 0) return;
+        View content = window.findViewById(android.R.id.content);
+        if (!(content instanceof ViewGroup) || ((ViewGroup) content).getChildCount() == 0) return;
+        View root = ((ViewGroup) content).getChildAt(0);
+        root.setPadding(root.getPaddingLeft(), root.getPaddingTop() + inset,
+                root.getPaddingRight(), root.getPaddingBottom());
+    }
+
+    /** 菜单栏露出状态栏时，侧边栏背景仍铺满，文字下移避开状态栏。 */
+    private static int statusBarInset(Context context) {
+        if (!(context instanceof android.app.Activity)) return 0;
+        android.app.Activity activity = (android.app.Activity) context;
+        View decor = activity.getWindow().getDecorView();
+        if ((decor.getSystemUiVisibility() & View.SYSTEM_UI_FLAG_FULLSCREEN) != 0) return 0;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.WindowInsets insets = decor.getRootWindowInsets();
+            if (insets != null) return insets.getInsets(android.view.WindowInsets.Type.statusBars()).top;
+        }
+        int resId = context.getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return resId > 0 ? context.getResources().getDimensionPixelSize(resId) : 0;
     }
 }

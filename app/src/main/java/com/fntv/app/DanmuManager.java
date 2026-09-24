@@ -338,51 +338,103 @@ public class DanmuManager {
             showDanmuList();
         });
 
+        final boolean[] suppressLive = {false};
+        Runnable applyLive = () -> {
+            if (!suppressLive[0]) applyDanmuSettings(dialog);
+        };
         int opVal = Math.min(100, Math.max(0, (int) (opacity[0] * 100)));
-        setupSlider(dialog, R.id.dm_opacity, "不透明度", opVal, 0, 100, "%");
-        setupSlider(dialog, R.id.dm_area, "显示区域", area[0], 10, 80, "%");
-        setupSlider(dialog, R.id.dm_fontsize, "字号", (int) fontSize[0], 12, 40, "");
-        setupSlider(dialog, R.id.dm_rowspacing, "行间距", (int) (rowSpacing[0] * 100), 120, 300, "x");
-        setupSlider(dialog, R.id.dm_speed, "速度", (int) (speed[0] * 100), 30, 300, "x");
-        setupSlider(dialog, R.id.dm_density, "密度", density[0], 50, 100, "%");
-        setupSlider(dialog, R.id.dm_maxactive, "同屏最大", maxActive[0], 10, 80, "");
-        setupSlider(dialog, R.id.dm_offset, "时间偏移", offset[0] + 120, 0, 240, "s");
-        setupSlider(dialog, R.id.dm_maxcomments, "加载上限", maxComments[0], 100, 50000, "");
-        setupSlider(dialog, R.id.dm_fps, "刷新率", fps[0], 30, 144, "fps");
+        setupSlider(dialog, R.id.dm_opacity, "不透明度", opVal, 0, 100, "%", applyLive);
+        setupSlider(dialog, R.id.dm_area, "显示区域", area[0], 10, 80, "%", applyLive);
+        setupSlider(dialog, R.id.dm_fontsize, "字号", (int) fontSize[0], 12, 40, "", applyLive);
+        setupSlider(dialog, R.id.dm_rowspacing, "行间距", (int) (rowSpacing[0] * 100), 120, 300, "x", applyLive);
+        setupSlider(dialog, R.id.dm_speed, "速度", (int) (speed[0] * 100), 30, 300, "x", applyLive);
+        setupSlider(dialog, R.id.dm_density, "密度", density[0], 50, 100, "%", applyLive);
+        setupSlider(dialog, R.id.dm_maxactive, "同屏最大", maxActive[0], 10, 80, "", applyLive);
+        setupSlider(dialog, R.id.dm_offset, "时间偏移", offset[0] + 120, 0, 240, "s", applyLive);
+        setupSlider(dialog, R.id.dm_maxcomments, "加载上限", maxComments[0], 100, 50000, "", applyLive);
+        setupSlider(dialog, R.id.dm_fps, "刷新率", fps[0], 30, 144, "fps", applyLive);
 
         final Switch olSw = dialog.findViewById(R.id.dm_outline);
         olSw.setChecked(outline[0]);
+        android.widget.CompoundButton.OnCheckedChangeListener liveCheck = (button, checked) -> applyLive.run();
+        sw.setOnCheckedChangeListener(liveCheck);
+        swScroll.setOnCheckedChangeListener(liveCheck);
+        swTop.setOnCheckedChangeListener(liveCheck);
+        swBottom.setOnCheckedChangeListener(liveCheck);
+        olSw.setOnCheckedChangeListener(liveCheck);
+        swCustomFps.setOnCheckedChangeListener(liveCheck);
+        swTimeScale.setOnCheckedChangeListener(liveCheck);
 
-        dialog.findViewById(R.id.dm_cancel).setOnClickListener(v -> dialog.dismiss());
-        dialog.findViewById(R.id.dm_ok).setOnClickListener(v -> {
-            isOn[0] = sw.isChecked();
-            outline[0] = olSw.isChecked();
-            int a = readSlider(dialog, R.id.dm_area, 10);
-            float sp = readSlider(dialog, R.id.dm_speed, 30) / 100f;
-            float op = readSlider(dialog, R.id.dm_opacity, 0) / 100f;
-            float fs = readSlider(dialog, R.id.dm_fontsize, 12);
-            float rs = readSlider(dialog, R.id.dm_rowspacing, 120) / 100f;
-            int dn = readSlider(dialog, R.id.dm_density, 50);
-            int mx = readSlider(dialog, R.id.dm_maxactive, 10);
-            int of = readSlider(dialog, R.id.dm_offset, 0) - 120;
-            int mc = readSlider(dialog, R.id.dm_maxcomments, 100);
-            int ft = readSlider(dialog, R.id.dm_fps, 30);
+        dialog.findViewById(R.id.dm_settings_reset).setOnClickListener(v -> {
+            suppressLive[0] = true;
+            sw.setChecked(true);
+            swScroll.setChecked(true);
+            swTop.setChecked(true);
+            swBottom.setChecked(true);
+            olSw.setChecked(true);
+            swCustomFps.setChecked(false);
+            swTimeScale.setChecked(false);
+            setSliderValue(dialog, R.id.dm_opacity, 85, 0);
+            setSliderValue(dialog, R.id.dm_area, 35, 10);
+            setSliderValue(dialog, R.id.dm_fontsize, 22, 12);
+            setSliderValue(dialog, R.id.dm_rowspacing, 180, 120);
+            setSliderValue(dialog, R.id.dm_speed, 100, 30);
+            setSliderValue(dialog, R.id.dm_density, 100, 50);
+            setSliderValue(dialog, R.id.dm_maxactive, 40, 10);
+            setSliderValue(dialog, R.id.dm_offset, 120, 0);
+            setSliderValue(dialog, R.id.dm_maxcomments, 50000, 100);
+            setSliderValue(dialog, R.id.dm_fps, 60, 30);
+            suppressLive[0] = false;
+            applyDanmuSettings(dialog);
+        });
+        SideSheet.place(dialog);
+        dialog.show();
+    }
 
-            p.edit().putBoolean("danmu_on", isOn[0]).putInt("danmu_area", a)
-                    .putFloat("danmu_speed", sp).putFloat("danmu_opacity", op)
-                    .putFloat("danmu_fontsize", fs).putBoolean("danmu_outline", outline[0])
-                    .putInt("danmu_density", dn).putInt("danmu_maxactive", mx)
-                    .putInt("danmu_offset", of).putInt("danmu_maxcomments", mc)
-                    .putFloat("danmu_rowspacing", rs).putInt("danmu_fps", ft)
-                    .putBoolean("danmu_scroll", swScroll.isChecked())
-                    .putBoolean("danmu_top", swTop.isChecked())
-                    .putBoolean("danmu_bottom", swBottom.isChecked())
-                    .putBoolean("danmu_custom_fps", swCustomFps.isChecked())
-                    .putBoolean("danmu_time_scale", swTimeScale.isChecked()).apply();
-            danmuView.setShowScroll(swScroll.isChecked());
-            danmuView.setShowTop(swTop.isChecked());
-            danmuView.setShowBottom(swBottom.isChecked());
-            if (isOn[0]) {
+    /** 按当前控件立刻保存并作用到画面，不用再点确定。 */
+    private void applyDanmuSettings(android.app.Dialog dialog) {
+        SharedPreferences p = prefs;
+        Switch sw = dialog.findViewById(R.id.dm_sw);
+        Switch swScroll = dialog.findViewById(R.id.dm_show_scroll);
+        Switch swTop = dialog.findViewById(R.id.dm_show_top);
+        Switch swBottom = dialog.findViewById(R.id.dm_show_bottom);
+        Switch olSw = dialog.findViewById(R.id.dm_outline);
+        Switch swCustomFps = dialog.findViewById(R.id.dm_custom_fps);
+        Switch swTimeScale = dialog.findViewById(R.id.dm_time_scale);
+        if (sw == null || olSw == null) return;
+        boolean isOn = sw.isChecked();
+        boolean outlineOn = olSw.isChecked();
+        int a = readSlider(dialog, R.id.dm_area, 10);
+        float sp = readSlider(dialog, R.id.dm_speed, 30) / 100f;
+        float op = readSlider(dialog, R.id.dm_opacity, 0) / 100f;
+        float fs = readSlider(dialog, R.id.dm_fontsize, 12);
+        float rs = readSlider(dialog, R.id.dm_rowspacing, 120) / 100f;
+        int dn = readSlider(dialog, R.id.dm_density, 50);
+        int mx = readSlider(dialog, R.id.dm_maxactive, 10);
+        int of = readSlider(dialog, R.id.dm_offset, 0) - 120;
+        int mc = readSlider(dialog, R.id.dm_maxcomments, 100);
+        int ft = readSlider(dialog, R.id.dm_fps, 30);
+
+        boolean scroll = swScroll != null && swScroll.isChecked();
+        boolean top = swTop != null && swTop.isChecked();
+        boolean bottom = swBottom != null && swBottom.isChecked();
+        boolean customFps = swCustomFps != null && swCustomFps.isChecked();
+        boolean timeScaleOn = swTimeScale != null && swTimeScale.isChecked();
+        p.edit().putBoolean("danmu_on", isOn).putInt("danmu_area", a)
+                .putFloat("danmu_speed", sp).putFloat("danmu_opacity", op)
+                .putFloat("danmu_fontsize", fs).putBoolean("danmu_outline", outlineOn)
+                .putInt("danmu_density", dn).putInt("danmu_maxactive", mx)
+                .putInt("danmu_offset", of).putInt("danmu_maxcomments", mc)
+                .putFloat("danmu_rowspacing", rs).putInt("danmu_fps", ft)
+                .putBoolean("danmu_scroll", scroll)
+                .putBoolean("danmu_top", top)
+                .putBoolean("danmu_bottom", bottom)
+                .putBoolean("danmu_custom_fps", customFps)
+                .putBoolean("danmu_time_scale", timeScaleOn).apply();
+        danmuView.setShowScroll(scroll);
+        danmuView.setShowTop(top);
+        danmuView.setShowBottom(bottom);
+        if (isOn) {
                 boolean wasOff = !danmuOn;
                 danmuOn = true;
                 danmuView.setVisibility(View.VISIBLE);
@@ -391,11 +443,11 @@ public class DanmuManager {
                 danmuView.setSpeedMul(sp);
                 danmuView.setOpacity(op);
                 danmuView.setFontSize(fs);
-                danmuView.setShowOutline(outline[0]);
+                danmuView.setShowOutline(outlineOn);
                 danmuView.setMaxActive(mx);
                 danmuView.setDensityPct(dn);
                 danmuView.setRowSpacing(rs);
-                danmuView.setCustomFps(swCustomFps.isChecked());
+                danmuView.setCustomFps(customFps);
                 danmuView.setTargetFps(ft);
                 danmuView.setDanmuOffset(of);
                 danmuView.stop();
@@ -403,8 +455,7 @@ public class DanmuManager {
                 if (danmuItemsOriginal != null) {
                     // 从原始数据重新应用时间缩放和偏移
                     danmuItems = new java.util.ArrayList<>(danmuItemsOriginal);
-                    boolean timeScale = prefs.getBoolean("danmu_time_scale", false);
-                    if (timeScale) {
+                    if (timeScaleOn) {
                         long videoDur = 0;
                         Player player = data.getPlayer();
                         if (player != null && player.getDuration() > 0)
@@ -440,13 +491,16 @@ public class DanmuManager {
                 danmuView.stop();
                 danmuView.clear();
             }
-            dialog.dismiss();
-        });
-        SideSheet.place(dialog);
-        dialog.show();
     }
 
-    private void setupSlider(android.app.Dialog d, int id, String label, int val, int min, int max, String unit) {
+    private void setSliderValue(android.app.Dialog d, int id, int val, int min) {
+        ViewGroup v = d.findViewById(id);
+        if (v == null) return;
+        SeekBar sb = v.findViewById(R.id.dm_seekbar);
+        if (sb != null) sb.setProgress(val - min);
+    }
+
+    private void setupSlider(android.app.Dialog d, int id, String label, int val, int min, int max, String unit, Runnable onChanged) {
         ViewGroup v = d.findViewById(id);
         if (v == null) return;
         TextView tv = v.findViewById(R.id.dm_label);
@@ -513,6 +567,7 @@ public class DanmuManager {
                 @Override
                 public void onStopTrackingTouch(SeekBar s) {
                     tracking[0] = false;
+                    if (onChanged != null) onChanged.run();
                 }
             });
             // 遥控器左右键步进1；靠近节点时吸上去，已在节点上再按一下则跳出吸附范围
@@ -540,6 +595,11 @@ public class DanmuManager {
                         }
                         return true;
                     }
+                } else if (event.getAction() == android.view.KeyEvent.ACTION_UP
+                        && (keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT
+                        || keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                    if (onChanged != null) onChanged.run();
+                    return true;
                 }
                 return false;
             });

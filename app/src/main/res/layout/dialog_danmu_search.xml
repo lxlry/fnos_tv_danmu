@@ -10,11 +10,18 @@
         android:id="@+id/dm_search_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:includeFontPadding="false"
         android:text="搜索弹幕"
         android:textColor="#FFF"
-        android:textSize="18sp"
+        android:textSize="20sp"
         android:textStyle="bold"
-        android:paddingBottom="12dp" />
+        android:paddingBottom="4dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginBottom="4dp"
+        android:background="#33FFFFFF" />
 
     <LinearLayout
         android:layout_width="match_parent"

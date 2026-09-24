@@ -9,11 +9,18 @@
         android:id="@+id/dm_list_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:includeFontPadding="false"
         android:text="弹幕列表"
         android:textColor="#FFF"
-        android:textSize="16sp"
+        android:textSize="20sp"
         android:textStyle="bold"
-        android:paddingBottom="12dp" />
+        android:paddingBottom="4dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginBottom="4dp"
+        android:background="#33FFFFFF" />
 
     <FrameLayout
         android:layout_width="match_parent"
