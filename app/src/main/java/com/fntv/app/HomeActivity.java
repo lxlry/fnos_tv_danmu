@@ -73,8 +73,10 @@ public class HomeActivity extends AppCompatActivity {
     private String currentBrowseTitle;
     private LinearLayout currentBrowseContainer;
     private TextView currentBrowseLoading;
-    private int libSortColumnIndex = 0; // 0=添加日期, 1=发行日期
+    private int libSortColumnIndex = 0; // 0添加日期 1发行日期 2标题 3评分
     private int libSortOrderIndex = 1;  // 0=升序, 1=降序
+    private static final String[] LIB_SORT_LABELS = {"按添加日期", "按发行日期", "按标题", "按评分"};
+    private static final String[] LIB_SORT_COLUMNS = {"create_time", "release_date", "sort_title", "vote_average"};
 
     private FnApiManager apiManager;
     private String baseUrl = "";
@@ -1295,7 +1297,9 @@ public class HomeActivity extends AppCompatActivity {
         container.removeAllViews();
         loadingView.setVisibility(View.VISIBLE);
 
-        String sortColumn = libSortColumnIndex == 0 ? "create_time" : "release_date";
+        int sortIdx = libSortColumnIndex;
+        if (sortIdx < 0 || sortIdx >= LIB_SORT_COLUMNS.length) sortIdx = 0;
+        String sortColumn = LIB_SORT_COLUMNS[sortIdx];
         String sortType = libSortOrderIndex == 0 ? "ASC" : "DESC";
         ItemListRequest request = new ItemListRequest(ancestorGuid,
                 Arrays.asList("Movie", "TV", "Directory", "Video"),
@@ -1440,28 +1444,29 @@ public class HomeActivity extends AppCompatActivity {
         bar.setTag("lib_sort_bar");
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(8), dp(6), dp(8), dp(10));
-        String[] colLabels = {"按添加日期", "按发行日期"};
-        TextView sort = new TextView(this);
-        sort.setText(colLabels[libSortColumnIndex] + (libSortOrderIndex == 0 ? "  ↑" : "  ↓"));
-        sort.setTextColor(color(R.color.text_primary));
-        sort.setTextSize(14);
+        bar.setPadding(dp(4), dp(6), dp(8), dp(10));
+        int sortIdx = libSortColumnIndex;
+        if (sortIdx < 0 || sortIdx >= LIB_SORT_LABELS.length) sortIdx = 0;
+        LinearLayout sort = new LinearLayout(this);
+        sort.setOrientation(LinearLayout.HORIZONTAL);
+        sort.setGravity(Gravity.CENTER_VERTICAL);
         sort.setFocusable(true);
         sort.setClickable(true);
         sort.setBackgroundResource(R.drawable.bg_text_action);
-        sort.setPadding(dp(8), dp(6), dp(8), dp(6));
-        sort.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
-                .setTitle("排序")
-                .setSingleChoiceItems(new String[]{"按添加日期", "按发行日期", "切换升序/降序"},
-                        libSortColumnIndex,
-                        (dialog, which) -> {
-                            if (which == 2) libSortOrderIndex = libSortOrderIndex == 0 ? 1 : 0;
-                            else libSortColumnIndex = which;
-                            dialog.dismiss();
-                            reFetchLibraryItems();
-                        })
-                .setNegativeButton("取消", null)
-                .show());
+        sort.setPadding(dp(8), dp(6), dp(4), dp(6));
+        TextView sortLabel = new TextView(this);
+        sortLabel.setText(LIB_SORT_LABELS[sortIdx]);
+        sortLabel.setTextColor(color(R.color.text_secondary));
+        sortLabel.setTextSize(14);
+        sort.addView(sortLabel);
+        AppCompatImageView sortArrow = new AppCompatImageView(this);
+        LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+        arrowLp.leftMargin = dp(2);
+        sortArrow.setLayoutParams(arrowLp);
+        sortArrow.setImageResource(R.drawable.ic_chevron_down);
+        sortArrow.setContentDescription("排序");
+        sort.addView(sortArrow);
+        sort.setOnClickListener(v -> showLibrarySortSheet());
         bar.addView(sort);
         View gap = new View(this);
         gap.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1));
@@ -1476,6 +1481,87 @@ public class HomeActivity extends AppCompatActivity {
         count.setBackgroundResource(R.drawable.bg_count_pill);
         bar.addView(count);
         return bar;
+    }
+
+    /** 从底部拉出排序。点当前项切换升降序，点其他项切换排序字段。 */
+    private void showLibrarySortSheet() {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        LinearLayout sheet = new LinearLayout(this);
+        sheet.setOrientation(LinearLayout.VERTICAL);
+        sheet.setBackgroundResource(R.drawable.bg_sort_sheet);
+        sheet.setPadding(dp(12), dp(20), dp(12), dp(28));
+
+        TextView title = new TextView(this);
+        title.setText("排序");
+        title.setTextSize(18);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(color(R.color.text_primary));
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, dp(2), 0, dp(14));
+        sheet.addView(title);
+
+        int current = libSortColumnIndex;
+        if (current < 0 || current >= LIB_SORT_LABELS.length) current = 0;
+        View focusTarget = null;
+        for (int i = 0; i < LIB_SORT_LABELS.length; i++) {
+            final int index = i;
+            boolean selected = i == current;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setMinimumHeight(dp(52));
+            row.setPadding(dp(12), dp(8), dp(12), dp(8));
+            row.setFocusable(true);
+            row.setClickable(true);
+            row.setBackgroundResource(R.drawable.bg_text_action);
+
+            TextView name = new TextView(this);
+            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            name.setLayoutParams(nameLp);
+            name.setText(LIB_SORT_LABELS[i]);
+            name.setTextSize(16);
+            name.setTextColor(color(selected ? R.color.text_primary : R.color.text_hint));
+            row.addView(name);
+
+            if (selected) {
+                TextView order = new TextView(this);
+                order.setText(libSortOrderIndex == 0 ? "升序排序" : "降序排序");
+                order.setTextSize(15);
+                order.setTextColor(color(R.color.text_primary));
+                row.addView(order);
+                AppCompatImageView arrow = new AppCompatImageView(this);
+                LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+                arrowLp.leftMargin = dp(4);
+                arrow.setLayoutParams(arrowLp);
+                arrow.setImageResource(R.drawable.ic_chevron_down);
+                if (libSortOrderIndex == 0) arrow.setRotation(180f);
+                row.addView(arrow);
+                focusTarget = row;
+            }
+
+            row.setOnClickListener(v -> {
+                if (index == libSortColumnIndex) {
+                    libSortOrderIndex = libSortOrderIndex == 0 ? 1 : 0;
+                } else {
+                    libSortColumnIndex = index;
+                }
+                dialog.dismiss();
+                reFetchLibraryItems();
+            });
+            sheet.addView(row);
+        }
+
+        dialog.setContentView(sheet);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setGravity(Gravity.BOTTOM);
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setWindowAnimations(android.R.style.Animation_InputMethod);
+        }
+        dialog.show();
+        if (focusTarget != null) focusTarget.requestFocus();
     }
 
     private View makeLibraryPoster(PlayListItem item, int posterH) {
