@@ -5295,9 +5295,10 @@ public class HomeActivity extends AppCompatActivity {
         if (!eps.isEmpty()) rows.add(eps);
 
         for (List<View> row : rows) TvFocus.bindRow(row);
-        for (View season : seasons) {
-            if (season.isSelected()) {
-                TvFocus.remember(season);
+        for (View chip : chips) {
+            if (chip.isSelected()) {
+                TvFocus.remember(chip);
+                revealSeasonTab(chip);
                 break;
             }
         }
@@ -5309,6 +5310,24 @@ public class HomeActivity extends AppCompatActivity {
             bindTabBar(rows.get(0), rows.get(rows.size() - 1));
         }
         for (List<View> row : rows) TvFocus.sealAll(row);
+    }
+
+    /** 季名行可能在屏幕右侧，把已高亮的那一季滚到中间。 */
+    private void revealSeasonTab(View tab) {
+        tab.post(() -> {
+            if (!tab.isLaidOut()) {
+                tab.post(() -> revealSeasonTab(tab));
+                return;
+            }
+            ViewParent parent = tab.getParent();
+            while (parent != null && !(parent instanceof HorizontalScrollView)) {
+                parent = parent.getParent();
+            }
+            if (!(parent instanceof HorizontalScrollView)) return;
+            HorizontalScrollView hsv = (HorizontalScrollView) parent;
+            int x = tab.getLeft() - Math.max(0, (hsv.getWidth() - tab.getWidth()) / 2);
+            hsv.scrollTo(Math.max(0, x), 0);
+        });
     }
 
     // ==================== 按键 ====================

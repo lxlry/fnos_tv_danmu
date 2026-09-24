@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527013,
-    "versionName": "9527.013",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.013/FNTV_release_v9527.013.apk",
-    "changelog": "搜索框点空白收起键盘；电视首页双击返回桌面；片头片尾设置一次生效且可获焦点；播放器按下键可见焦点；首页不再停在刷新按钮",
+    "versionCode": 9527014,
+    "versionName": "9527.014",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.014/FNTV_release_v9527.014.apk",
+    "changelog": "片头片尾设置改为与弹幕相同的侧边栏；集信息页焦点落到已高亮的季",
     "forceUpdate": false
 }
