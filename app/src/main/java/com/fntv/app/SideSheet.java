@@ -38,6 +38,10 @@ final class SideSheet {
         place(dialog, 320);
     }
 
+    static void place(Dialog dialog, int widthDp) {
+        placeSized(dialog, widthDp);
+    }
+
     static void showList(Context context, String title, String[] items, DialogInterface.OnClickListener listener) {
         Dialog dialog = new Dialog(context, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
         dialog.setCanceledOnTouchOutside(true);
@@ -183,7 +187,7 @@ final class SideSheet {
         scroll.addView(body);
         root.addView(scroll);
         dialog.setContentView(root);
-        place(dialog, widthDp);
+        placeSized(dialog, widthDp);
         wireDismiss(body, dialog);
         track(dialog);
         dialog.show();
@@ -354,7 +358,7 @@ final class SideSheet {
         return bg;
     }
 
-    private static void place(Dialog dialog, int widthDp) {
+    private static void placeSized(Dialog dialog, int widthDp) {
         Window window = dialog.getWindow();
         if (window == null) return;
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -429,8 +433,10 @@ final class SideSheet {
         if (dialog == null || dialog.getWindow() == null) return;
         track(dialog);
         View decor = dialog.getWindow().getDecorView();
-        decor.setFocusable(true);
-        decor.setFocusableInTouchMode(true);
+        boolean tv = television(dialog.getContext());
+        decor.setFocusable(tv);
+        decor.setFocusableInTouchMode(tv);
+        if (tv) decor.requestFocus();
         decor.post(() -> bindSheet(decor, true));
     }
 
@@ -457,11 +463,13 @@ final class SideSheet {
             return true;
         }
         View focus = dialog.getCurrentFocus();
-        if (focus == null && dialog.getWindow() != null) {
-            bindSheet(dialog.getWindow().getDecorView(), false);
+        View decor = dialog.getWindow() != null ? dialog.getWindow().getDecorView() : null;
+        if ((focus == null || focus == decor) && decor != null) {
+            if (!inDialogWindow) decor.requestFocus();
+            bindSheet(decor, false);
             focus = dialog.getCurrentFocus();
         }
-        if (focus == null) return true;
+        if (focus == null || focus == decor) return true;
         if (focus instanceof android.widget.NumberPicker
                 && (key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN)) {
             if (inDialogWindow) return false;
@@ -497,8 +505,10 @@ final class SideSheet {
     private static void focusSheet(Dialog dialog, View body) {
         if (dialog.getWindow() != null) {
             View decor = dialog.getWindow().getDecorView();
-            decor.setFocusable(true);
-            decor.setFocusableInTouchMode(true);
+            boolean tv = television(dialog.getContext());
+            decor.setFocusable(tv);
+            decor.setFocusableInTouchMode(tv);
+            if (tv) decor.requestFocus();
         }
         body.post(() -> bindSheet(body, true));
     }
@@ -507,7 +517,11 @@ final class SideSheet {
             java.util.ArrayList<View> items = new java.util.ArrayList<>();
             collectFocusables(body, items);
             if (items.isEmpty()) return;
-            for (View item : items) item.setFocusableInTouchMode(true);
+            boolean tv = television(body.getContext());
+            for (View item : items) {
+                item.setFocusable(true);
+                item.setFocusableInTouchMode(tv);
+            }
             boolean sameTop = items.size() > 1;
             if (sameTop) {
                 int top = items.get(0).getTop();
@@ -550,8 +564,16 @@ final class SideSheet {
                 for (View v : last) TvFocus.point(v, View.FOCUS_DOWN, v);
             }
             for (java.util.ArrayList<View> row : rows) TvFocus.sealAll(row);
+            if (!tv) return;
             View first = items.get(0);
             if (!first.requestFocus()) first.post(first::requestFocus);
+    }
+
+    private static boolean television(Context context) {
+        if (context == null) return false;
+        return (context.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
     private static void collectFocusables(View view, java.util.List<View> out) {

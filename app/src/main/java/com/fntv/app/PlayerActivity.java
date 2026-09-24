@@ -1346,10 +1346,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void placeSkipDialog(android.app.Dialog dialog) {
-        SideSheet.place(dialog);
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setLayout(dpPx(360), ViewGroup.LayoutParams.MATCH_PARENT);
-        }
+        SideSheet.place(dialog, 360);
     }
 
     private void showSkipContent(android.app.Dialog dialog, View content) {
@@ -2135,6 +2132,12 @@ public class PlayerActivity extends AppCompatActivity {
         showCtrl(false);
     };
 
+    private boolean chromeHasFocus() {
+        return (controller != null && controller.hasFocus())
+                || (topBar != null && topBar.hasFocus())
+                || (btnLock != null && btnLock.hasFocus());
+    }
+
     private void wirePlayerFocus() {
         List<View> top = TvFocus.present(btnBack, btnMore);
         List<View> sides = TvFocus.present(btnLock);
@@ -2641,6 +2644,10 @@ public class PlayerActivity extends AppCompatActivity {
                     || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 if (moreOpen && !focusInMore()) {
                     focusMorePanel();
+                    return true;
+                }
+                if (isTvDevice() && k == KeyEvent.KEYCODE_DPAD_DOWN && !chromeHasFocus()) {
+                    if (btnPlayPause != null) btnPlayPause.requestFocus();
                     return true;
                 }
                 if (TvFocus.move(getCurrentFocus(), k)) return true;

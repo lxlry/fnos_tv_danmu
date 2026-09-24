@@ -109,6 +109,7 @@ public class HomeActivity extends AppCompatActivity {
     private View lastContentFocus;
     private boolean homeEntryFocused;
     private boolean initialFocusPlaced;
+    private boolean headerFocusedByUser;
     /** 离开首页时，滚动位置落在第几个区块、以及区块顶部之上的偏移。-1 表示不用恢复。 */
     private int pendingHomeAnchor = -1;
     private int pendingHomeAnchorOffset;
@@ -637,6 +638,7 @@ public class HomeActivity extends AppCompatActivity {
         overviewBuilt = true;
         homeEntryFocused = false;
         initialFocusPlaced = false;
+        headerFocusedByUser = false;
         detailPlayBtn = null;
         detailOverview = null;
         detailSeasonRow = null;
@@ -4601,6 +4603,7 @@ public class HomeActivity extends AppCompatActivity {
         if (!isTabBar(next) && !isInCurrentPanel(next) && !isHomeHeader(next)) {
             return true;
         }
+        if (isHomeHeader(next)) headerFocusedByUser = true;
         focusOn(next);
         return true;
     }
@@ -5206,13 +5209,16 @@ public class HomeActivity extends AppCompatActivity {
         List<View> shortcuts = shortcutCards();
         boolean onRealContent = isUsableFocus(focused) && !isHomeHeader(focused) && !isTabBar(focused)
                 && isInCurrentPanel(focused);
-        if (!homeEntryFocused && (focused == null || isHomeHeader(focused))) {
+        if (isHomeHeader(focused) && headerFocusedByUser) return;
+        if (!homeEntryFocused || focused == null || isHomeHeader(focused)) {
             View first = !continueCards.isEmpty() ? continueCards.get(0)
                     : (!shortcuts.isEmpty() ? shortcuts.get(0) : null);
             if (isUsableFocus(first)) {
                 focusOn(first);
-                homeEntryFocused = true;
-                if (!continueCards.isEmpty()) initialFocusPlaced = true;
+                if (first.isFocused()) {
+                    homeEntryFocused = true;
+                    if (!continueCards.isEmpty()) initialFocusPlaced = true;
+                }
                 return;
             }
         }
@@ -5450,10 +5456,18 @@ public class HomeActivity extends AppCompatActivity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            handleBack();
+            if (event.getRepeatCount() == 0) handleBack();
             return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     /** 首页根层级再按一次只退到后台，任务和登录态都留着。 */
@@ -5491,11 +5505,27 @@ public class HomeActivity extends AppCompatActivity {
             return true;
         }
         if (backPressedTime + 2000 > System.currentTimeMillis()) {
-            moveTaskToBack(true);
+            backPressedTime = 0;
+            if (isTelevision()) returnToDesktop();
+            else moveTaskToBack(true);
         } else {
             backPressedTime = System.currentTimeMillis();
             AppToast.show(this, "再按一次返回桌面");
         }
         return true;
+    }
+
+    /** 电视上 moveTaskToBack 停在当前任务里，要显式打开桌面。 */
+    private void returnToDesktop() {
+        getWindow().getDecorView().post(() -> {
+            try {
+                Intent home = new Intent(Intent.ACTION_MAIN);
+                home.addCategory(Intent.CATEGORY_HOME);
+                home.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(home);
+            } catch (Exception ignored) {
+                moveTaskToBack(true);
+            }
+        });
     }
 }
