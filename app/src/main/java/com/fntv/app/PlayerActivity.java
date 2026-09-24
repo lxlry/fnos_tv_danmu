@@ -1371,6 +1371,11 @@ public class PlayerActivity extends AppCompatActivity {
         showSkipContent(dialog, root);
     }
 
+    private int playheadSeconds() {
+        if (player == null) return 0;
+        return (int) Math.max(0, player.getCurrentPosition() / 1000);
+    }
+
     private int currentSkipSeconds(boolean intro) {
         if (player == null) return 0;
         int pos = (int) Math.max(0, player.getCurrentPosition() / 1000);
@@ -1522,10 +1527,21 @@ public class PlayerActivity extends AppCompatActivity {
         title.setTextColor(Color.WHITE);
         title.setTextSize(15);
         text.addView(title);
-        TextView time = skipHint(formatSkipClock(player == null ? 0
-                : (int) Math.max(0, player.getCurrentPosition() / 1000)));
+        TextView time = skipHint(formatSkipClock(playheadSeconds()));
         time.setPadding(0, dpPx(4), 0, 0);
         text.addView(time);
+        Runnable tickPlayhead = new Runnable() {
+            @Override public void run() {
+                if (!time.isAttachedToWindow()) return;
+                String next = formatSkipClock(playheadSeconds());
+                if (!next.equals(time.getText().toString())) time.setText(next);
+                time.postDelayed(this, 200);
+            }
+        };
+        time.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) { v.post(tickPlayhead); }
+            @Override public void onViewDetachedFromWindow(View v) { v.removeCallbacks(tickPlayhead); }
+        });
         row.addView(text);
         Button set = skipTextButton(intro ? "设为片头" : "设为片尾");
         set.setOnClickListener(v -> onSet.run());
@@ -2030,13 +2046,8 @@ public class PlayerActivity extends AppCompatActivity {
             btnLock.setVisibility(View.INVISIBLE);
             View panel = findViewById(R.id.morePanel);
             if (panel != null) {
-                int pad = (int) (18 * getResources().getDisplayMetrics().density);
-                int top = pad;
-                if (!isTvDevice()) {
-                    int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-                    if (resId > 0) top += getResources().getDimensionPixelSize(resId);
-                }
-                panel.setPadding(pad, top, pad, pad);
+                int pad = (int) (12 * getResources().getDisplayMetrics().density);
+                panel.setPadding(pad, pad, pad, pad);
             }
             applyChromeSystemUi(true);
             refreshSleepLabel();

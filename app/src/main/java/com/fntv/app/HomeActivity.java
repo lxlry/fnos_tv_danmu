@@ -36,6 +36,7 @@ import retrofit2.Response;
 public class HomeActivity extends AppCompatActivity {
 
     private Button tabMovies, tabLibrary, tabSettings;
+    private TextView tvHomeTitle;
     private View panelMovies, panelLibrary, panelSettings;
     private LinearLayout moviesContainer, libraryContainer;
     private TextView tvMoviesLoading, tvLibraryLoading, tvLibraryEmpty;
@@ -196,6 +197,7 @@ public class HomeActivity extends AppCompatActivity {
         panelMovies = findViewById(R.id.panelMovies);
         panelLibrary = findViewById(R.id.panelLibrary);
         panelSettings = findViewById(R.id.panelSettings);
+        tvHomeTitle = findViewById(R.id.tvHomeTitle);
         moviesContainer = findViewById(R.id.moviesGridContainer);
         savedMoviesPad = new int[] {
                 moviesContainer.getPaddingLeft(),
@@ -240,6 +242,19 @@ public class HomeActivity extends AppCompatActivity {
             librarySwipe.setProgressBackgroundColorSchemeColor(color(R.color.bg_card));
             librarySwipe.setOnRefreshListener(this::refreshCurrentPage);
             syncHomeSwipe();
+        }
+        View btnLibBack = findViewById(R.id.btnLibBack);
+        if (btnLibBack != null) btnLibBack.setOnClickListener(v -> restoreHomeOverview());
+        View btnLibBrowseBack = findViewById(R.id.btnLibBrowseBack);
+        if (btnLibBrowseBack != null) btnLibBrowseBack.setOnClickListener(v -> loadMediaLibraries());
+        View btnLibBrowseSearch = findViewById(R.id.btnLibBrowseSearch);
+        if (btnLibBrowseSearch != null) {
+            btnLibBrowseSearch.setOnClickListener(v -> {
+                if (etSearch != null) {
+                    etSearch.setVisibility(View.VISIBLE);
+                    etSearch.post(this::focusLibrarySearch);
+                }
+            });
         }
         View btnHomeRefresh = findViewById(R.id.btnHomeRefresh);
         if (btnHomeRefresh != null) {
@@ -540,6 +555,7 @@ public class HomeActivity extends AppCompatActivity {
         tvMoviesLoading.setVisibility(View.GONE);
         savedDetailItem = null; savedDetailInfo = null; savedBrowseList = null; savedBrowseGuid = null;
         setDetailChrome(false);
+        clearLibraryBrowseHeader();
         savedLiveChannelTitle = null;
         showingEpisodes = false;
         parkFocusOutside(moviesContainer);
@@ -1299,62 +1315,8 @@ public class HomeActivity extends AppCompatActivity {
                     savedBrowseList = list;
                     int total = response.body().data.total;
                     Log.d("Overview", "browseItems: got " + list.size() + " items, total=" + total);
-
-                    TextView h = new TextView(HomeActivity.this);
-                    h.setLayoutParams(new LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                    h.setPadding(6, 8, 6, 4);
-                    h.setText(title + "  (" + total + "项)");
-                    h.setTextColor(color(R.color.text_primary));
-                    h.setTextSize(14);
-                    container.addView(h);
-
-                    // 排序筛选栏
-                    LinearLayout sortFilterBar = makeLibSortFilterBar();
-                    sortFilterBar.setTag("lib_sort_bar");
-                    container.addView(sortFilterBar);
-                    container.addView(makeSpacer(6));
-
-                    // 自适应列数网格（最小卡片宽200dp）
-                    float density = getResources().getDisplayMetrics().density;
-                    int cols = Math.max(3, (int) (getResources().getDisplayMetrics().widthPixels / (130 * density)));
-                    for (int idx = 0; idx < list.size(); idx += cols) {
-                        LinearLayout row = new LinearLayout(HomeActivity.this);
-                        row.setLayoutParams(new LinearLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                        row.setOrientation(LinearLayout.HORIZONTAL);
-                        int inRow = Math.min(cols, list.size() - idx);
-                        for (int c = 0; c < cols && idx + c < list.size(); c++) {
-                            PlayListItem pli = list.get(idx + c);
-                            View card = makeItemCard(pli);
-                            // 图片按9:16竖版比例
-                            if (card instanceof ViewGroup) {
-                                View ch = ((ViewGroup) card).getChildAt(0);
-                                if (ch != null) {
-                                    int posterH = Math.min(dp(280), (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2);
-                                    ch.setLayoutParams(new LinearLayout.LayoutParams(
-                                            ViewGroup.LayoutParams.MATCH_PARENT, posterH));
-                                }
-                            }
-                            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-                            lp.rightMargin = 6;
-                            lp.leftMargin = 6;
-                            card.setLayoutParams(lp);
-                            row.addView(card);
-                        }
-                        // 补齐空位
-                        for (int e = inRow; e < cols; e++) {
-                            View spacer = new View(HomeActivity.this);
-                            spacer.setLayoutParams(new LinearLayout.LayoutParams(
-                                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-                            row.addView(spacer);
-                        }
-                        container.addView(row);
-                        container.addView(makeSpacer(12));
-                    }
-                    new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(container, 0));
-                    wireBrowseGrid(container);
+                    showLibraryBrowseHeader(container, title);
+                    renderLibraryGrid(container, list, total);
                 } else {
                     TextView e = new TextView(HomeActivity.this);
                     e.setLayoutParams(new LinearLayout.LayoutParams(
@@ -1386,19 +1348,57 @@ public class HomeActivity extends AppCompatActivity {
 
     private void renderGridInContainer(List<PlayListItem> list, String title, LinearLayout container) {
         container.removeAllViews();
-        int total = list.size();
+        showLibraryBrowseHeader(container, title);
+        renderLibraryGrid(container, list, list == null ? 0 : list.size());
+    }
 
-        TextView h = new TextView(this);
-        h.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        h.setPadding(6, 8, 6, 4);
-        h.setText(title + "  (" + total + "项)");
-        h.setTextColor(color(R.color.text_primary));
-        h.setTextSize(14);
-        container.addView(h);
+    private void showLibraryBrowseHeader(LinearLayout container, String title) {
+        String name = title == null ? "" : title;
+        if (container == moviesContainer) {
+            View back = findViewById(R.id.btnLibBack);
+            View refresh = findViewById(R.id.btnHomeRefresh);
+            if (back != null) back.setVisibility(View.VISIBLE);
+            if (refresh != null) refresh.setVisibility(View.GONE);
+            if (tvHomeTitle != null) {
+                tvHomeTitle.setText(name);
+                tvHomeTitle.setGravity(Gravity.CENTER);
+                android.widget.RelativeLayout.LayoutParams lp =
+                        (android.widget.RelativeLayout.LayoutParams) tvHomeTitle.getLayoutParams();
+                lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                lp.addRule(android.widget.RelativeLayout.CENTER_VERTICAL);
+                tvHomeTitle.setLayoutParams(lp);
+            }
+            return;
+        }
+        View bar = findViewById(R.id.libBrowseBar);
+        TextView browseTitle = findViewById(R.id.tvLibBrowseTitle);
+        if (bar != null) bar.setVisibility(View.VISIBLE);
+        if (browseTitle != null) browseTitle.setText(name);
+    }
 
+    private void clearLibraryBrowseHeader() {
+        View back = findViewById(R.id.btnLibBack);
+        View refresh = findViewById(R.id.btnHomeRefresh);
+        if (back != null) back.setVisibility(View.GONE);
+        if (refresh != null) refresh.setVisibility(View.VISIBLE);
+        if (tvHomeTitle != null) {
+            tvHomeTitle.setText("FN TV");
+            tvHomeTitle.setGravity(Gravity.CENTER_VERTICAL);
+            android.widget.RelativeLayout.LayoutParams lp =
+                    (android.widget.RelativeLayout.LayoutParams) tvHomeTitle.getLayoutParams();
+            lp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+            tvHomeTitle.setLayoutParams(lp);
+        }
+        View bar = findViewById(R.id.libBrowseBar);
+        if (bar != null) bar.setVisibility(View.GONE);
+    }
+
+    private void renderLibraryGrid(LinearLayout container, List<PlayListItem> list, int total) {
+        container.addView(makeLibraryToolRow(total));
+        if (list == null || list.isEmpty()) return;
         float density = getResources().getDisplayMetrics().density;
-        int cols = Math.max(3, (int) (getResources().getDisplayMetrics().widthPixels / (130 * density)));
+        int cols = Math.max(3, (int) (getResources().getDisplayMetrics().widthPixels / (120 * density)));
+        int posterH = (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2;
         for (int idx = 0; idx < list.size(); idx += cols) {
             LinearLayout row = new LinearLayout(this);
             row.setLayoutParams(new LinearLayout.LayoutParams(
@@ -1406,30 +1406,21 @@ public class HomeActivity extends AppCompatActivity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             int inRow = Math.min(cols, list.size() - idx);
             for (int c = 0; c < cols && idx + c < list.size(); c++) {
-                PlayListItem pli = list.get(idx + c);
-                View card = makeItemCard(pli);
-                if (card instanceof ViewGroup) {
-                    View ch = ((ViewGroup) card).getChildAt(0);
-                    if (ch != null) {
-                        int posterH = Math.min(dp(280), (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2);
-                        ch.setLayoutParams(new LinearLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT, posterH));
-                    }
-                }
+                View card = makeLibraryPoster(list.get(idx + c), posterH);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-                lp.rightMargin = 6; lp.leftMargin = 6;
+                lp.leftMargin = dp(4);
+                lp.rightMargin = dp(4);
                 card.setLayoutParams(lp);
                 row.addView(card);
             }
             for (int e = inRow; e < cols; e++) {
                 View spacer = new View(this);
-                spacer.setLayoutParams(new LinearLayout.LayoutParams(
-                        0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+                spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1));
                 row.addView(spacer);
             }
             container.addView(row);
-            container.addView(makeSpacer(12));
+            container.addView(makeSpacer(dp(14)));
         }
         new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(container, 0));
         wireBrowseGrid(container);
@@ -1442,6 +1433,106 @@ public class HomeActivity extends AppCompatActivity {
         if (currentBrowseGuid == null || currentBrowseContainer == null) return;
         browseItemsInContainer(currentBrowseGuid, currentBrowseTitle,
                 currentBrowseContainer, currentBrowseLoading);
+    }
+
+    private View makeLibraryToolRow(int total) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setTag("lib_sort_bar");
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(8), dp(6), dp(8), dp(10));
+        String[] colLabels = {"按添加日期", "按发行日期"};
+        TextView sort = new TextView(this);
+        sort.setText(colLabels[libSortColumnIndex] + (libSortOrderIndex == 0 ? "  ↑" : "  ↓"));
+        sort.setTextColor(color(R.color.text_primary));
+        sort.setTextSize(14);
+        sort.setFocusable(true);
+        sort.setClickable(true);
+        sort.setBackgroundResource(R.drawable.bg_text_action);
+        sort.setPadding(dp(8), dp(6), dp(8), dp(6));
+        sort.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
+                .setTitle("排序")
+                .setSingleChoiceItems(new String[]{"按添加日期", "按发行日期", "切换升序/降序"},
+                        libSortColumnIndex,
+                        (dialog, which) -> {
+                            if (which == 2) libSortOrderIndex = libSortOrderIndex == 0 ? 1 : 0;
+                            else libSortColumnIndex = which;
+                            dialog.dismiss();
+                            reFetchLibraryItems();
+                        })
+                .setNegativeButton("取消", null)
+                .show());
+        bar.addView(sort);
+        View gap = new View(this);
+        gap.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1));
+        bar.addView(gap);
+        TextView count = new TextView(this);
+        count.setText(String.valueOf(Math.max(total, 0)));
+        count.setTextColor(color(R.color.text_primary));
+        count.setTextSize(13);
+        count.setGravity(Gravity.CENTER);
+        count.setMinWidth(dp(36));
+        count.setPadding(dp(8), dp(4), dp(8), dp(4));
+        count.setBackgroundResource(R.drawable.bg_count_pill);
+        bar.addView(count);
+        return bar;
+    }
+
+    private View makeLibraryPoster(PlayListItem item, int posterH) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setFocusable(true);
+        card.setPadding(0, 0, 0, 0);
+
+        FrameLayout posterBox = new FrameLayout(this);
+        posterBox.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, posterH));
+        RoundedImageView iv = new RoundedImageView(this);
+        iv.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        iv.setBackgroundColor(color(R.color.bg_poster));
+        iv.setCornerRadius(12);
+        String imgUrl = makePosterUrl(item.poster);
+        if (imgUrl != null) iv.setTag(imgUrl);
+        posterBox.addView(iv);
+
+        String rating = itemRating(item);
+        if (!rating.isEmpty()) {
+            TextView badge = makeOverlayBadge(rating, Gravity.TOP | Gravity.RIGHT);
+            badge.setBackgroundResource(R.drawable.bg_rating_badge);
+            badge.setTextColor(0xFF8BE38A);
+            posterBox.addView(badge);
+        }
+        String res = itemResolution(item);
+        if (!res.isEmpty()) posterBox.addView(makeOverlayBadge(res, Gravity.BOTTOM | Gravity.RIGHT));
+        card.addView(posterBox);
+
+        TextView title = new TextView(this);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.topMargin = dp(6);
+        title.setLayoutParams(titleLp);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setTextSize(13);
+        title.setTextColor(color(R.color.text_primary));
+        title.setText(item.title != null ? item.title : "未知");
+        card.addView(title);
+
+        String year = itemYear(item);
+        if (!year.isEmpty()) {
+            TextView sub = new TextView(this);
+            sub.setText(year);
+            sub.setTextSize(12);
+            sub.setTextColor(color(R.color.text_hint));
+            sub.setPadding(0, dp(2), 0, 0);
+            card.addView(sub);
+        }
+        card.setOnFocusChangeListener((v, hasFocus) -> title.setSelected(hasFocus));
+        card.setTag(item);
+        card.setOnClickListener(v -> onItemClick((PlayListItem) card.getTag()));
+        return card;
     }
 
     /** 构建排序筛选栏 */
@@ -3194,6 +3285,8 @@ public class HomeActivity extends AppCompatActivity {
 
     private void loadMediaLibraries() {
         isSearching = false;
+        View browseBar = findViewById(R.id.libBrowseBar);
+        if (browseBar != null) browseBar.setVisibility(View.GONE);
         if (etSearch != null) etSearch.setVisibility(View.VISIBLE);
         if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.VISIBLE);
         clearContainer(libraryContainer, tvLibraryLoading, tvLibraryEmpty);
@@ -4193,13 +4286,15 @@ public class HomeActivity extends AppCompatActivity {
     private boolean isHomeHeader(View v) {
         if (v == null) return false;
         int id = v.getId();
-        return id == R.id.btnHomeRefresh || id == R.id.btnHomeSearch;
+        return id == R.id.btnHomeRefresh || id == R.id.btnHomeSearch || id == R.id.btnLibBack;
     }
 
     private List<View> homeHeaderButtons() {
         List<View> row = new ArrayList<>();
+        View back = findViewById(R.id.btnLibBack);
         View refresh = findViewById(R.id.btnHomeRefresh);
         View search = findViewById(R.id.btnHomeSearch);
+        if (back != null && back.getVisibility() == View.VISIBLE) row.add(back);
         if (refresh != null && refresh.getVisibility() == View.VISIBLE) row.add(refresh);
         if (search != null && search.getVisibility() == View.VISIBLE) row.add(search);
         return row;
