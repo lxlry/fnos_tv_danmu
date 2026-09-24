@@ -1652,10 +1652,17 @@ public class PlayerActivity extends AppCompatActivity {
         picker.setValue(Math.max(min, Math.min(max, value)));
         picker.setWrapSelectorWheel(true);
         picker.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        picker.setFocusable(true);
+        picker.setFocusableInTouchMode(true);
+        picker.setBackgroundResource(R.drawable.bg_poster_card);
+        picker.setPadding(dpPx(8), dpPx(4), dpPx(8), dpPx(4));
         try {
             java.lang.reflect.Field paint = android.widget.NumberPicker.class.getDeclaredField("mSelectorWheelPaint");
             paint.setAccessible(true);
             ((android.graphics.Paint) paint.get(picker)).setColor(Color.WHITE);
+            java.lang.reflect.Field divider = android.widget.NumberPicker.class.getDeclaredField("mSelectionDivider");
+            divider.setAccessible(true);
+            divider.set(picker, new android.graphics.drawable.ColorDrawable(0xFF7AA2FF));
         } catch (Exception ignored) {}
         return picker;
     }
