@@ -45,6 +45,21 @@ DPAD 遥控器友好
                     android:textStyle="bold" />
 
                 <androidx.appcompat.widget.AppCompatImageView
+                    android:id="@+id/btnHomeRefresh"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_centerVertical="true"
+                    android:layout_marginRight="8dp"
+                    android:layout_toLeftOf="@+id/btnHomeSearch"
+                    android:background="@drawable/bg_text_action"
+                    android:clickable="true"
+                    android:contentDescription="刷新"
+                    android:focusable="true"
+                    android:padding="8dp"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_refresh" />
+
+                <androidx.appcompat.widget.AppCompatImageView
                     android:id="@+id/btnHomeSearch"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
@@ -58,6 +73,11 @@ DPAD 遥控器友好
                     android:scaleType="centerInside"
                     android:src="@drawable/ic_search" />
             </RelativeLayout>
+
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/homeSwipeRefresh"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
 
             <ScrollView
                 android:layout_width="match_parent"
@@ -101,6 +121,8 @@ DPAD 遥控器友好
                 </LinearLayout>
 
             </ScrollView>
+
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
         </LinearLayout>
 

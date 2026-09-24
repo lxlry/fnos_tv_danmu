@@ -58,6 +58,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         prefs = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
+        boolean skipAuto = getIntent().getBooleanExtra("skip_auto_login", false);
+        if (!skipAuto && restoreSession()) {
+            startActivity(new Intent(this, HomeActivity.class));
+            return;
+        }
         density = getResources().getDisplayMetrics().density;
         btnLogin = findViewById(R.id.btnLogin);
         LinearLayout loginCard = findViewById(R.id.loginCard);
@@ -184,7 +189,6 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // 自动登录（仅冷启动时触发，手动退出登录不触发）
-        boolean skipAuto = getIntent().getBooleanExtra("skip_auto_login", false);
         if (!skipAuto) {
             btnLogin.postDelayed(() -> {
                 if (isFnIdMode) {
@@ -473,11 +477,11 @@ public class MainActivity extends AppCompatActivity {
         e.putString("host", domain);
         e.putString("login_mode", "fnid");
         e.putBoolean("_was_fnid", true);
+        e.putString("auth_token", token);
         e.apply();
         Log.i(TAG, "FN ID 登录成功！fnId=" + rawFnId + " domain=" + domain);
         Toast.makeText(this, "FN ID 登录成功！", Toast.LENGTH_SHORT).show();
         startActivity(new Intent(this, HomeActivity.class));
-        finish();
     }
 
     private void doLoginHttp(String host, String user, String pass) {
@@ -502,11 +506,12 @@ public class MainActivity extends AppCompatActivity {
             public void onResponse(Call<ApiResponse<LoginResponseData>> call, Response<ApiResponse<LoginResponseData>> response) {
                 if (response.isSuccessful() && response.body() != null) {
                     if (response.body().code == 0) {
-                        FnApiManager.getInstance().setToken(response.body().data.token);
+                        String token = response.body().data.token;
+                        FnApiManager.getInstance().setToken(token);
+                        prefs.edit().putString("auth_token", token).apply();
                         Log.i(TAG, "HTTP 登录成功！耗时 " + (System.currentTimeMillis() - loginStartTime) + "ms");
                         Toast.makeText(MainActivity.this, "登录成功！", Toast.LENGTH_SHORT).show();
                         startActivity(new Intent(MainActivity.this, HomeActivity.class));
-                        finish();
                         return;
                     } else {
                         Toast.makeText(MainActivity.this, "登录失败: " + response.body().msg, Toast.LENGTH_LONG).show();
@@ -523,6 +528,16 @@ public class MainActivity extends AppCompatActivity {
                 resetLoginState();
             }
         });
+    }
+
+    /** 进程被系统回收后，用上次的登录态直接进主页，不再停在登录页。 */
+    private boolean restoreSession() {
+        String token = prefs.getString("auth_token", "");
+        String host = prefs.getString("host", "");
+        if (token.isEmpty() || host.isEmpty()) return false;
+        FnApiManager.getInstance().updateBaseUrl(host);
+        FnApiManager.getInstance().setToken(token);
+        return true;
     }
 
     private void resetLoginState() {

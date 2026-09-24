@@ -193,23 +193,36 @@
             android:textColor="#E6FFFFFF"
             android:textSize="12sp" />
 
-        <!-- 进度条 (细条) -->
-        <SeekBar
-            android:id="@+id/seekBar"
+        <!-- 进度条 (细条)，上面叠片头片尾小竖线 -->
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:max="1000"
-            android:progress="0"
-            android:focusable="true"
-            android:nextFocusUp="@+id/btnBack"
-            android:nextFocusDown="@+id/btnPlayPause"
-            android:background="@drawable/seekbar_bg_focus"
-            android:progressDrawable="@drawable/seeker_progress"
-            android:thumb="@drawable/seeker_thumb"
-            android:paddingLeft="12dp"
-            android:paddingRight="12dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="2dp" />
+            android:layout_height="wrap_content">
+
+            <SeekBar
+                android:id="@+id/seekBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="1000"
+                android:progress="0"
+                android:focusable="true"
+                android:nextFocusUp="@+id/btnBack"
+                android:nextFocusDown="@+id/btnPlayPause"
+                android:background="@drawable/seekbar_bg_focus"
+                android:progressDrawable="@drawable/seeker_progress"
+                android:thumb="@drawable/seeker_thumb"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="2dp" />
+
+            <com.fntv.app.SkipSeekMarks
+                android:id="@+id/skipMarks"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clickable="false"
+                android:focusable="false"
+                android:forceDarkAllowed="false" />
+        </FrameLayout>
 
         <!-- 左：暂停 / 下一集。右：选集、倍速、音频、字幕、原画，片头尾留在栏上 -->
         <LinearLayout
@@ -502,6 +515,21 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
+
+                    <Button
+                        android:id="@+id/btnSleep"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/bg_player_action"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingLeft="8dp"
+                        android:text="定时关闭"
+                        android:textAllCaps="false"
+                        android:textColor="#FFF"
+                        android:textSize="15sp" />
 
                     <Button
                         android:id="@+id/btnCloudMode"

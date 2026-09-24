@@ -9,9 +9,17 @@ import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.SeekBar;
 
-/** 盖在进度条上的五个小节点：0%、25%、50%、75%、100%。不抢触摸和焦点。 */
+/** 盖在进度条上的小节点。默认按轨道四等分，也可按实际数值定位。不抢触摸和焦点。 */
 public class SeekQuarterMarks extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private float[] fractions = {0f, 0.25f, 0.5f, 0.75f, 1f};
+
+    /** 节点在轨道上的位置，0 是最左，1 是最右。 */
+    public void setFractions(float[] stops) {
+        if (stops == null || stops.length == 0) return;
+        fractions = stops;
+        invalidate();
+    }
 
     public SeekQuarterMarks(Context context) {
         this(context, null);
@@ -45,8 +53,9 @@ public class SeekQuarterMarks extends View {
         if (right <= left) return;
         float cy = getHeight() / 2f;
         float radius = 3f * getResources().getDisplayMetrics().density;
-        for (int i = 0; i < 5; i++) {
-            float x = left + (right - left) * i / 4f;
+        float span = right - left;
+        for (float fraction : fractions) {
+            float x = left + span * fraction;
             canvas.drawCircle(x, cy, radius, paint);
         }
     }

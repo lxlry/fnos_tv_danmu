@@ -10,8 +10,8 @@ android {
         applicationId "com.fntv.app"
         minSdkVersion 19
         targetSdkVersion 32
-        versionCode 9527007
-        versionName "9527.007"
+        versionCode 9527008
+        versionName "9527.008"
         vectorDrawables.useSupportLibrary = true
         multiDexEnabled true
     }
@@ -66,6 +66,7 @@ static def generateTime() {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.4.1'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation 'com.google.android.material:material:1.5.0'
     implementation 'com.squareup.retrofit2:retrofit:2.6.4'

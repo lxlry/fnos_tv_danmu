@@ -463,8 +463,14 @@ public class DanmuManager {
         if (ticks != null) ticks.setVisibility(View.VISIBLE);
         if (sb != null) {
             final int range = max - min;
+            final int[] stops = sliderStops(min, max, unit);
             sb.setMax(range);
             sb.setProgress(val - min);
+            if (ticks instanceof SeekQuarterMarks && range > 0) {
+                float[] fractions = new float[stops.length];
+                for (int i = 0; i < stops.length; i++) fractions[i] = stops[i] / (float) range;
+                ((SeekQuarterMarks) ticks).setFractions(fractions);
+            }
             if (ticks != null) sb.post(ticks::invalidate);
             final boolean[] applyingSnap = {false};
             final boolean[] tracking = {false};
@@ -473,7 +479,7 @@ public class DanmuManager {
                 @Override
                 public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
                     if (!applyingSnap[0] && fromUser && tracking[0]) {
-                        int snapped = snapToQuarter(p, range);
+                        int snapped = snapToStop(p, range, stops);
                         if (snapped != p) {
                             applyingSnap[0] = true;
                             s.setProgress(snapped);
@@ -489,7 +495,7 @@ public class DanmuManager {
                     else if (unit.equals("fps")) suffix = real + "fps";
                     else suffix = String.valueOf(real);
                     if (tv != null) tv.setText(label + "  " + suffix);
-                    if (fromUser && isQuarterPoint(p, range)) {
+                    if (fromUser && isStop(p, stops)) {
                         if (lastTick[0] != p) {
                             lastTick[0] = p;
                             tickFeedback(s);
@@ -516,16 +522,16 @@ public class DanmuManager {
                     if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT || keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
                         int step = (keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT) ? -1 : 1;
                         int next = cur + step;
-                        if (isQuarterPoint(cur, range)) {
+                        if (isStop(cur, stops)) {
                             next = cur + step * (quarterSnapDistance(range) + 1);
                         } else {
-                            int toward = snapToQuarter(next, range);
+                            int toward = snapToStop(next, range, stops);
                             if (toward != next) next = toward;
                         }
                         next = Math.max(0, Math.min(range, next));
                         if (next != cur) {
                             sb.setProgress(next);
-                            if (isQuarterPoint(next, range)) {
+                            if (isStop(next, stops)) {
                                 lastTick[0] = next;
                                 tickFeedback(sb);
                             } else {
@@ -540,13 +546,33 @@ public class DanmuManager {
         }
     }
 
-    /** 离 0%、25%、50%、75%、100% 很近时吸到该节点，否则保持原进度。 */
-    private int snapToQuarter(int progress, int range) {
-        if (range <= 0) return progress;
+    /** 百分比滑条按 25、50、75 这些实际数值放节点，其它滑条仍按轨道四等分。 */
+    private int[] sliderStops(int min, int max, String unit) {
+        int range = max - min;
+        if (range <= 0) return new int[]{0};
+        if ("%".equals(unit)) {
+            java.util.ArrayList<Integer> list = new java.util.ArrayList<>();
+            list.add(0);
+            int first = ((min / 25) + 1) * 25;
+            for (int value = first; value < max; value += 25) {
+                if (value > min) list.add(value - min);
+            }
+            if (list.get(list.size() - 1) != range) list.add(range);
+            int[] stops = new int[list.size()];
+            for (int i = 0; i < list.size(); i++) stops[i] = list.get(i);
+            return stops;
+        }
+        int[] stops = new int[5];
+        for (int i = 0; i <= 4; i++) stops[i] = (int) Math.round(range * (i / 4.0));
+        return stops;
+    }
+
+    /** 离节点很近时吸上去，否则保持原进度。 */
+    private int snapToStop(int progress, int range, int[] stops) {
+        if (range <= 0 || stops == null || stops.length == 0) return progress;
         int nearest = progress;
         int best = Integer.MAX_VALUE;
-        for (int i = 0; i <= 4; i++) {
-            int point = (int) Math.round(range * (i / 4.0));
+        for (int point : stops) {
             int dist = Math.abs(progress - point);
             if (dist < best) {
                 best = dist;
@@ -556,10 +582,10 @@ public class DanmuManager {
         return best <= quarterSnapDistance(range) ? nearest : progress;
     }
 
-    private boolean isQuarterPoint(int progress, int range) {
-        if (range <= 0) return false;
-        for (int i = 0; i <= 4; i++) {
-            if (progress == (int) Math.round(range * (i / 4.0))) return true;
+    private boolean isStop(int progress, int[] stops) {
+        if (stops == null) return false;
+        for (int point : stops) {
+            if (progress == point) return true;
         }
         return false;
     }

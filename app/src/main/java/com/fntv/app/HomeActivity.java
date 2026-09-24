@@ -58,6 +58,8 @@ public class HomeActivity extends AppCompatActivity {
     private boolean showingEpisodes = false;
     private boolean loadingPreviews = false;
     private boolean overviewLoading = false;
+    private boolean homeRefreshRequested = false;
+    private androidx.swiperefreshlayout.widget.SwipeRefreshLayout homeSwipeRefresh;
     private boolean continueLoading = false;
     private boolean continueRefreshPending = false;
     private int recordWaitTicks = 0;
@@ -221,6 +223,18 @@ public class HomeActivity extends AppCompatActivity {
         tvDanmuUrl = findViewById(R.id.tvDanmuUrl);
         tvSettingServer.setText(prefs.getString("host", ""));
 
+        androidx.swiperefreshlayout.widget.SwipeRefreshLayout homeSwipe = findViewById(R.id.homeSwipeRefresh);
+        if (homeSwipe != null) {
+            homeSwipeRefresh = homeSwipe;
+            homeSwipe.setColorSchemeColors(color(R.color.text_primary));
+            homeSwipe.setProgressBackgroundColorSchemeColor(color(R.color.bg_card));
+            homeSwipe.setOnRefreshListener(this::refreshHome);
+            syncHomeSwipe();
+        }
+        View btnHomeRefresh = findViewById(R.id.btnHomeRefresh);
+        if (btnHomeRefresh != null) {
+            btnHomeRefresh.setOnClickListener(v -> refreshHome());
+        }
         View btnHomeSearch = findViewById(R.id.btnHomeSearch);
         if (btnHomeSearch != null) {
             btnHomeSearch.setOnClickListener(v -> {
@@ -340,6 +354,34 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
+    /** 手机首页可下拉刷新；电视不拦截滚动。离开首页概览时关掉。 */
+    private void syncHomeSwipe() {
+        if (homeSwipeRefresh == null) return;
+        boolean allow = !isTelevision() && showingOverview && currentTab == 0;
+        homeSwipeRefresh.setEnabled(allow);
+        if (!allow) homeSwipeRefresh.setRefreshing(false);
+    }
+
+    private void finishHomeSwipe() {
+        if (homeSwipeRefresh != null) homeSwipeRefresh.setRefreshing(false);
+        syncHomeSwipe();
+    }
+
+    /** 重新拉取首页：继续观看、媒体库和各库预览。 */
+    private void refreshHome() {
+        if (apiManager.getApi() == null || overviewLoading) {
+            finishHomeSwipe();
+            return;
+        }
+        homeRefreshRequested = true;
+        loadingPreviews = false;
+        savedDetailItem = null;
+        savedDetailInfo = null;
+        showingEpisodes = false;
+        showingSeasonEpisodes = false;
+        loadOverview();
+    }
+
     /** 回到影视首页概览（保留已加载的媒体库，并恢复继续观看） */
     private void restoreHomeOverview() {
         savedDetailItem = null;
@@ -403,14 +445,29 @@ public class HomeActivity extends AppCompatActivity {
                     Log.d("Overview", "loaded " + mediaLibraries.size() + " libraries");
                     showOverview();
                     loadAllPreviews();
+                    if (homeRefreshRequested) {
+                        homeRefreshRequested = false;
+                        Toast.makeText(HomeActivity.this, "已刷新", Toast.LENGTH_SHORT).show();
+                    }
+                    finishHomeSwipe();
                 } else {
                     tvMoviesLoading.setVisibility(View.GONE);
+                    if (homeRefreshRequested) {
+                        homeRefreshRequested = false;
+                        Toast.makeText(HomeActivity.this, "刷新失败", Toast.LENGTH_SHORT).show();
+                    }
+                    finishHomeSwipe();
                 }
             }
             @Override
             public void onFailure(Call<ApiResponse<List<MediaDbItem>>> call, Throwable t) {
                 overviewLoading = false;
                 tvMoviesLoading.setVisibility(View.GONE);
+                if (homeRefreshRequested) {
+                    homeRefreshRequested = false;
+                    Toast.makeText(HomeActivity.this, "刷新失败", Toast.LENGTH_SHORT).show();
+                }
+                finishHomeSwipe();
                 Log.e("Overview", "getMediaDbList onFailure: " + t.getMessage() + " t=" + (System.currentTimeMillis() - t0) + "ms");
             }
         });
@@ -495,6 +552,7 @@ public class HomeActivity extends AppCompatActivity {
         if (cachedLivePreview != null && !cachedLivePreview.isEmpty()) {
             fillLiveChannelPreview(cachedLivePreview, cachedLiveTotal);
         }
+        syncHomeSwipe();
         wireOverviewFocus();
         applyPendingHomeScroll();
     }
@@ -1147,6 +1205,7 @@ public class HomeActivity extends AppCompatActivity {
         if (container == moviesContainer) {
             captureHomeScroll();
             showingOverview = false;
+            syncHomeSwipe();
         }
         parkFocusOutside(container);
 
@@ -1525,6 +1584,7 @@ public class HomeActivity extends AppCompatActivity {
         savedBrowseList = null; savedBrowseGuid = null;
         showingOverview = false;
         showingEpisodes = false;
+        syncHomeSwipe();
         setDetailChrome(true);
         moviesContainer.removeAllViews();
         TextView loading = new TextView(this);
@@ -3691,9 +3751,11 @@ public class HomeActivity extends AppCompatActivity {
 
     private void logout() {
         apiManager.setToken(null);
+        prefs.edit().remove("auth_token").apply();
         Toast.makeText(this, "已退出", Toast.LENGTH_SHORT).show();
         Intent intent = new Intent(this, MainActivity.class);
         intent.putExtra("skip_auto_login", true);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
         startActivity(intent);
         finish();
     }
@@ -3941,6 +4003,7 @@ public class HomeActivity extends AppCompatActivity {
         savedDetailInfo = null;
         showingEpisodes = false;
         showingOverview = false;
+        syncHomeSwipe();
         savedLiveChannelTitle = "直播频道";
         moviesContainer.removeAllViews();
         tvMoviesLoading.setVisibility(View.VISIBLE);
@@ -4052,6 +4115,21 @@ public class HomeActivity extends AppCompatActivity {
         return v == tabMovies || v == tabLibrary || v == tabSettings;
     }
 
+    private boolean isHomeHeader(View v) {
+        if (v == null) return false;
+        int id = v.getId();
+        return id == R.id.btnHomeRefresh || id == R.id.btnHomeSearch;
+    }
+
+    private List<View> homeHeaderButtons() {
+        List<View> row = new ArrayList<>();
+        View refresh = findViewById(R.id.btnHomeRefresh);
+        View search = findViewById(R.id.btnHomeSearch);
+        if (refresh != null && refresh.getVisibility() == View.VISIBLE) row.add(refresh);
+        if (search != null && search.getVisibility() == View.VISIBLE) row.add(search);
+        return row;
+    }
+
     private View currentTabView() {
         if (currentTab == 1) return tabLibrary;
         if (currentTab == 2) return tabSettings;
@@ -4089,7 +4167,7 @@ public class HomeActivity extends AppCompatActivity {
         if (next == null) return false;
         if (next == focused) return true;
         if (!isUsableFocus(next)) return true;
-        if (!isTabBar(next) && !isInCurrentPanel(next) && next != findViewById(R.id.btnHomeSearch)) {
+        if (!isTabBar(next) && !isInCurrentPanel(next) && !isHomeHeader(next)) {
             return true;
         }
         focusOn(next);
@@ -4211,22 +4289,24 @@ public class HomeActivity extends AppCompatActivity {
         if (!sortBtns.isEmpty() && !rows.isEmpty()) {
             TvFocus.bindVertical(sortBtns, rows.get(0));
         }
-        View homeSearch = container == moviesContainer
-                ? findViewById(R.id.btnHomeSearch) : null;
+        List<View> headerBtns = container == moviesContainer
+                ? homeHeaderButtons() : Collections.emptyList();
+        if (!headerBtns.isEmpty()) {
+            TvFocus.bindRow(headerBtns);
+            for (View v : headerBtns) TvFocus.stay(v);
+        }
         if (!sortBtns.isEmpty()) {
             if (container == libraryContainer && etSearch != null
                     && etSearch.getVisibility() == View.VISIBLE) {
                 TvFocus.stay(etSearch);
                 TvFocus.bindVertical(TvFocus.listOf(etSearch), sortBtns);
-            } else if (homeSearch != null && homeSearch.getVisibility() == View.VISIBLE) {
-                TvFocus.stay(homeSearch);
-                TvFocus.bindAbove(homeSearch, sortBtns);
+            } else if (!headerBtns.isEmpty()) {
+                TvFocus.bindVertical(headerBtns, sortBtns);
             } else {
                 for (View v : sortBtns) TvFocus.point(v, View.FOCUS_UP, v);
             }
-        } else if (homeSearch != null && homeSearch.getVisibility() == View.VISIBLE && !rows.isEmpty()) {
-            TvFocus.stay(homeSearch);
-            TvFocus.bindAbove(homeSearch, rows.get(0));
+        } else if (!headerBtns.isEmpty() && !rows.isEmpty()) {
+            TvFocus.bindVertical(headerBtns, rows.get(0));
         } else if (upTarget == etSearch && etSearch != null) {
             TvFocus.stay(etSearch);
             if (!rows.isEmpty()) {
@@ -4249,6 +4329,7 @@ public class HomeActivity extends AppCompatActivity {
         bindTabBar(enter, exit);
         for (List<View> row : rows) TvFocus.sealAll(row);
         TvFocus.sealAll(sortBtns);
+        TvFocus.sealAll(headerBtns);
         TvFocus.seal(etSearch);
     }
 
@@ -4263,10 +4344,12 @@ public class HomeActivity extends AppCompatActivity {
     private void bindOverviewFocusNow() {
         if (!showingOverview || moviesContainer == null || currentTab != 0) return;
         List<List<View>> lanes = new ArrayList<>();
-        View searchBtn = findViewById(R.id.btnHomeSearch);
-        if (searchBtn != null && searchBtn.getVisibility() == View.VISIBLE) {
-            TvFocus.stay(searchBtn);
-            lanes.add(TvFocus.listOf(searchBtn));
+        List<View> headerBtns = homeHeaderButtons();
+        View searchBtn = headerBtns.isEmpty() ? null : headerBtns.get(0);
+        if (!headerBtns.isEmpty()) {
+            TvFocus.bindRow(headerBtns);
+            for (View v : headerBtns) TvFocus.stay(v);
+            lanes.add(headerBtns);
         }
 
         View pendingHeader = null;
@@ -4337,7 +4420,7 @@ public class HomeActivity extends AppCompatActivity {
         }
         for (List<View> lane : lanes) TvFocus.sealAll(lane);
         TvFocus.sealAll(TvFocus.collectAllFocusables(moviesContainer));
-        TvFocus.seal(searchBtn);
+        TvFocus.sealAll(headerBtns);
         restoreOverviewFocus();
     }
 
@@ -4514,6 +4597,7 @@ public class HomeActivity extends AppCompatActivity {
         if (pendingHomeAnchor >= 0) return;
         View focused = getCurrentFocus();
         View searchBtn = findViewById(R.id.btnHomeSearch);
+        if (isHomeHeader(focused)) return;
         List<View> continueCards = continueCards();
         List<View> shortcuts = shortcutCards();
         boolean onSearch = focused == searchBtn;
@@ -4717,43 +4801,52 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     @Override
+    public void onBackPressed() {
+        if (handleBack()) return;
+        super.onBackPressed();
+    }
 
+    @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            if ((etSearch != null && etSearch.isFocused()) || isSearching) {
-                leaveSearch();
-                return true;
-            }
-            // 媒体库浏览中 → 返回媒体库首页
-            if (currentTab == 1 && savedBrowseGuid != null) {
-                savedBrowseGuid = null; savedBrowseList = null;
-                loadMediaLibraries();
-                return true;
-            }
-            if (showingSeasonEpisodes && savedDetailItem != null && savedDetailInfo != null) {
-                showingSeasonEpisodes = false;
-                detailOpenedSeason = null;
-                buildDetailPage(savedDetailItem, savedDetailInfo);
-                return true;
-            }
-            // 剧集选择页 → 返回详情页
-            if (showingEpisodes && savedDetailItem != null && savedDetailInfo != null) {
-                showingEpisodes = false;
-                buildDetailPage(savedDetailItem, savedDetailInfo);
-                return true;
-            }
-            if (!showingOverview) {
-                restoreHomeOverview();
-                return true;
-            }
-            if (backPressedTime + 2000 > System.currentTimeMillis()) {
-                finish();
-            } else {
-                backPressedTime = System.currentTimeMillis();
-                Toast.makeText(this, "再按一次返回桌面", Toast.LENGTH_SHORT).show();
-            }
+            handleBack();
             return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    /** 首页根层级再按一次只退到后台，任务和登录态都留着。 */
+    private boolean handleBack() {
+        if ((etSearch != null && etSearch.isFocused()) || isSearching) {
+            leaveSearch();
+            return true;
+        }
+        if (currentTab == 1 && savedBrowseGuid != null) {
+            savedBrowseGuid = null; savedBrowseList = null;
+            loadMediaLibraries();
+            return true;
+        }
+        if (showingSeasonEpisodes && savedDetailItem != null && savedDetailInfo != null) {
+            showingSeasonEpisodes = false;
+            detailOpenedSeason = null;
+            buildDetailPage(savedDetailItem, savedDetailInfo);
+            return true;
+        }
+        if (showingEpisodes && savedDetailItem != null && savedDetailInfo != null) {
+            showingEpisodes = false;
+            buildDetailPage(savedDetailItem, savedDetailInfo);
+            return true;
+        }
+        if (!showingOverview) {
+            restoreHomeOverview();
+            return true;
+        }
+        if (backPressedTime + 2000 > System.currentTimeMillis()) {
+            moveTaskToBack(true);
+        } else {
+            backPressedTime = System.currentTimeMillis();
+            Toast.makeText(this, "再按一次返回桌面", Toast.LENGTH_SHORT).show();
+        }
+        return true;
     }
 }

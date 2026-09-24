@@ -38,13 +38,14 @@ public class PlayerActivity extends AppCompatActivity {
     private SimpleExoPlayer player;
     private TextView tvBuffering, tvTime, infoText;
     private SeekBar seekBar;
+    private SkipSeekMarks skipMarks;
     private Button btnSpeed, btnInfo, btnCloseInfo, btnEpisodeList, btnDanmu, btnHdrToggle, btnHdrRow, btnQuality;
     private ImageView btnMore;
     private ImageView btnPlayPause, btnNextEp, btnBack;
     private Button[] ratioChips;
     private ImageView btnLock;
     private TextView tvTitle, tvDanmuStatus, tvDanmuMatch, tvSpeedHint, infoTextAudio, infoTextExtra;
-    private Button btnCloudMode, btnBrightness, btnSkip;
+    private Button btnCloudMode, btnBrightness, btnSkip, btnSleep;
     private boolean introSkipped = false, outroSkipped = false;
     private float speedBeforeLongPress = 1.0f;
     private DanmuView danmuView;
@@ -133,6 +134,7 @@ public class PlayerActivity extends AppCompatActivity {
         tvBuffering = findViewById(R.id.tvBuffering);
         tvTime = findViewById(R.id.tvTime);
         seekBar = findViewById(R.id.seekBar);
+        skipMarks = findViewById(R.id.skipMarks);
         btnPlayPause = findViewById(R.id.btnPlayPause);
         btnSpeed = findViewById(R.id.btnSpeed);
         btnInfo = findViewById(R.id.btnInfo);
@@ -359,6 +361,8 @@ public class PlayerActivity extends AppCompatActivity {
 
         btnPlayPause.setOnClickListener(v -> togglePlay());
         btnSpeed.setOnClickListener(v -> cycleSpeed());
+        btnSleep = findViewById(R.id.btnSleep);
+        if (btnSleep != null) btnSleep.setOnClickListener(v -> showSleepDialog());
         btnMore.setOnClickListener(v -> showMore(true));
         if (moreScrim != null) moreScrim.setOnClickListener(v -> showMore(false));
         View morePanel = findViewById(R.id.morePanel);
@@ -1275,6 +1279,18 @@ public class PlayerActivity extends AppCompatActivity {
                 .putInt(skipPrefsKey() + (intro ? "_intro" : "_outro"), saved).apply();
         if (intro) introSkipped = false;
         else outroSkipped = false;
+        refreshSkipMarks();
+    }
+
+    /** 把已保存的片头、片尾画到进度条上。片尾记的是距结尾的秒数。 */
+    private void refreshSkipMarks() {
+        if (skipMarks == null) return;
+        long dur = player != null ? player.getDuration() : 0;
+        int intro = readSkipSec(true);
+        int outro = readSkipSec(false);
+        long introAt = intro > 0 ? intro * 1000L : 0;
+        long outroAt = outro > 0 && dur > outro * 1000L ? dur - outro * 1000L : 0;
+        skipMarks.setMarks(introAt, outroAt, dur);
     }
 
     private String formatSkipClock(int sec) {
@@ -1583,6 +1599,174 @@ public class PlayerActivity extends AppCompatActivity {
         });
     }
 
+    private int sleepChoiceMinutes;
+
+    private final Runnable sleepLabelTick = new Runnable() {
+        @Override public void run() {
+            if (!moreOpen) return;
+            refreshSleepLabel();
+            if (SleepTimer.isRunning()) handler.postDelayed(this, 1000);
+        }
+    };
+
+    private void refreshSleepLabel() {
+        if (btnSleep == null) return;
+        long left = SleepTimer.remainingMs();
+        if (left <= 0) {
+            btnSleep.setText("定时关闭");
+            sleepChoiceMinutes = 0;
+            return;
+        }
+        long sec = (left + 999) / 1000;
+        long h = sec / 3600;
+        long m = (sec % 3600) / 60;
+        long s = sec % 60;
+        String clock = h > 0
+                ? String.format(java.util.Locale.US, "%d:%02d:%02d", h, m, s)
+                : String.format(java.util.Locale.US, "%02d:%02d", m, s);
+        btnSleep.setText("定时关闭  " + clock);
+    }
+
+    private void showSleepDialog() {
+        if (!SleepTimer.isRunning()) sleepChoiceMinutes = 0;
+        final android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        dialog.setContentView(sleepOptionView(dialog));
+        SideSheet.place(dialog);
+        dialog.show();
+    }
+
+    private View sleepOptionView(android.app.Dialog dialog) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dpPx(20), dpPx(22), dpPx(20), dpPx(16));
+
+        TextView title = new TextView(this);
+        title.setText("定时关闭");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(18);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        root.addView(title);
+
+        TextView hint = new TextView(this);
+        hint.setText("到时间后退出播放");
+        hint.setTextColor(0x99FFFFFF);
+        hint.setTextSize(13);
+        hint.setPadding(0, dpPx(6), 0, dpPx(16));
+        root.addView(hint);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        int[] minutes = {0, 15, 30, 60};
+        String[] labels = {"不开启", "15:00", "30:00", "60:00"};
+        for (int i = 0; i < minutes.length; i++) {
+            if (i > 0) row.addView(sleepDivider());
+            row.addView(sleepChip(dialog, labels[i], minutes[i], false));
+        }
+        row.addView(sleepDivider());
+        row.addView(sleepChip(dialog, "自定义", -1, true));
+        root.addView(row);
+        return root;
+    }
+
+    private View sleepDivider() {
+        View line = new View(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dpPx(1), dpPx(16));
+        lp.leftMargin = dpPx(2);
+        lp.rightMargin = dpPx(2);
+        line.setLayoutParams(lp);
+        line.setBackgroundColor(0x33FFFFFF);
+        return line;
+    }
+
+    private TextView sleepChip(android.app.Dialog dialog, String label, int minutes, boolean custom) {
+        TextView chip = new TextView(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dpPx(40), 1);
+        chip.setLayoutParams(lp);
+        chip.setGravity(android.view.Gravity.CENTER);
+        chip.setText(label);
+        chip.setTextSize(13);
+        chip.setFocusable(true);
+        boolean on = !custom && minutes == sleepChoiceMinutes && (minutes == 0 || SleepTimer.isRunning());
+        chip.setTextColor(on ? 0xFF4C8DFF : Color.WHITE);
+        chip.setBackgroundResource(R.drawable.bg_player_action);
+        chip.setOnClickListener(v -> {
+            if (custom) {
+                dialog.setContentView(sleepCustomView(dialog));
+                return;
+            }
+            sleepChoiceMinutes = minutes;
+            if (minutes <= 0) SleepTimer.cancel();
+            else SleepTimer.startMinutes(this, minutes);
+            refreshSleepLabel();
+            if (SleepTimer.isRunning()) handler.postDelayed(sleepLabelTick, 1000);
+            dialog.dismiss();
+        });
+        return chip;
+    }
+
+    private View sleepCustomView(android.app.Dialog dialog) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dpPx(20), dpPx(22), dpPx(20), dpPx(16));
+        root.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+
+        TextView title = new TextView(this);
+        title.setText("自定义");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(18);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        root.addView(title);
+
+        LinearLayout wheels = new LinearLayout(this);
+        wheels.setOrientation(LinearLayout.HORIZONTAL);
+        wheels.setGravity(android.view.Gravity.CENTER);
+        wheels.setPadding(0, dpPx(18), 0, dpPx(12));
+        android.widget.NumberPicker hours = skipPicker(0, 12, 0);
+        android.widget.NumberPicker mins = skipPicker(0, 59, 0);
+        wheels.addView(hours, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView hourLabel = new TextView(this);
+        hourLabel.setText("小时");
+        hourLabel.setTextColor(Color.WHITE);
+        hourLabel.setTextSize(15);
+        hourLabel.setPadding(dpPx(6), 0, dpPx(12), 0);
+        wheels.addView(hourLabel);
+        wheels.addView(mins, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView minLabel = new TextView(this);
+        minLabel.setText("分钟");
+        minLabel.setTextColor(Color.WHITE);
+        minLabel.setTextSize(15);
+        minLabel.setPadding(dpPx(6), 0, 0, 0);
+        wheels.addView(minLabel);
+        root.addView(wheels);
+
+        Button ok = new Button(this);
+        ok.setText("确定");
+        ok.setTextColor(Color.WHITE);
+        ok.setTextSize(16);
+        ok.setAllCaps(false);
+        ok.setBackgroundResource(R.drawable.bg_player_action);
+        LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dpPx(44));
+        okLp.topMargin = dpPx(8);
+        ok.setLayoutParams(okLp);
+        ok.setOnClickListener(v -> {
+            int total = hours.getValue() * 60 + mins.getValue();
+            if (total <= 0) {
+                sleepChoiceMinutes = 0;
+                SleepTimer.cancel();
+            } else {
+                sleepChoiceMinutes = total;
+                SleepTimer.startMinutes(this, total);
+            }
+            refreshSleepLabel();
+            if (SleepTimer.isRunning()) handler.postDelayed(sleepLabelTick, 1000);
+            dialog.dismiss();
+        });
+        root.addView(ok);
+        return root;
+    }
+
     private void showBrightnessDialog() {
         SharedPreferences p = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
         int brightness = p.getInt("video_brightness", 100);
@@ -1827,11 +2011,14 @@ public class PlayerActivity extends AppCompatActivity {
                 panel.setPadding(pad, top, pad, pad);
             }
             applyChromeSystemUi(true);
+            refreshSleepLabel();
+            handler.removeCallbacks(sleepLabelTick);
+            if (SleepTimer.isRunning()) handler.postDelayed(sleepLabelTick, 1000);
             handler.removeCallbacks(hideC);
             if (moreScrim != null) {
                 moreScrim.post(() -> {
                     wireMoreFocus();
-                    List<View> rows = TvFocus.present(btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
+                    List<View> rows = TvFocus.present(btnSleep, btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
                     if (!rows.isEmpty()) rows.get(0).requestFocus();
                 });
             }
@@ -1886,7 +2073,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void wireMoreFocus() {
-        List<View> rows = TvFocus.present(btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
+        List<View> rows = TvFocus.present(btnSleep, btnCloudMode, btnInfo, btnBrightness, btnHdrRow);
         List<View> ratios = new java.util.ArrayList<>();
         if (ratioChips != null) {
             for (Button chip : ratioChips) {
@@ -1950,6 +2137,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (player == null) return;
         long cur = player.getCurrentPosition(), dur = player.getDuration();
         seekBar.setMax((int) Math.max(dur, 1));
+        refreshSkipMarks();
         seekBar.setKeyProgressIncrement(5000); // 方向键每次 5 秒
         // 防抖期间不覆盖 UI，避免抽搐（tvTime 和 seekBar 进度由 onProgressChanged 控制）
         if (pendingSeekMs < 0) {
@@ -1968,10 +2156,11 @@ public class PlayerActivity extends AppCompatActivity {
                 int outroSec = sp.getInt("skip_" + sid + "_outro", 0);
                 if (outroSec > 0) Log.d(TAG, "片尾检测: cur=" + (cur/1000) + "s dur=" + (dur/1000) + "s 阈值=" + (dur/1000 - outroSec) + "s");
                 if (outroSec > 0 && cur / 1000 > dur / 1000 - outroSec) {
-                outroSkipped = true;
-                danmuManager.showDanmuStatus("检测到片尾");
-                if (episodeManager != null && episodeManager.hasNext())
-                    handler.postDelayed(() -> episodeManager.playNext(), 1000);
+                    outroSkipped = true;
+                    if (episodeManager != null && episodeManager.hasNext()) {
+                        danmuManager.showDanmuStatus("检测到片尾，即将跳过");
+                        handler.postDelayed(() -> episodeManager.playNext(), 3000);
+                    }
                 }
             }
         }
