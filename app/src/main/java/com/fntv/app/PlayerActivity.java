@@ -602,9 +602,18 @@ public class PlayerActivity extends AppCompatActivity {
         tvSeekOverlay.setVisibility(View.GONE);
         ((FrameLayout) findViewById(android.R.id.content)).addView(tvSeekOverlay);
 
-        // 初始焦点给视频区域，始终由 playerView 持有焦点
         playerView.setFocusable(true);
-        playerView.requestFocus();
+        focusEntrySeekBar();
+    }
+
+    /** 刚进播放器时把焦点放到进度条，方便电视立刻调进度。 */
+    private void focusEntrySeekBar() {
+        if (seekBar == null) return;
+        seekBar.post(() -> {
+            if (!ctrlVis || seekBar == null || !seekBar.isShown()) return;
+            wirePlayerFocus();
+            if (!seekBar.requestFocus()) seekBar.post(seekBar::requestFocus);
+        });
     }
 
     private void initPlayer() {
@@ -691,7 +700,7 @@ public class PlayerActivity extends AppCompatActivity {
                     progressHeld = false;
                     if (!seeked && seekTs > 0) { player.seekTo(seekTs); seeked = true; }
                     ensureSaveLoop(); updateTime();
-                    if (firstReady) { scheduleInitialSave(); showCtrl(true); firstReady = false; }
+                    if (firstReady) { scheduleInitialSave(); showCtrl(true); focusEntrySeekBar(); firstReady = false; }
                     syncPlayButton();
                     if (danmuManager != null) danmuManager.onPlayerReady();
                     if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
@@ -988,7 +997,7 @@ public class PlayerActivity extends AppCompatActivity {
                     progressHeld = false;
                     if (!seeked && seekTs > 0) { player.seekTo(seekTs); seeked = true; }
                     ensureSaveLoop();
-                    if (firstReady) { scheduleInitialSave(); showCtrl(true); firstReady = false; }
+                    if (firstReady) { scheduleInitialSave(); showCtrl(true); focusEntrySeekBar(); firstReady = false; }
                     syncPlayButton();
                     if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
                 } else if (s == Player.STATE_ENDED) {
@@ -1364,6 +1373,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void showSkipMenu(android.app.Dialog dialog) {
+        SideSheet.setBackAction(dialog, null);
         LinearLayout root = skipSheetPage();
         root.addView(skipHeader(null, "片头片尾", null));
         TextView scope = skipHint(skipScopeText());
@@ -1382,6 +1392,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void showSkipEditor(android.app.Dialog dialog, boolean intro) {
+        SideSheet.setBackAction(dialog, () -> showSkipMenu(dialog));
         LinearLayout root = skipSheetPage();
         TextView clock = new TextView(this);
         clock.setGravity(Gravity.CENTER);
@@ -1411,8 +1422,24 @@ public class PlayerActivity extends AppCompatActivity {
         View gap = new View(this);
         gap.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpPx(10)));
         root.addView(gap);
-        root.addView(skipLinkRow("自定义", "", () -> showSkipCustom(dialog, intro)));
+        View custom = skipLinkRow("自定义", "", () -> showSkipCustom(dialog, intro));
+        custom.setTag("skip_custom");
+        root.addView(custom);
         focusSkipPage(dialog);
+        skipSheetBody.post(() -> wireSkipEditorFocus(position, custom));
+    }
+
+    /** 片头/片尾设置页：选项竖排，只用上下键。 */
+    private void wireSkipEditorFocus(View position, View custom) {
+        if (position == null || custom == null) return;
+        java.util.List<View> upper = java.util.Collections.singletonList(position);
+        java.util.List<View> lower = java.util.Collections.singletonList(custom);
+        TvFocus.bindVertical(upper, lower);
+        TvFocus.point(position, View.FOCUS_LEFT, position);
+        TvFocus.point(position, View.FOCUS_RIGHT, position);
+        TvFocus.point(custom, View.FOCUS_LEFT, custom);
+        TvFocus.point(custom, View.FOCUS_RIGHT, custom);
+        TvFocus.sealAll(java.util.Arrays.asList(position, custom));
     }
 
     private int playheadSeconds() {
@@ -1433,6 +1460,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void showSkipCustom(android.app.Dialog dialog, boolean intro) {
+        SideSheet.setBackAction(dialog, () -> showSkipEditor(dialog, intro));
         int current = readSkipSec(intro);
         LinearLayout root = skipSheetPage();
         root.addView(skipHeader(() -> showSkipEditor(dialog, intro),
@@ -1587,17 +1615,37 @@ public class PlayerActivity extends AppCompatActivity {
         row.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dpPx(44)));
         if (back != null) {
-            androidx.appcompat.widget.AppCompatImageView backBtn = new androidx.appcompat.widget.AppCompatImageView(this);
-            backBtn.setLayoutParams(new LinearLayout.LayoutParams(dpPx(40), dpPx(40)));
-            backBtn.setBackgroundResource(R.drawable.bg_player_action);
+            FrameLayout hit = new FrameLayout(this);
+            hit.setLayoutParams(new LinearLayout.LayoutParams(dpPx(48), dpPx(48)));
+            hit.setBackgroundResource(R.drawable.bg_player_action);
+            hit.setContentDescription("返回");
+            hit.setFocusable(true);
+            hit.setFocusableInTouchMode(isTvDevice());
+            hit.setClickable(true);
+            hit.setTag("skip_back");
+            androidx.appcompat.widget.AppCompatImageView backBtn =
+                    new androidx.appcompat.widget.AppCompatImageView(this);
+            FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dpPx(28), dpPx(28));
+            iconLp.gravity = Gravity.CENTER;
+            backBtn.setLayoutParams(iconLp);
             backBtn.setImageResource(R.drawable.ic_player_back);
             backBtn.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-            backBtn.setPadding(dpPx(6), dpPx(6), dpPx(6), dpPx(6));
-            backBtn.setContentDescription("返回");
-            backBtn.setFocusable(true);
-            backBtn.setClickable(true);
-            backBtn.setOnClickListener(v -> back.run());
-            row.addView(backBtn);
+            backBtn.setClickable(false);
+            backBtn.setFocusable(false);
+            hit.addView(backBtn);
+            hit.setOnClickListener(v -> {
+                if (back != null) back.run();
+            });
+            hit.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
+                        || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                    back.run();
+                    return true;
+                }
+                return false;
+            });
+            row.addView(hit);
         }
         TextView heading = new TextView(this);
         heading.setText(title);
@@ -1657,7 +1705,11 @@ public class PlayerActivity extends AppCompatActivity {
         });
         row.addView(text);
         Button set = skipTextButton(intro ? "设为片头" : "设为片尾");
+        set.setFocusable(false);
+        set.setFocusableInTouchMode(false);
+        set.setClickable(true);
         set.setOnClickListener(v -> onSet.run());
+        row.setOnClickListener(v -> onSet.run());
         row.addView(set);
         return row;
     }
@@ -1885,20 +1937,30 @@ public class PlayerActivity extends AppCompatActivity {
                 dialog.setContentView(page);
                 SideSheet.place(dialog);
                 SideSheet.ensurePinned(dialog, 320);
-                SideSheet.focus(dialog);
                 View hours = page.findViewWithTag("sleep_hours");
                 View mins = page.findViewWithTag("sleep_mins");
                 View confirm = page.findViewWithTag("wheel_confirm");
+                if (hours != null) hours.setTag("skip_focus");
                 if (hours instanceof android.widget.NumberPicker
                         && mins instanceof android.widget.NumberPicker) {
                     wireTimeWheels((android.widget.NumberPicker) hours,
                             (android.widget.NumberPicker) mins, confirm);
                 }
-                if (hours != null) {
-                    hours.post(() -> {
-                        if (!hours.requestFocus()) hours.post(hours::requestFocus);
-                    });
-                }
+                // 等钉板布局完成后再绑焦点，避免滚轮高亮闪一下就没了
+                page.post(() -> page.post(() -> {
+                    if (hours instanceof android.widget.NumberPicker
+                            && mins instanceof android.widget.NumberPicker) {
+                        wireTimeWheels((android.widget.NumberPicker) hours,
+                                (android.widget.NumberPicker) mins, confirm);
+                    }
+                    SideSheet.focus(dialog);
+                    if (hours != null) {
+                        hours.requestFocus();
+                        hours.post(() -> {
+                            if (hours.isShown() && !hours.isFocused()) hours.requestFocus();
+                        });
+                    }
+                }));
                 return;
             }
             sleepChoiceMinutes = minutes;
@@ -1933,8 +1995,10 @@ public class PlayerActivity extends AppCompatActivity {
         wheels.setPadding(0, dpPx(18), 0, dpPx(12));
         android.widget.NumberPicker hours = skipPicker(0, 12, 0);
         hours.setTag("sleep_hours");
+        hours.setFocusableInTouchMode(isTvDevice());
         android.widget.NumberPicker mins = skipPicker(0, 59, 0);
         mins.setTag("sleep_mins");
+        mins.setFocusableInTouchMode(isTvDevice());
         hours.setClickable(true);
         mins.setClickable(true);
         wheels.addView(hours, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -2880,13 +2944,14 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public void finish() {
-        // 退出时恢复系统亮度，方向交给系统自动旋转，不再强制竖屏
+        // 退出时恢复系统亮度。电视上再设横屏会闪一下，只在手机恢复自动旋转。
         try {
             android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
             lp.screenBrightness = -1f;
             getWindow().setAttributes(lp);
         } catch (Exception ignored) {}
-        applyExitOrientation();
+        if (player != null) player.setPlayWhenReady(false);
+        if (!isTvDevice()) applyExitOrientation();
         super.finish();
     }
 

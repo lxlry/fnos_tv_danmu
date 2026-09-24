@@ -28,6 +28,7 @@ final class SideSheet {
 
     private static Dialog open;
     private static final java.util.Map<Dialog, Runnable> dismissHooks = new java.util.WeakHashMap<>();
+    private static final java.util.Map<Dialog, Runnable> backActions = new java.util.WeakHashMap<>();
 
     private SideSheet() {}
 
@@ -456,9 +457,17 @@ final class SideSheet {
         dialog.setOnKeyListener((d, keyCode, event) -> onKey(dialog, event, true));
         dialog.setOnDismissListener(d -> {
             if (open == dialog) open = null;
+            backActions.remove(dialog);
             Runnable extra = dismissHooks.remove(dialog);
             if (extra != null) extra.run();
         });
+    }
+
+    /** 侧边栏内返回：有下级页就退一级，否则关掉。 */
+    static void setBackAction(Dialog dialog, Runnable action) {
+        if (dialog == null) return;
+        if (action == null) backActions.remove(dialog);
+        else backActions.put(dialog, action);
     }
 
     static void afterDismiss(Dialog dialog, Runnable action) {
@@ -477,6 +486,11 @@ final class SideSheet {
         if (!dpad && !ok && !back) return false;
         if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
         if (back) {
+            Runnable pageBack = backActions.get(dialog);
+            if (pageBack != null) {
+                pageBack.run();
+                return true;
+            }
             dialog.dismiss();
             return true;
         }
@@ -601,7 +615,8 @@ final class SideSheet {
             boolean tv = television(body.getContext());
             for (View item : items) {
                 item.setFocusable(true);
-                item.setFocusableInTouchMode(tv);
+                // 已有焦点时再改 touchMode 会把焦点清掉，滚轮会闪一下消失
+                if (!item.isFocused()) item.setFocusableInTouchMode(tv);
             }
             boolean needLayout = false;
             for (View item : items) {

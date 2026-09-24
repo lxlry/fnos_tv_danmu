@@ -5489,7 +5489,7 @@ public class HomeActivity extends AppCompatActivity {
         return super.onKeyUp(keyCode, event);
     }
 
-    /** 首页根层级再按一次退到后台，回到进入本应用前的界面，登录态保留。 */
+    /** 首页根层级再按一次退出应用，回到进入前的界面；登录态仍保留在本地。 */
     private boolean handleBack() {
         if (showingSeasonEpisodes && savedDetailItem != null && savedDetailInfo != null) {
             showingSeasonEpisodes = false;
@@ -5525,10 +5525,10 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (backPressedTime + 2000 > System.currentTimeMillis()) {
             backPressedTime = 0;
-            moveTaskToBack(true);
+            finishAffinity();
         } else {
             backPressedTime = System.currentTimeMillis();
-            AppToast.show(this, "再按一次返回");
+            AppToast.show(this, "再按一次退出应用");
         }
         return true;
     }
