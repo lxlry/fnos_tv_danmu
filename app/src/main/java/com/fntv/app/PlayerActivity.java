@@ -1312,6 +1312,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
         SideSheet.place(dialog);
         dialog.show();
+        focusSkipPage(dialog);
     }
 
     private String skipPrefsKey() {
@@ -1375,6 +1376,7 @@ public class PlayerActivity extends AppCompatActivity {
         root.addView(gap);
         root.addView(skipLinkRow("片尾时长", formatSkipClock(readSkipSec(false)),
                 () -> showSkipEditor(dialog, false)));
+        focusSkipPage(dialog);
     }
 
     private void showSkipEditor(android.app.Dialog dialog, boolean intro) {
@@ -1406,6 +1408,7 @@ public class PlayerActivity extends AppCompatActivity {
         gap.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpPx(10)));
         root.addView(gap);
         root.addView(skipLinkRow("自定义", "", () -> showSkipCustom(dialog, intro)));
+        focusSkipPage(dialog);
     }
 
     private int playheadSeconds() {
@@ -1476,11 +1479,50 @@ public class PlayerActivity extends AppCompatActivity {
         actions.addView(reset, btnLp);
         actions.addView(ok, new LinearLayout.LayoutParams(0, dpPx(44), 1));
         root.addView(actions);
+        focusSkipPage(dialog);
     }
 
     private LinearLayout skipSheetPage() {
         skipSheetBody.removeAllViews();
         return skipSheetBody;
+    }
+
+    /** 换页后旧控件被清掉，把焦点重新落到本页的第一个选项。 */
+    private void focusSkipPage(android.app.Dialog dialog) {
+        if (dialog == null || skipSheetBody == null) return;
+        SideSheet.focus(dialog);
+        skipSheetBody.post(() -> {
+            View first = findFirstSkipType(skipSheetBody, android.widget.NumberPicker.class);
+            if (first == null) first = firstSkipFocusable(skipSheetBody);
+            if (first == null) return;
+            if (!first.requestFocus()) first.post(first::requestFocus);
+        });
+    }
+
+    private View findFirstSkipType(ViewGroup root, Class<?> type) {
+        for (int i = 0; i < root.getChildCount(); i++) {
+            View child = root.getChildAt(i);
+            if (child.getVisibility() != View.VISIBLE) continue;
+            if (type.isInstance(child) && child.isFocusable()) return child;
+            if (child instanceof ViewGroup) {
+                View found = findFirstSkipType((ViewGroup) child, type);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private View firstSkipFocusable(ViewGroup root) {
+        for (int i = 0; i < root.getChildCount(); i++) {
+            View child = root.getChildAt(i);
+            if (child.getVisibility() != View.VISIBLE) continue;
+            if (child.isFocusable() && child.isClickable()) return child;
+            if (child instanceof ViewGroup) {
+                View found = firstSkipFocusable((ViewGroup) child);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private View sheetDivider() {
@@ -1710,7 +1752,10 @@ public class PlayerActivity extends AppCompatActivity {
     private View sleepOptionView(android.app.Dialog dialog) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xF0121212);
         root.setPadding(dpPx(20), dpPx(22), dpPx(20), dpPx(16));
+        root.setLayoutParams(new FrameLayout.LayoutParams(
+                dpPx(320), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END));
 
         TextView title = new TextView(this);
         title.setText("定时关闭");
@@ -1767,8 +1812,17 @@ public class PlayerActivity extends AppCompatActivity {
         chip.setBackgroundResource(R.drawable.bg_player_action);
         chip.setOnClickListener(v -> {
             if (custom) {
-                dialog.setContentView(sleepCustomView(dialog));
+                View page = sleepCustomView(dialog);
+                dialog.setContentView(page);
+                SideSheet.place(dialog);
+                SideSheet.ensurePinned(dialog, 320);
                 SideSheet.focus(dialog);
+                View hours = page.findViewWithTag("sleep_hours");
+                if (hours != null) {
+                    hours.post(() -> {
+                        if (!hours.requestFocus()) hours.post(hours::requestFocus);
+                    });
+                }
                 return;
             }
             sleepChoiceMinutes = minutes;
@@ -1784,8 +1838,11 @@ public class PlayerActivity extends AppCompatActivity {
     private View sleepCustomView(android.app.Dialog dialog) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xF0121212);
         root.setPadding(dpPx(20), dpPx(22), dpPx(20), dpPx(16));
         root.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        root.setLayoutParams(new FrameLayout.LayoutParams(
+                dpPx(320), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END));
 
         TextView title = new TextView(this);
         title.setText("自定义");
@@ -1799,7 +1856,11 @@ public class PlayerActivity extends AppCompatActivity {
         wheels.setGravity(android.view.Gravity.CENTER);
         wheels.setPadding(0, dpPx(18), 0, dpPx(12));
         android.widget.NumberPicker hours = skipPicker(0, 12, 0);
+        hours.setTag("sleep_hours");
         android.widget.NumberPicker mins = skipPicker(0, 59, 0);
+        mins.setTag("sleep_mins");
+        hours.setClickable(true);
+        mins.setClickable(true);
         wheels.addView(hours, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView hourLabel = new TextView(this);
         hourLabel.setText("小时");
@@ -1822,6 +1883,8 @@ public class PlayerActivity extends AppCompatActivity {
         ok.setTextSize(16);
         ok.setAllCaps(false);
         ok.setBackgroundResource(R.drawable.bg_player_action);
+        ok.setFocusable(true);
+        ok.setClickable(true);
         LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dpPx(44));
         okLp.topMargin = dpPx(8);

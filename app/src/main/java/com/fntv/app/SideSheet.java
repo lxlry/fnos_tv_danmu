@@ -540,36 +540,46 @@ final class SideSheet {
                 item.setFocusable(true);
                 item.setFocusableInTouchMode(tv);
             }
-            boolean sameTop = items.size() > 1;
-            if (sameTop) {
-                int top = items.get(0).getTop();
-                for (View item : items) {
-                    if (item.getTop() != top) {
-                        sameTop = false;
-                        break;
-                    }
+            boolean needLayout = false;
+            for (View item : items) {
+                if (item.getWidth() <= 0 || item.getHeight() <= 0) {
+                    needLayout = true;
+                    break;
                 }
             }
-            if (sameTop && retry) {
+            if (needLayout && retry) {
                 body.post(() -> bindSheet(body, false));
                 return;
             }
+            // 用屏幕坐标分行：横排（定时关闭、画质）左右移动，多行上下移动。
             java.util.ArrayList<java.util.ArrayList<View>> rows = new java.util.ArrayList<>();
-            if (sameTop) {
-                for (View item : items) {
-                    java.util.ArrayList<View> row = new java.util.ArrayList<>();
+            for (View item : items) {
+                int[] loc = new int[2];
+                item.getLocationOnScreen(loc);
+                java.util.ArrayList<View> row = rows.isEmpty() ? null : rows.get(rows.size() - 1);
+                if (row == null) {
+                    row = new java.util.ArrayList<>();
+                    rows.add(row);
                     row.add(item);
+                    continue;
+                }
+                int[] rowLoc = new int[2];
+                row.get(0).getLocationOnScreen(rowLoc);
+                int threshold = Math.max(1, Math.max(item.getHeight(), row.get(0).getHeight()) / 2);
+                if (Math.abs(loc[1] - rowLoc[1]) > threshold) {
+                    row = new java.util.ArrayList<>();
                     rows.add(row);
                 }
-            } else {
-                for (View item : items) {
-                    java.util.ArrayList<View> row = rows.isEmpty() ? null : rows.get(rows.size() - 1);
-                    if (row == null || Math.abs(item.getTop() - row.get(0).getTop()) > Math.max(1, item.getHeight() / 2)) {
-                        row = new java.util.ArrayList<>();
-                        rows.add(row);
-                    }
-                    row.add(item);
-                }
+                row.add(item);
+            }
+            for (java.util.ArrayList<View> row : rows) {
+                java.util.Collections.sort(row, (a, b) -> {
+                    int[] la = new int[2];
+                    int[] lb = new int[2];
+                    a.getLocationOnScreen(la);
+                    b.getLocationOnScreen(lb);
+                    return Integer.compare(la[0], lb[0]);
+                });
             }
             for (int r = 0; r < rows.size(); r++) {
                 java.util.ArrayList<View> row = rows.get(r);
@@ -597,8 +607,10 @@ final class SideSheet {
     private static void collectFocusables(View view, java.util.List<View> out) {
         if (view == null || view.getVisibility() != View.VISIBLE) return;
         boolean leaf = !(view instanceof ViewGroup);
-        if (view.isFocusable() && (view.isClickable() || leaf)) out.add(view);
-        if (view instanceof ViewGroup) {
+        boolean blockKids = view instanceof ViewGroup
+                && ((ViewGroup) view).getDescendantFocusability() == ViewGroup.FOCUS_BLOCK_DESCENDANTS;
+        if (view.isFocusable() && (view.isClickable() || leaf || blockKids)) out.add(view);
+        if (view instanceof ViewGroup && !blockKids) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) collectFocusables(group.getChildAt(i), out);
         }

@@ -5534,17 +5534,34 @@ public class HomeActivity extends AppCompatActivity {
         return true;
     }
 
-    /** 电视上 moveTaskToBack 停在当前任务里，要显式打开桌面。 */
+    /** 本应用也是 LEANBACK_LAUNCHER，直接发 HOME 会又把自己打开，要跳过本包。 */
     private void returnToDesktop() {
         getWindow().getDecorView().post(() -> {
             try {
                 Intent home = new Intent(Intent.ACTION_MAIN);
                 home.addCategory(Intent.CATEGORY_HOME);
-                home.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(home);
+                home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                android.content.pm.PackageManager pm = getPackageManager();
+                java.util.List<android.content.pm.ResolveInfo> apps =
+                        pm.queryIntentActivities(home, 0);
+                String self = getPackageName();
+                boolean started = false;
+                if (apps != null) {
+                    for (android.content.pm.ResolveInfo info : apps) {
+                        if (info.activityInfo == null) continue;
+                        if (self.equals(info.activityInfo.packageName)) continue;
+                        Intent launch = new Intent(home);
+                        launch.setClassName(info.activityInfo.packageName, info.activityInfo.name);
+                        startActivity(launch);
+                        started = true;
+                        break;
+                    }
+                }
+                if (!started) startActivity(home);
             } catch (Exception ignored) {
-                moveTaskToBack(true);
             }
+            moveTaskToBack(true);
         });
     }
 }
