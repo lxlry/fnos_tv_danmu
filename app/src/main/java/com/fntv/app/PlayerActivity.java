@@ -1467,9 +1467,17 @@ public class PlayerActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dpPx(32)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dpPx(44)));
         if (back != null) {
-            Button backBtn = skipTextButton("〈");
+            androidx.appcompat.widget.AppCompatImageView backBtn = new androidx.appcompat.widget.AppCompatImageView(this);
+            backBtn.setLayoutParams(new LinearLayout.LayoutParams(dpPx(40), dpPx(40)));
+            backBtn.setBackgroundResource(R.drawable.bg_player_action);
+            backBtn.setImageResource(R.drawable.ic_player_back);
+            backBtn.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            backBtn.setPadding(dpPx(6), dpPx(6), dpPx(6), dpPx(6));
+            backBtn.setContentDescription("返回");
+            backBtn.setFocusable(true);
+            backBtn.setClickable(true);
             backBtn.setOnClickListener(v -> back.run());
             row.addView(backBtn);
         }
@@ -1488,7 +1496,7 @@ public class PlayerActivity extends AppCompatActivity {
             row.addView(resetBtn);
         } else {
             View pad = new View(this);
-            pad.setLayoutParams(new LinearLayout.LayoutParams(dpPx(48), 1));
+            pad.setLayoutParams(new LinearLayout.LayoutParams(dpPx(40), 1));
             row.addView(pad);
         }
         wrap.addView(row);
