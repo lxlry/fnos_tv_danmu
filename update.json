@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527043,
-    "versionName": "9527.043",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.043/FNTV_release_v9527.043.apk",
-    "changelog": "修复切换账号后设置页仍显示旧账号信息",
+    "versionCode": 9527044,
+    "versionName": "9527.044",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.044/FNTV_release_v9527.044.apk",
+    "changelog": "修复音轨切换仅提示成功但实际未切换的问题",
     "forceUpdate": false
 }
