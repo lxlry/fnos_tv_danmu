@@ -824,11 +824,12 @@ public class CloudStreamManager {
             }
         }
         if (selected < 0 && !itemLabels.isEmpty()) selected = 0;
+        final int curSelected = selected;
 
         final String[] items = itemLabels.toArray(new String[0]);
-        SideSheet.showCards(activity, "音频", null, trackChoices(items), selected, "", (dialog, which) -> {
+        SideSheet.showCards(activity, "音频", null, trackChoices(items), curSelected, "", (dialog, which) -> {
             if (which < 0 || which >= itemLabels.size()) return;
-            if (which == selected) {
+            if (which == curSelected) {
                 dialog.dismiss();
                 return;
             }
