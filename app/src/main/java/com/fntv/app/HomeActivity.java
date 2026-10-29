@@ -207,8 +207,15 @@ public class HomeActivity extends AppCompatActivity {
         prefs = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
         apiManager = FnApiManager.getInstance();
         baseUrl = prefs.getString("host", "").replaceAll("/+$", "");
-        if (apiManager.getApi() == null && !baseUrl.isEmpty()) {
+        // 切换账号后单例里可能还是旧服务器/token，一律按 prefs 重新对齐
+        if (!baseUrl.isEmpty()) {
             apiManager.updateBaseUrl(baseUrl);
+        }
+        String token = prefs.getString("auth_token", "");
+        if (token.isEmpty()) apiManager.setToken(null);
+        else {
+            apiManager.setToken(token);
+            SessionGuard.onLogin();
         }
         // 切换服务器时清空观看记录
         String lastHost = prefs.getString("last_host", "");

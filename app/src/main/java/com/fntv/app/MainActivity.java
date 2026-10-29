@@ -413,7 +413,10 @@ public class MainActivity extends AppCompatActivity {
         btnSavedAccounts.setOnClickListener(v -> {
             Intent intent = new Intent(this, SwitchAccountActivity.class);
             if (switching) intent.putExtra("switch_account", true);
+            // 结束登录页，避免切换成功后底层登录页生命周期把旧账号写回 prefs
+            intent.putExtra("from_login", true);
             startActivity(intent);
+            finish();
         });
         int loginIdx = loginCard.indexOfChild(btnLogin);
         if (loginIdx >= 0) loginCard.addView(btnSavedAccounts, loginIdx + 1);

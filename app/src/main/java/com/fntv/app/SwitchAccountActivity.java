@@ -58,6 +58,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
     private float density;
     private boolean loggingIn;
     private boolean protectSession;
+    private boolean fromLogin;
     private boolean sessionCaptured;
     private boolean sessionReplaced;
     private String sessionHost = "";
@@ -78,6 +79,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
         prefs = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
         density = getResources().getDisplayMetrics().density;
         protectSession = getIntent().getBooleanExtra("switch_account", false);
+        fromLogin = getIntent().getBooleanExtra("from_login", false);
         int screen = getResources().getDisplayMetrics().widthPixels;
         int max = dp(640);
         if (screen > max) {
@@ -88,7 +90,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
         btnBack = findViewById(R.id.btnSwitchBack);
         btnRefresh = findViewById(R.id.btnSwitchRefresh);
         btnAdd = findViewById(R.id.btnSwitchAdd);
-        btnBack.setOnClickListener(v -> finish());
+        btnBack.setOnClickListener(v -> leave());
         btnRefresh.setOnClickListener(v -> {
             render();
             AppToast.show(this, "已刷新");
@@ -97,6 +99,16 @@ public class SwitchAccountActivity extends AppCompatActivity {
         if (getIntent().getBooleanExtra("auth_expired", false)) {
             AppToast.show(this, "登录已失效，请重新登录", true);
         }
+    }
+
+    /** 从登录页进来时登录页已关闭，返回要重新打开登录页。 */
+    private void leave() {
+        if (fromLogin && !protectSession && !sessionReplaced) {
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.putExtra("skip_auto_login", true);
+            startActivity(intent);
+        }
+        finish();
     }
 
     @Override
@@ -322,10 +334,15 @@ public class SwitchAccountActivity extends AppCompatActivity {
 
     private void finishLogin(String mode, String endpoint, String server, String user, String pass, String token) {
         sessionReplaced = true;
+        loggingIn = false;
+        String host = server == null ? "" : server;
+        if (!host.isEmpty()) {
+            FnApiManager.getInstance().updateBaseUrl(host);
+        }
         FnApiManager.getInstance().setToken(token);
         SessionGuard.onLogin();
         SharedPreferences.Editor editor = prefs.edit();
-        editor.putString("host", server == null ? "" : server);
+        editor.putString("host", host);
         editor.putString("user", user);
         editor.putString("auth_token", token);
         editor.putString("login_mode", mode);
@@ -591,7 +608,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            finish();
+            leave();
             return true;
         }
         return super.onKeyDown(keyCode, event);
