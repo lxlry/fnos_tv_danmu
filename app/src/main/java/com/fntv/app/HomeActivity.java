@@ -41,6 +41,7 @@ public class HomeActivity extends AppCompatActivity {
     private LinearLayout moviesContainer, libraryContainer;
     private TextView tvMoviesLoading, tvLibraryLoading, tvLibraryEmpty;
     private EditText etSearch;
+    private Button btnSearchQr;
     private TextView tvLibraryPageTitle;
     private boolean isSearching = false;
     /** 点开搜索时所在的标签。返回时回到这一页，而不是媒体库。 */
@@ -250,6 +251,7 @@ public class HomeActivity extends AppCompatActivity {
         };
         libraryContainer = findViewById(R.id.libraryGridContainer);
         etSearch = findViewById(R.id.etSearch);
+        btnSearchQr = findViewById(R.id.btnSearchQr);
         tvLibraryPageTitle = findViewById(R.id.tvLibraryPageTitle);
         tvMoviesLoading = findViewById(R.id.tvMoviesLoading);
         tvLibraryLoading = findViewById(R.id.tvLibraryLoading);
@@ -295,7 +297,7 @@ public class HomeActivity extends AppCompatActivity {
         if (btnLibBrowseSearch != null) {
             btnLibBrowseSearch.setOnClickListener(v -> {
                 if (etSearch != null) {
-                    etSearch.setVisibility(View.VISIBLE);
+                    showLibrarySearchBox(true);
                     etSearch.post(this::focusLibrarySearch);
                 }
             });
@@ -1495,7 +1497,7 @@ public class HomeActivity extends AppCompatActivity {
         savedBrowseGuid = ancestorGuid; savedBrowseTitle = title;
         browseFromLibrary = (container == libraryContainer);
         if (browseFromLibrary) {
-            if (etSearch != null) etSearch.setVisibility(View.GONE);
+            showLibrarySearchBox(false);
             if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.GONE);
         }
         if (container == moviesContainer) {
@@ -3647,7 +3649,7 @@ public class HomeActivity extends AppCompatActivity {
                 && libraryContainer.getChildCount() > 0 && savedBrowseGuid == null;
         View browseBar = findViewById(R.id.libBrowseBar);
         if (browseBar != null) browseBar.setVisibility(View.GONE);
-        if (etSearch != null) etSearch.setVisibility(View.VISIBLE);
+        showLibrarySearchBox(true);
         if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.VISIBLE);
         if (!samePage) {
             clearContainer(libraryContainer, tvLibraryLoading, tvLibraryEmpty);
@@ -3747,6 +3749,18 @@ public class HomeActivity extends AppCompatActivity {
             }
             return false;
         });
+        if (btnSearchQr != null) {
+            btnSearchQr.setOnClickListener(v -> QrInput.show(this, etSearch, "搜索"));
+        }
+        showLibrarySearchBox(etSearch.getVisibility() == View.VISIBLE);
+    }
+
+    /** 搜索框和旁边的扫码按钮一起显示。扫码只在电视端出现。 */
+    private void showLibrarySearchBox(boolean show) {
+        if (etSearch != null) etSearch.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (btnSearchQr != null) {
+            btnSearchQr.setVisibility(show && isTelevision() ? View.VISIBLE : View.GONE);
+        }
     }
 
     private long lastSearchImeAt;
@@ -3798,7 +3812,7 @@ public class HomeActivity extends AppCompatActivity {
             isSearching = false;
             if (etSearch != null) {
                 etSearch.setText("");
-                etSearch.setVisibility(View.VISIBLE);
+                showLibrarySearchBox(true);
             }
         }
         if (entry >= 0 && entry != currentTab) {
@@ -3955,7 +3969,7 @@ public class HomeActivity extends AppCompatActivity {
             isSearching = false;
             if (etSearch != null) {
                 etSearch.setText("");
-                etSearch.setVisibility(View.VISIBLE);
+                showLibrarySearchBox(true);
             }
             loadMediaLibraries();
         }
@@ -4263,6 +4277,14 @@ public class HomeActivity extends AppCompatActivity {
         }
         input.setInputType(inputType);
         input.setText(value == null ? "" : value);
+        Button qr = dialog.findViewById(R.id.btn_setting_qr);
+        if (qr != null && isTelevision()) {
+            qr.setVisibility(View.VISIBLE);
+            qr.setOnClickListener(v -> QrInput.show(this, input, title));
+            input.setNextFocusDownId(R.id.btn_setting_qr);
+            negative.setNextFocusUpId(R.id.btn_setting_qr);
+            positive.setNextFocusUpId(R.id.btn_setting_qr);
+        }
         input.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 positive.performClick();
@@ -4414,8 +4436,7 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void switchAccount() {
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.putExtra("skip_auto_login", true);
+        Intent intent = new Intent(this, SwitchAccountActivity.class);
         intent.putExtra("switch_account", true);
         startActivity(intent);
     }
@@ -4431,7 +4452,7 @@ public class HomeActivity extends AppCompatActivity {
         AppToast.show(this, "已退出");
         Intent intent = new Intent(this, MainActivity.class);
         intent.putExtra("skip_auto_login", true);
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
         finish();
     }
@@ -4959,6 +4980,21 @@ public class HomeActivity extends AppCompatActivity {
         TvFocus.sealAll(items);
     }
 
+    private void wireSearchScan() {
+        if (etSearch == null || btnSearchQr == null || btnSearchQr.getVisibility() != View.VISIBLE) return;
+        TvFocus.point(etSearch, View.FOCUS_RIGHT, btnSearchQr);
+        TvFocus.point(btnSearchQr, View.FOCUS_LEFT, etSearch);
+        TvFocus.point(btnSearchQr, View.FOCUS_RIGHT, btnSearchQr);
+        int downId = etSearch.getNextFocusDownId();
+        View down = downId != View.NO_ID && downId != etSearch.getId()
+                ? etSearch.getRootView().findViewById(downId) : null;
+        TvFocus.point(btnSearchQr, View.FOCUS_DOWN, down != null ? down : btnSearchQr);
+        int upId = etSearch.getNextFocusUpId();
+        View up = upId != View.NO_ID && upId != etSearch.getId()
+                ? etSearch.getRootView().findViewById(upId) : null;
+        TvFocus.point(btnSearchQr, View.FOCUS_UP, up != null ? up : btnSearchQr);
+    }
+
     private void wireLibraryList() {
         List<View> cards = TvFocus.collectVisibleFocusables(libraryContainer);
         TvFocus.bindChain(cards);
@@ -4979,6 +5015,7 @@ public class HomeActivity extends AppCompatActivity {
         bindTabBar(enter, exit);
         TvFocus.sealAll(cards);
         TvFocus.seal(etSearch);
+        wireSearchScan();
     }
 
     private void wireBrowseGrid(LinearLayout container) {
@@ -5104,6 +5141,7 @@ public class HomeActivity extends AppCompatActivity {
         TvFocus.sealAll(sortBtns);
         TvFocus.sealAll(headerBtns);
         TvFocus.seal(etSearch);
+        wireSearchScan();
         applyReturnFocus();
     }
 
@@ -5835,7 +5873,8 @@ public class HomeActivity extends AppCompatActivity {
     public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
         if (ev.getAction() == android.view.MotionEvent.ACTION_DOWN
                 && etSearch != null && etSearch.isShown() && etSearch.isFocused()
-                && !touchInside(etSearch, ev)) {
+                && !touchInside(etSearch, ev)
+                && (btnSearchQr == null || !touchInside(btnSearchQr, ev))) {
             hideKeyboard();
             etSearch.clearFocus();
         }
@@ -6056,6 +6095,10 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (savedDetailItem != null || detailReturn != null) {
             popDetailToPrevious();
+            return true;
+        }
+        if (btnSearchQr != null && btnSearchQr.isFocused()) {
+            if (etSearch != null) etSearch.requestFocus();
             return true;
         }
         if ((etSearch != null && etSearch.isFocused()) || isSearching) {

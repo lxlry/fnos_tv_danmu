@@ -43,6 +43,19 @@
             android:paddingRight="12dp" />
 
         <Button
+            android:id="@+id/dm_search_qr"
+            android:layout_width="64dp"
+            android:layout_height="42dp"
+            android:layout_marginLeft="8dp"
+            android:background="@drawable/bg_input"
+            android:focusable="true"
+            android:text="扫码"
+            android:textAllCaps="false"
+            android:textColor="#EEE"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <Button
             android:id="@+id/dm_search_btn"
             android:layout_width="wrap_content"
             android:layout_height="42dp"

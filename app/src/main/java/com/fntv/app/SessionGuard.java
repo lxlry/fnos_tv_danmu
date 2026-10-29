@@ -43,6 +43,13 @@ final class SessionGuard {
             stored.getSharedPreferences("fntv_prefs", Context.MODE_PRIVATE)
                     .edit().remove("auth_token").apply();
         }
+        if (activity instanceof SwitchAccountActivity) {
+            redirecting.set(false);
+            if (!activity.isFinishing()) {
+                ((SwitchAccountActivity) activity).onSessionExpired();
+            }
+            return;
+        }
         if (activity instanceof MainActivity) {
             redirecting.set(false);
             if (!activity.isFinishing()) {

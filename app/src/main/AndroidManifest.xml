@@ -37,6 +37,10 @@
         </activity>
 
         <activity
+            android:name=".SwitchAccountActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:screenOrientation="fullUser" />
+        <activity
             android:name=".HomeActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="fullUser" />

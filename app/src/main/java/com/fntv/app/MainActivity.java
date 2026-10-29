@@ -5,7 +5,6 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -23,9 +22,6 @@ import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
 
@@ -37,31 +33,28 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout httpCard;
     private EditText httpHostEt, httpUserEt, httpPassEt;
     private CheckBox httpRememberCb;
+    private Button httpHostScan, httpUserScan, httpPassScan;
 
     // FN ID 登录卡片
     private LinearLayout fnidCard;
     private EditText fnidHostEt, fnidUserEt, fnidPassEt;
     private CheckBox fnidRememberCb;
+    private Button fnidHostScan, fnidUserScan, fnidPassScan;
 
     private FrameLayout cardContainer;
     private Button btnLogin;
+    private Button btnSavedAccounts;
     private Button btnHttpMode, btnFnIdMode;
     private SharedPreferences prefs;
     private boolean isLoggingIn = false;
     private boolean isFnIdMode = false;
     private long loginStartTime;
     private float density;
-    private LinearLayout accountSection;
-    private LinearLayout accountRows;
-    private Button btnClearAccounts;
-    private final List<View> accountBodies = new ArrayList<>();
-    private final List<View> accountDeletes = new ArrayList<>();
     private View httpRememberWrap;
     private View fnidRememberWrap;
     /** 从首页过来切换账户时，旧页面还在。登录失败要把接口地址和 token 还原。 */
     private boolean switching;
     private boolean sessionReplaced;
-    private boolean initialFocusPlaced;
     private String sessionHost = "";
     private String sessionToken = "";
     private final Bundle sessionSnapshot = new Bundle();
@@ -69,21 +62,20 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         SessionGuard.attach(this);
+        prefs = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
+        boolean skipAuto = getIntent().getBooleanExtra("skip_auto_login", false);
+        switching = getIntent().getBooleanExtra("switch_account", false);
+        if (!skipAuto && restoreSession()) {
+            startActivity(new Intent(this, HomeActivity.class));
+            finish();
+            return;
+        }
+        if (switching) captureSession();
         setContentView(R.layout.activity_main);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(Color.TRANSPARENT);
             getWindow().setNavigationBarColor(color(R.color.bg_dark));
-        }
-
-        prefs = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
-        boolean skipAuto = getIntent().getBooleanExtra("skip_auto_login", false);
-        switching = getIntent().getBooleanExtra("switch_account", false);
-        if (switching) captureSession();
-        if (!skipAuto && restoreSession()) {
-            startActivity(new Intent(this, HomeActivity.class));
-            finish();
-            return;
         }
         if (getIntent().getBooleanExtra("auth_expired", false)) {
             AppToast.show(this, "登录已失效，请重新登录", true);
@@ -199,10 +191,6 @@ public class MainActivity extends AppCompatActivity {
         btnHttpMode.setOnClickListener(modeSwitch);
         btnFnIdMode.setOnClickListener(modeSwitch);
 
-        buildAccountSection();
-        int modeIdxForAccounts = loginCard.indexOfChild(modeRow);
-        if (modeIdxForAccounts >= 0) loginCard.addView(accountSection, modeIdxForAccounts);
-
         // ====== 恢复数据 ======
         isFnIdMode = "fnid".equals(prefs.getString("login_mode", ""));
         loadCardInput();
@@ -211,7 +199,10 @@ public class MainActivity extends AppCompatActivity {
             httpCard.setVisibility(View.GONE);
             fnidCard.setVisibility(View.VISIBLE);
         }
-        renderAccounts();
+        addSavedAccountsEntry(loginCard);
+        applyPrefill();
+        wireLoginFocus();
+        focusLoginField();
 
         // 登录按钮
         btnLogin.setOnClickListener(new View.OnClickListener() {
@@ -280,64 +271,15 @@ public class MainActivity extends AppCompatActivity {
                 ? android.text.InputType.TYPE_CLASS_TEXT
                 : android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI;
 
-        int nextId = View.generateViewId();
-
-        // FN ID / 服务器地址
-        card.addView(makeLabel(isFnId ? "FN ID" : "服务器地址"));
-        EditText etHost = new EditText(this);
-        LinearLayout.LayoutParams hostLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, (int)(48 * density));
-        hostLp.bottomMargin = 16;
-        etHost.setLayoutParams(hostLp);
-        etHost.setBackgroundResource(R.drawable.bg_input);
-        etHost.setHint(hostHint);
-        etHost.setInputType(hostInputType);
-        etHost.setPadding((int)(12 * density), 0, (int)(12 * density), 0);
-        etHost.setTextColor(color(R.color.text_primary));
-        etHost.setHintTextColor(color(R.color.text_hint));
-        etHost.setTextSize(15);
-        int hostId = View.generateViewId();
-        etHost.setId(hostId);
-        card.addView(etHost);
-
-        // 用户名
-        card.addView(makeLabel("用户名"));
-        EditText etUser = new EditText(this);
-        LinearLayout.LayoutParams userLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, (int)(48 * density));
-        userLp.bottomMargin = (int)(16 * density);
-        etUser.setLayoutParams(userLp);
-        etUser.setBackgroundResource(R.drawable.bg_input);
-        etUser.setHint("输入用户名");
-        etUser.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
-        etUser.setPadding((int)(12 * density), 0, (int)(12 * density), 0);
-        etUser.setTextColor(color(R.color.text_primary));
-        etUser.setHintTextColor(color(R.color.text_hint));
-        etUser.setTextSize(15);
-        int userId = View.generateViewId();
-        etUser.setId(userId);
-        etUser.setNextFocusUpId(hostId);
-        card.addView(etUser);
-
-        // 密码
-        card.addView(makeLabel("密码"));
-        EditText etPass = new EditText(this);
-        LinearLayout.LayoutParams passLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, (int)(48 * density));
-        passLp.bottomMargin = (int)(16 * density);
-        etPass.setLayoutParams(passLp);
-        etPass.setBackgroundResource(R.drawable.bg_input);
-        etPass.setHint("输入密码");
-        etPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        etPass.setPadding((int)(12 * density), 0, (int)(12 * density), 0);
-        etPass.setTextColor(color(R.color.text_primary));
-        etPass.setHintTextColor(color(R.color.text_hint));
-        etPass.setTextSize(15);
-        int passId = View.generateViewId();
-        etPass.setId(passId);
-        etPass.setNextFocusUpId(userId);
-        card.addView(etPass);
+        Button[] hostScan = new Button[1];
+        Button[] userScan = new Button[1];
+        Button[] passScan = new Button[1];
+        EditText etHost = addInputRow(card, isFnId ? "FN ID" : "服务器地址", hostHint, hostInputType, dp(16), hostScan);
+        EditText etUser = addInputRow(card, "用户名", "输入用户名",
+                android.text.InputType.TYPE_CLASS_TEXT, dp(16), userScan);
+        EditText etPass = addInputRow(card, "密码", "输入密码",
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                dp(16), passScan);
 
         // 记住密码
         RelativeLayout cbWrap = new RelativeLayout(this);
@@ -375,6 +317,9 @@ public class MainActivity extends AppCompatActivity {
             fnidHostEt = etHost;
             fnidUserEt = etUser;
             fnidPassEt = etPass;
+            fnidHostScan = hostScan[0];
+            fnidUserScan = userScan[0];
+            fnidPassScan = passScan[0];
             fnidRememberCb = cb;
             fnidRememberWrap = cbWrap;
         } else {
@@ -382,11 +327,60 @@ public class MainActivity extends AppCompatActivity {
             httpHostEt = etHost;
             httpUserEt = etUser;
             httpPassEt = etPass;
+            httpHostScan = hostScan[0];
+            httpUserScan = userScan[0];
+            httpPassScan = passScan[0];
             httpRememberCb = cb;
             httpRememberWrap = cbWrap;
         }
 
         return card;
+    }
+
+    private void linkScan(View field, View scan, View up, View down) {
+        if (field == null || scan == null || scan.getVisibility() != View.VISIBLE) return;
+        TvFocus.point(field, View.FOCUS_RIGHT, scan);
+        TvFocus.point(scan, View.FOCUS_LEFT, field);
+        TvFocus.point(scan, View.FOCUS_RIGHT, scan);
+        TvFocus.point(scan, View.FOCUS_UP, up);
+        TvFocus.point(scan, View.FOCUS_DOWN, down);
+    }
+
+    /** 标签加输入框。电视端右侧多一个扫码按钮。 */
+    private EditText addInputRow(LinearLayout card, String label, String hint, int inputType,
+                                 int bottomMargin, Button[] scanOut) {
+        card.addView(makeLabel(label));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowLp.bottomMargin = bottomMargin;
+        row.setLayoutParams(rowLp);
+
+        EditText field = new EditText(this);
+        field.setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1));
+        field.setBackgroundResource(R.drawable.bg_input);
+        field.setHint(hint);
+        field.setInputType(inputType);
+        field.setSingleLine(true);
+        field.setPadding(dp(12), 0, dp(12), 0);
+        field.setTextColor(color(R.color.text_primary));
+        field.setHintTextColor(color(R.color.text_hint));
+        field.setTextSize(15);
+        field.setId(View.generateViewId());
+        row.addView(field);
+
+        if (QrInput.isTelevision(this)) {
+            Button scan = QrInput.scanButton(this, field, label);
+            LinearLayout.LayoutParams scanLp = new LinearLayout.LayoutParams(dp(72), dp(48));
+            scanLp.leftMargin = dp(8);
+            scan.setLayoutParams(scanLp);
+            row.addView(scan);
+            if (scanOut != null && scanOut.length > 0) scanOut[0] = scan;
+        }
+        card.addView(row);
+        return field;
     }
 
     private TextView makeLabel(String text) {
@@ -400,192 +394,49 @@ public class MainActivity extends AppCompatActivity {
         return tv;
     }
 
-    // ==================== 已保存账户 ====================
-
     private int dp(int value) {
         return Math.round(value * density);
     }
 
-    private void buildAccountSection() {
-        accountSection = new LinearLayout(this);
-        accountSection.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams sectionLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sectionLp.bottomMargin = dp(12);
-        accountSection.setLayoutParams(sectionLp);
-        accountSection.setVisibility(View.GONE);
-
-        TextView title = makeLabel("已保存账户");
-        accountSection.addView(title);
-
-        TextView hint = new TextView(this);
-        hint.setText("勾选记住密码后可在这里切换，最多保留 " + AccountStore.LIMIT + " 个");
-        hint.setTextColor(color(R.color.text_hint));
-        hint.setTextSize(12);
-        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hintLp.bottomMargin = dp(8);
-        hint.setLayoutParams(hintLp);
-        accountSection.addView(hint);
-
-        accountRows = new LinearLayout(this);
-        accountRows.setOrientation(LinearLayout.VERTICAL);
-        accountRows.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        accountSection.addView(accountRows);
-
-        btnClearAccounts = new Button(this);
-        btnClearAccounts.setText("清除全部记录");
-        btnClearAccounts.setAllCaps(false);
-        btnClearAccounts.setTextSize(13);
-        btnClearAccounts.setTextColor(color(R.color.text_secondary));
-        btnClearAccounts.setBackgroundResource(R.drawable.bg_input);
-        btnClearAccounts.setFocusable(true);
-        btnClearAccounts.setMinHeight(0);
-        btnClearAccounts.setMinimumHeight(0);
-        LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
-        clearLp.topMargin = dp(4);
-        btnClearAccounts.setLayoutParams(clearLp);
-        btnClearAccounts.setOnClickListener(v -> confirm(
-                "确定清除全部已保存账户？清除后需要重新输入密码登录。",
-                "清除",
-                () -> {
-                    AccountStore.get(prefs).clear();
-                    renderAccounts();
-                }));
-        accountSection.addView(btnClearAccounts);
-    }
-
-    private void renderAccounts() {
-        accountRows.removeAllViews();
-        accountBodies.clear();
-        accountDeletes.clear();
-        List<AccountStore.SavedAccount> accounts = AccountStore.get(prefs).list();
-        String activeId = AccountStore.get(prefs).activeId();
-        accountSection.setVisibility(accounts.isEmpty() ? View.GONE : View.VISIBLE);
-        for (AccountStore.SavedAccount account : accounts) {
-            addAccountRow(account, activeId != null && activeId.equals(account.id));
-        }
-        wireLoginFocus();
-        if (initialFocusPlaced) return;
-        initialFocusPlaced = true;
-        if (!accounts.isEmpty()) {
-            View target = accountBodies.get(0);
-            for (int i = 0; i < accounts.size(); i++) {
-                if (accounts.get(i).id != null && accounts.get(i).id.equals(activeId)) {
-                    target = accountBodies.get(i);
-                    break;
-                }
-            }
-            final View focus = target;
-            focus.post(() -> {
-                if (!isFinishing()) focus.requestFocus();
-            });
-            return;
-        }
-        EditText host = isFnIdMode ? fnidHostEt : httpHostEt;
-        if (host != null) host.post(() -> {
-            if (!isFinishing()) host.requestFocus();
+    /** 登录按钮下方：有已保存账号时显示入口，进入切换账号页。 */
+    private void addSavedAccountsEntry(LinearLayout loginCard) {
+        btnSavedAccounts = new Button(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        lp.topMargin = dp(12);
+        btnSavedAccounts.setLayoutParams(lp);
+        btnSavedAccounts.setBackgroundResource(R.drawable.bg_input);
+        btnSavedAccounts.setTextColor(color(R.color.text_secondary));
+        btnSavedAccounts.setTextSize(15);
+        btnSavedAccounts.setAllCaps(false);
+        btnSavedAccounts.setFocusable(true);
+        btnSavedAccounts.setOnClickListener(v -> {
+            Intent intent = new Intent(this, SwitchAccountActivity.class);
+            if (switching) intent.putExtra("switch_account", true);
+            startActivity(intent);
         });
+        int loginIdx = loginCard.indexOfChild(btnLogin);
+        if (loginIdx >= 0) loginCard.addView(btnSavedAccounts, loginIdx + 1);
+        else loginCard.addView(btnSavedAccounts);
+        refreshSavedAccountsEntry();
     }
 
-    private void addAccountRow(final AccountStore.SavedAccount account, boolean current) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowLp.bottomMargin = dp(8);
-        row.setLayoutParams(rowLp);
-
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setLayoutParams(new LinearLayout.LayoutParams(0, dp(64), 1));
-        body.setBackgroundResource(R.drawable.bg_input);
-        body.setPadding(dp(12), dp(8), dp(12), dp(8));
-        body.setGravity(Gravity.CENTER_VERTICAL);
-        body.setFocusable(true);
-        body.setClickable(true);
-        body.setOnClickListener(v -> loginWithAccount(account));
-
-        TextView name = new TextView(this);
-        name.setText(account.user);
-        name.setTextColor(color(R.color.text_primary));
-        name.setTextSize(15);
-        name.setSingleLine(true);
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        name.setTypeface(null, android.graphics.Typeface.BOLD);
-        body.addView(name);
-
-        TextView detail = new TextView(this);
-        String detailText = AccountStore.label(account);
-        if (current) detailText = "当前  ·  " + detailText;
-        detail.setText(detailText);
-        detail.setTextColor(color(current ? R.color.colorAccent : R.color.text_hint));
-        detail.setTextSize(12);
-        detail.setSingleLine(true);
-        detail.setEllipsize(TextUtils.TruncateAt.END);
-        body.addView(detail);
-
-        Button delete = new Button(this);
-        delete.setText("删除");
-        delete.setAllCaps(false);
-        delete.setTextSize(13);
-        delete.setTextColor(color(R.color.error));
-        delete.setBackgroundResource(R.drawable.bg_input);
-        delete.setFocusable(true);
-        delete.setMinHeight(0);
-        delete.setMinimumHeight(0);
-        delete.setPadding(0, 0, 0, 0);
-        LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(dp(72), dp(64));
-        deleteLp.leftMargin = dp(8);
-        delete.setLayoutParams(deleteLp);
-        delete.setOnClickListener(v -> confirm(
-                "确定删除 " + account.user + " @ " + account.endpoint + " 的登录记录？",
-                "删除",
-                () -> {
-                    AccountStore.get(prefs).delete(account.id);
-                    renderAccounts();
-                    if (!accountBodies.isEmpty()) accountBodies.get(0).requestFocus();
-                    else if (isFnIdMode) btnFnIdMode.requestFocus();
-                    else btnHttpMode.requestFocus();
-                }));
-
-        row.addView(body);
-        row.addView(delete);
-        accountRows.addView(row);
-        accountBodies.add(body);
-        accountDeletes.add(delete);
-    }
-
-    private void loginWithAccount(AccountStore.SavedAccount account) {
-        if (isLoggingIn || account == null) return;
-        boolean fnid = "fnid".equals(account.mode);
-        if (fnid != isFnIdMode) {
-            isFnIdMode = fnid;
-            httpCard.setVisibility(fnid ? View.GONE : View.VISIBLE);
-            fnidCard.setVisibility(fnid ? View.VISIBLE : View.GONE);
-            updateModeColor();
-        }
-        if (fnid) {
-            fnidHostEt.setText(account.endpoint);
-            fnidUserEt.setText(account.user);
-            fnidPassEt.setText(account.password == null ? "" : account.password);
-            fnidRememberCb.setChecked(true);
-        } else {
-            httpHostEt.setText(account.endpoint);
-            httpUserEt.setText(account.user);
-            httpPassEt.setText(account.password == null ? "" : account.password);
-            httpRememberCb.setChecked(true);
-        }
-        wireLoginFocus();
-        if (account.password == null || account.password.isEmpty()) {
-            AppToast.show(this, "该账户没有保存密码，请输入后再登录");
-            EditText pass = fnid ? fnidPassEt : httpPassEt;
-            pass.requestFocus();
+    private void refreshSavedAccountsEntry() {
+        if (btnSavedAccounts == null) return;
+        int count = AccountStore.get(prefs).list().size();
+        if (count <= 0) {
+            btnSavedAccounts.setVisibility(View.GONE);
             return;
         }
-        doLogin();
+        btnSavedAccounts.setVisibility(View.VISIBLE);
+        btnSavedAccounts.setText(count == 1 ? "使用已有账号" : "使用已有账号（" + count + "）");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshSavedAccountsEntry();
+        if (btnSavedAccounts != null) wireLoginFocus();
     }
 
     private void wireLoginFocus() {
@@ -601,7 +452,8 @@ public class MainActivity extends AppCompatActivity {
         TvFocus.point(btnHttpMode, View.FOCUS_LEFT, btnHttpMode);
         TvFocus.point(btnFnIdMode, View.FOCUS_RIGHT, btnFnIdMode);
 
-        View aboveMode = accountSection.getVisibility() == View.VISIBLE ? btnClearAccounts : btnLogin;
+        View aboveMode = btnSavedAccounts != null && btnSavedAccounts.getVisibility() == View.VISIBLE
+                ? btnSavedAccounts : btnLogin;
         TvFocus.point(btnHttpMode, View.FOCUS_UP, aboveMode);
         TvFocus.point(btnFnIdMode, View.FOCUS_UP, aboveMode);
         TvFocus.point(btnHttpMode, View.FOCUS_DOWN, host);
@@ -613,110 +465,63 @@ public class MainActivity extends AppCompatActivity {
         TvFocus.point(user, View.FOCUS_DOWN, pass);
         TvFocus.point(pass, View.FOCUS_UP, user);
         TvFocus.point(pass, View.FOCUS_DOWN, remember);
+        Button hostScan = isFnIdMode ? fnidHostScan : httpHostScan;
+        Button userScan = isFnIdMode ? fnidUserScan : httpUserScan;
+        Button passScan = isFnIdMode ? fnidPassScan : httpPassScan;
+        linkScan(host, hostScan, mode, userScan != null ? userScan : user);
+        linkScan(user, userScan, hostScan != null ? hostScan : host, passScan != null ? passScan : pass);
+        linkScan(pass, passScan, userScan != null ? userScan : user, remember);
         TvFocus.point(remember, View.FOCUS_UP, pass);
         TvFocus.point(remember, View.FOCUS_DOWN, btnLogin);
         TvFocus.point(remember, View.FOCUS_LEFT, remember);
         TvFocus.point(remember, View.FOCUS_RIGHT, remember);
 
-        View top = accountSection.getVisibility() == View.VISIBLE && !accountBodies.isEmpty()
-                ? accountBodies.get(0) : mode;
         TvFocus.point(btnLogin, View.FOCUS_UP, remember);
-        TvFocus.point(btnLogin, View.FOCUS_DOWN, top);
         TvFocus.point(btnLogin, View.FOCUS_LEFT, btnLogin);
         TvFocus.point(btnLogin, View.FOCUS_RIGHT, btnLogin);
-
-        for (int i = 0; i < accountBodies.size(); i++) {
-            View body = accountBodies.get(i);
-            View delete = accountDeletes.get(i);
-            View bodyUp = i == 0 ? btnLogin : accountBodies.get(i - 1);
-            View bodyDown = i == accountBodies.size() - 1 ? btnClearAccounts : accountBodies.get(i + 1);
-            View deleteUp = i == 0 ? btnLogin : accountDeletes.get(i - 1);
-            View deleteDown = i == accountDeletes.size() - 1 ? btnClearAccounts : accountDeletes.get(i + 1);
-            TvFocus.point(body, View.FOCUS_LEFT, body);
-            TvFocus.point(body, View.FOCUS_RIGHT, delete);
-            TvFocus.point(body, View.FOCUS_UP, bodyUp);
-            TvFocus.point(body, View.FOCUS_DOWN, bodyDown);
-            TvFocus.point(delete, View.FOCUS_LEFT, body);
-            TvFocus.point(delete, View.FOCUS_RIGHT, delete);
-            TvFocus.point(delete, View.FOCUS_UP, deleteUp);
-            TvFocus.point(delete, View.FOCUS_DOWN, deleteDown);
-        }
-        if (accountSection.getVisibility() == View.VISIBLE) {
-            View lastBody = accountBodies.isEmpty() ? btnLogin : accountBodies.get(accountBodies.size() - 1);
-            TvFocus.point(btnClearAccounts, View.FOCUS_UP, lastBody);
-            TvFocus.point(btnClearAccounts, View.FOCUS_DOWN, mode);
-            TvFocus.point(btnClearAccounts, View.FOCUS_LEFT, btnClearAccounts);
-            TvFocus.point(btnClearAccounts, View.FOCUS_RIGHT, btnClearAccounts);
+        if (btnSavedAccounts != null && btnSavedAccounts.getVisibility() == View.VISIBLE) {
+            TvFocus.point(btnLogin, View.FOCUS_DOWN, btnSavedAccounts);
+            TvFocus.point(btnSavedAccounts, View.FOCUS_UP, btnLogin);
+            TvFocus.point(btnSavedAccounts, View.FOCUS_DOWN, mode);
+            TvFocus.point(btnSavedAccounts, View.FOCUS_LEFT, btnSavedAccounts);
+            TvFocus.point(btnSavedAccounts, View.FOCUS_RIGHT, btnSavedAccounts);
+        } else {
+            TvFocus.point(btnLogin, View.FOCUS_DOWN, mode);
         }
     }
 
-    private void confirm(String message, String yesText, final Runnable onYes) {
-        final android.app.Dialog dialog = new android.app.Dialog(
-                this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundResource(R.drawable.bg_card);
-        root.setPadding(dp(20), dp(18), dp(20), dp(16));
-
-        TextView msg = new TextView(this);
-        msg.setText(message);
-        msg.setTextColor(color(R.color.text_primary));
-        msg.setTextSize(15);
-        root.addView(msg);
-
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actionsLp.topMargin = dp(16);
-        actions.setLayoutParams(actionsLp);
-
-        Button cancel = new Button(this);
-        cancel.setText("取消");
-        cancel.setAllCaps(false);
-        cancel.setTextSize(15);
-        cancel.setTextColor(color(R.color.text_secondary));
-        cancel.setBackgroundResource(R.drawable.bg_input);
-        cancel.setFocusable(true);
-        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, dp(44), 1);
-        cancelLp.rightMargin = dp(8);
-        cancel.setLayoutParams(cancelLp);
-        cancel.setOnClickListener(v -> dialog.dismiss());
-
-        Button yes = new Button(this);
-        yes.setText(yesText);
-        yes.setAllCaps(false);
-        yes.setTextSize(15);
-        yes.setTextColor(color(R.color.text_white));
-        yes.setBackgroundResource(R.drawable.bg_btn_danger);
-        yes.setFocusable(true);
-        LinearLayout.LayoutParams yesLp = new LinearLayout.LayoutParams(0, dp(44), 1);
-        yesLp.leftMargin = dp(8);
-        yes.setLayoutParams(yesLp);
-        yes.setOnClickListener(v -> {
-            dialog.dismiss();
-            onYes.run();
-        });
-
-        TvFocus.point(cancel, View.FOCUS_RIGHT, yes);
-        TvFocus.point(yes, View.FOCUS_LEFT, cancel);
-        TvFocus.point(cancel, View.FOCUS_LEFT, cancel);
-        TvFocus.point(yes, View.FOCUS_RIGHT, yes);
-        actions.addView(cancel);
-        actions.addView(yes);
-        root.addView(actions);
-        dialog.setContentView(root);
-
-        android.view.Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-            int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.86f);
-            int max = dp(440);
-            if (width > max) width = max;
-            window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+    /** 添加账号时密码留空。补登某个已保存账号时，带上服务器和用户名。 */
+    private void applyPrefill() {
+        if (!getIntent().getBooleanExtra("add_account", false)) return;
+        String modeName = getIntent().getStringExtra("prefill_mode");
+        if (modeName != null && !modeName.isEmpty()) {
+            isFnIdMode = "fnid".equals(modeName);
         }
-        dialog.show();
-        cancel.requestFocus();
+        httpCard.setVisibility(isFnIdMode ? View.GONE : View.VISIBLE);
+        fnidCard.setVisibility(isFnIdMode ? View.VISIBLE : View.GONE);
+        EditText hostEt = isFnIdMode ? fnidHostEt : httpHostEt;
+        EditText userEt = isFnIdMode ? fnidUserEt : httpUserEt;
+        EditText passEt = isFnIdMode ? fnidPassEt : httpPassEt;
+        if (modeName != null && !modeName.isEmpty()) {
+            String host = getIntent().getStringExtra("prefill_host");
+            String user = getIntent().getStringExtra("prefill_user");
+            if (hostEt != null && host != null) hostEt.setText(host);
+            if (userEt != null && user != null) userEt.setText(user);
+        } else if (userEt != null) {
+            userEt.setText("");
+        }
+        if (passEt != null) passEt.setText("");
+        updateModeColor();
+    }
+
+    private void focusLoginField() {
+        EditText host = isFnIdMode ? fnidHostEt : httpHostEt;
+        EditText user = isFnIdMode ? fnidUserEt : httpUserEt;
+        EditText pass = isFnIdMode ? fnidPassEt : httpPassEt;
+        EditText target = host;
+        if (user != null && user.getText() != null && user.getText().length() > 0) target = pass;
+        else if (host != null && host.getText() != null && host.getText().length() > 0) target = user;
+        if (target != null) target.requestFocus();
     }
 
     private void captureSession() {

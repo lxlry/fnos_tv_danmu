@@ -787,6 +787,11 @@ public class DanmuManager {
 
         final EditText input = dialog.findViewById(R.id.dm_search_input);
         final Button sBtn = dialog.findViewById(R.id.dm_search_btn);
+        Button qrBtn = dialog.findViewById(R.id.dm_search_qr);
+        if (qrBtn != null && QrInput.isTelevision(activity)) {
+            qrBtn.setVisibility(View.VISIBLE);
+            qrBtn.setOnClickListener(v -> QrInput.show(activity, input, "搜索弹幕"));
+        }
         final LinearLayout results = dialog.findViewById(R.id.dm_search_results);
         final Button cancelBtn = dialog.findViewById(R.id.dm_search_cancel);
         cancelBtn.setOnClickListener(v -> dialog.dismiss());

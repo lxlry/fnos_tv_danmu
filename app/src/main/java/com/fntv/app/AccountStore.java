@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 已保存的登录账户。登录成功后写入，登录页可点选切换。
+ * 已保存的登录账户。登录成功后写入，切换账号页可点选登录。
  * 同一服务器（或 FN ID）加用户名只保留一条，最近使用的排在前面，最多 8 个。
  */
 final class AccountStore {

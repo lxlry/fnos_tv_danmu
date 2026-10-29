@@ -10,8 +10,8 @@ android {
         applicationId "com.fntv.app"
         minSdkVersion 19
         targetSdkVersion 32
-        versionCode 9527041
-        versionName "9527.041"
+        versionCode 9527042
+        versionName "9527.042"
         vectorDrawables.useSupportLibrary = true
         multiDexEnabled true
     }
@@ -73,6 +73,7 @@ dependencies {
     implementation 'com.squareup.retrofit2:converter-gson:2.6.4'
     implementation 'com.squareup.okhttp3:okhttp:3.12.13'
     implementation 'com.google.code.gson:gson:2.8.9'
+    implementation 'com.google.zxing:core:3.4.1'
     implementation 'com.squareup.okhttp3:logging-interceptor:3.12.13'
     implementation 'com.google.android.exoplayer:exoplayer-core:2.18.7'
     implementation 'com.google.android.exoplayer:exoplayer-hls:2.18.7'

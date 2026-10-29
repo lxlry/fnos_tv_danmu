@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527041,
-    "versionName": "9527.041",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.041/FNTV_release_v9527.041.apk",
-    "changelog": "登录支持多账户切换",
+    "versionCode": 9527042,
+    "versionName": "9527.042",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.042/FNTV_release_v9527.042.apk",
+    "changelog": "账号切换与登录页拆分；登录页可进入已有账号",
     "forceUpdate": false
 }
