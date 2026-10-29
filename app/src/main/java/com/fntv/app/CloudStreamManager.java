@@ -14,10 +14,12 @@ import com.fntv.app.api.model.StreamResponse;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.Tracks;
 import com.google.android.exoplayer2.source.TrackGroup;
 import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
+import com.google.android.exoplayer2.trackselection.TrackSelectionOverride;
 import com.google.gson.Gson;
 
 import java.util.HashMap;
@@ -740,41 +742,50 @@ public class CloudStreamManager {
     /** 显示音轨选择弹窗（匹配弹幕设置的美化风格） */
     public void showAudioTrackDialog(Activity activity) {
         if (player == null) return;
-        DefaultTrackSelector selector = (DefaultTrackSelector) player.getTrackSelector();
-        MappingTrackSelector.MappedTrackInfo trackInfo = selector.getCurrentMappedTrackInfo();
-        TrackGroupArray groups = (trackInfo != null) ? trackInfo.getTrackGroups(C.TRACK_TYPE_AUDIO) : null;
-
-        // 优先用 ExoPlayer 的 TrackGroup（支持切换），FFmpeg 软解时 groups 为空，降级到 stream API
-        if (groups != null && groups.length > 0) {
-            showAudioTracksFromPlayer(activity, selector, groups);
+        // 用 Player.getCurrentTracks（按 track type），避免把 TRACK_TYPE_* 误当 renderer index
+        java.util.ArrayList<Tracks.Group> audioGroups = collectAudioGroups();
+        if (!audioGroups.isEmpty()) {
+            showAudioTracksFromPlayer(activity, audioGroups);
         } else if (streamAudioTracks != null && !streamAudioTracks.isEmpty()) {
             showAudioTracksFromStreamApi(activity);
         } else {
-            AppToast.show(activity, trackInfo == null ? "音轨信息尚未就绪" : "无可用音轨");
+            AppToast.show(activity, "无可用音轨");
         }
     }
 
-    /** ExoPlayer 有 TrackGroup → 可切换音轨 */
-    private void showAudioTracksFromPlayer(Activity activity, DefaultTrackSelector selector, TrackGroupArray groups) {
+    /** 收集播放器里所有可用音轨组（跨 MediaCodec / FFmpeg 等 renderer） */
+    private java.util.ArrayList<Tracks.Group> collectAudioGroups() {
+        java.util.ArrayList<Tracks.Group> out = new java.util.ArrayList<>();
+        if (player == null) return out;
+        Tracks tracks = player.getCurrentTracks();
+        for (int i = 0; i < tracks.getGroups().size(); i++) {
+            Tracks.Group group = tracks.getGroups().get(i);
+            // 允许「超出能力」音轨（DTS/TrueHD 等常靠 FFmpeg 播）
+            if (group.getType() != C.TRACK_TYPE_AUDIO || !group.isSupported(true)) continue;
+            out.add(group);
+        }
+        return out;
+    }
+
+    /** ExoPlayer 有音轨 → 用 TrackSelectionOverride 切换（兼容多音频 renderer） */
+    private void showAudioTracksFromPlayer(Activity activity, java.util.ArrayList<Tracks.Group> audioGroups) {
         final java.util.ArrayList<String> itemLabels = new java.util.ArrayList<>();
-        final java.util.ArrayList<Integer> itemGroupIdx = new java.util.ArrayList<>();
+        final java.util.ArrayList<Tracks.Group> itemGroups = new java.util.ArrayList<>();
         final java.util.ArrayList<Integer> itemTrackIdx = new java.util.ArrayList<>();
 
         itemLabels.add("默认");
-        itemGroupIdx.add(-1);
+        itemGroups.add(null);
         itemTrackIdx.add(-1);
 
-        for (int g = 0; g < groups.length; g++) {
-            TrackGroup group = groups.get(g);
+        int seen = 0;
+        for (Tracks.Group group : audioGroups) {
             for (int t = 0; t < group.length; t++) {
-                Format fmt = group.getFormat(t);
-                String label = "音轨" + (itemLabels.size());
-                if (fmt.language != null && !fmt.language.isEmpty()) {
-                    label += "  " + fmt.language;
-                } else if (streamAudioTracks != null && t < streamAudioTracks.size()) {
-                    StreamResponse.AudioStreamInfo asi = streamAudioTracks.get(t);
-                    if (asi.language != null && !asi.language.isEmpty()) label += "  " + asi.language;
-                }
+                if (!group.isTrackSupported(t, /* allowExceedsCapabilities= */ true)) continue;
+                Format fmt = group.getTrackFormat(t);
+                seen++;
+                String label = "音轨" + seen;
+                String langName = audioLanguageLabel(fmt, seen - 1);
+                if (!langName.isEmpty()) label += "  " + langName;
                 String codecStr = fmt.codecs != null ? fmt.codecs
                         : (fmt.sampleMimeType != null ? fmt.sampleMimeType.replace("audio/", "") : "");
                 if (!codecStr.isEmpty()) label += "  " + codecStr;
@@ -782,7 +793,7 @@ public class CloudStreamManager {
                 if (fmt.sampleRate > 0) label += "  " + (fmt.sampleRate / 1000) + "kHz";
 
                 itemLabels.add(label);
-                itemGroupIdx.add(g);
+                itemGroups.add(group);
                 itemTrackIdx.add(t);
             }
         }
@@ -790,39 +801,62 @@ public class CloudStreamManager {
         final String[] items = itemLabels.toArray(new String[0]);
         SideSheet.showCards(activity, "音频", null, trackChoices(items), trackSelected(items, lastAudioTrackLabel), "", (dialog, which) -> {
             if (which < 0 || which >= itemLabels.size()) return;
-                    int selGroup = itemGroupIdx.get(which);
-                    int selTrack = itemTrackIdx.get(which);
-                    if (selGroup >= 0 && selTrack >= 0) {
-                        selector.setParameters(
-                            selector.buildUponParameters()
-                                .clearSelectionOverrides(C.TRACK_TYPE_AUDIO)
-                                .setRendererDisabled(C.TRACK_TYPE_AUDIO, false)
-                                .setSelectionOverride(C.TRACK_TYPE_AUDIO, groups,
-                                    new DefaultTrackSelector.SelectionOverride(selGroup, selTrack))
-                                .build()
-                        );
-                    } else {
-                        selector.setParameters(
-                            selector.buildUponParameters()
-                                .clearSelectionOverrides(C.TRACK_TYPE_AUDIO)
-                                .setRendererDisabled(C.TRACK_TYPE_AUDIO, false)
-                                .build()
-                        );
-                    }
-                    lastAudioTrackLabel = items[which];
-                    lastSubtitleTrackLabel = items[which];
-                    cb.onTrackChanged();
-                    AppToast.show(activity, "已切换: " + items[which]);
-                    dialog.dismiss();
-                });
+            Tracks.Group selGroup = itemGroups.get(which);
+            int selTrack = itemTrackIdx.get(which);
+            if (selGroup != null && selTrack >= 0) {
+                applyAudioTrackOverride(selGroup, selTrack);
+            } else {
+                clearAudioTrackOverride();
+            }
+            lastAudioTrackLabel = items[which];
+            cb.onTrackChanged();
+            AppToast.show(activity, "已切换: " + items[which]);
+            dialog.dismiss();
+        });
     }
 
-    /** ExoPlayer 无 TrackGroup（FFmpeg 软解）→ 用 stream API 试切换（语言匹配 + 重载） */
+    /** 强制选中指定音轨；setOverrideForType 会关掉同类型其它 renderer 上的旧选择 */
+    private void applyAudioTrackOverride(Tracks.Group group, int trackIndex) {
+        player.setTrackSelectionParameters(
+                player.getTrackSelectionParameters()
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                        .setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), trackIndex))
+                        .build());
+    }
+
+    private void clearAudioTrackOverride() {
+        player.setTrackSelectionParameters(
+                player.getTrackSelectionParameters()
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                        .build());
+    }
+
+    private String audioLanguageLabel(Format fmt, int streamIndex) {
+        if (fmt.language != null && !fmt.language.isEmpty()) {
+            String zh = languageToChinese(fmt.language);
+            return zh != null ? zh : fmt.language;
+        }
+        if (streamAudioTracks != null && streamIndex >= 0 && streamIndex < streamAudioTracks.size()) {
+            StreamResponse.AudioStreamInfo asi = streamAudioTracks.get(streamIndex);
+            if (asi.language != null && !asi.language.isEmpty()) {
+                String zh = languageToChinese(asi.language);
+                return zh != null ? zh : asi.language;
+            }
+        }
+        return "";
+    }
+
+    /** ExoPlayer 暂无音轨列表 → 用 stream API 元数据 + 语言偏好尝试切换 */
     private void showAudioTracksFromStreamApi(Activity activity) {
         final String[] items = new String[streamAudioTracks.size()];
         for (int i = 0; i < streamAudioTracks.size(); i++) {
             StreamResponse.AudioStreamInfo asi = streamAudioTracks.get(i);
-            String lang = asi.language != null && !asi.language.isEmpty() ? asi.language : "未知";
+            String langRaw = asi.language != null && !asi.language.isEmpty() ? asi.language : "未知";
+            String langZh = languageToChinese(langRaw);
+            String lang = langZh != null ? langZh : langRaw;
             String codec = FormatUtils.fmtAudioCodec(asi.codecName);
             String ch = asi.channels > 0 ? (asi.channels == 8 ? "7.1" : asi.channels == 6 ? "5.1" : asi.channels + "ch") : "";
             String br = asi.bps > 0 ? " " + FormatUtils.formatBitrate(asi.bps) : "";
@@ -830,25 +864,25 @@ public class CloudStreamManager {
         }
         SideSheet.showCards(activity, "音频", null, trackChoices(items), trackSelected(items, lastAudioTrackLabel), "", (dialog, which) -> {
             if (which < 0 || which >= streamAudioTracks.size()) return;
-                    StreamResponse.AudioStreamInfo sel = streamAudioTracks.get(which);
-                    String lang = sel.language;
-                    if (lang != null && !lang.isEmpty()) {
-                        DefaultTrackSelector selector = (DefaultTrackSelector) player.getTrackSelector();
-                        selector.setParameters(
-                            selector.buildUponParameters()
-                                .clearSelectionOverrides(C.TRACK_TYPE_AUDIO)
-                                .setRendererDisabled(C.TRACK_TYPE_AUDIO, false)
+            StreamResponse.AudioStreamInfo sel = streamAudioTracks.get(which);
+            String lang = sel.language;
+            if (lang != null && !lang.isEmpty()) {
+                // 先按语言偏好；若之后 tracks 就绪，下次打开对话框可用 Override 精确切换
+                player.setTrackSelectionParameters(
+                        player.getTrackSelectionParameters()
+                                .buildUpon()
+                                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                                 .setPreferredAudioLanguage(lang)
-                                .build()
-                        );
-                        lastAudioTrackLabel = items[which];
-                    cb.onTrackChanged();
-                    AppToast.show(activity, "已切换: " + items[which]);
-                    } else {
-                        AppToast.show(activity, "该音轨无语言标记，无法自动切换");
-                    }
-                    dialog.dismiss();
-                });
+                                .build());
+                lastAudioTrackLabel = items[which];
+                cb.onTrackChanged();
+                AppToast.show(activity, "已切换: " + items[which]);
+            } else {
+                AppToast.show(activity, "该音轨无语言标记，无法自动切换");
+            }
+            dialog.dismiss();
+        });
     }
 
     /** 显示字幕选择弹窗（匹配弹幕设置的美化风格） */
