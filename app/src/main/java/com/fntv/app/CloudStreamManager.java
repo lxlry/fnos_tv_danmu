@@ -822,7 +822,6 @@ public class CloudStreamManager {
         final java.util.ArrayList<Integer> itemTrackIdx = new java.util.ArrayList<>();
         final java.util.ArrayList<Integer> itemStreamIdx = new java.util.ArrayList<>();
 
-        int selected = -1;
         int seen = 0;
         for (Tracks.Group group : audioGroups) {
             for (int t = 0; t < group.length; t++) {
@@ -831,13 +830,30 @@ public class CloudStreamManager {
                 int streamIdx = seen;
                 seen++;
                 String label = buildPlayerAudioLabel(fmt, streamIdx, seen);
-                int idx = itemLabels.size();
                 itemLabels.add(label);
                 itemGroups.add(group);
                 itemTrackIdx.add(t);
                 itemStreamIdx.add(streamIdx);
-                if (group.isTrackSelected(t)) selected = idx;
-                else if (selected < 0 && label.equals(lastAudioTrackLabel)) selected = idx;
+            }
+        }
+        int selected = playingAudioIndex(itemGroups, itemTrackIdx);
+        if (selected < 0) {
+            for (int i = 0; i < itemGroups.size(); i++) {
+                Tracks.Group group = itemGroups.get(i);
+                int t = itemTrackIdx.get(i);
+                if (group != null && t >= 0 && group.isTrackSelected(t)) { selected = i; break; }
+            }
+        }
+        if (selected < 0) {
+            String[] pref = loadManualAudioPref();
+            if (pref != null) {
+                StreamResponse.AudioStreamInfo saved = findSavedAudio(pref[0], pref.length > 1 ? pref[1] : "");
+                if (saved != null && streamAudioTracks != null) {
+                    int at = streamAudioTracks.indexOf(saved);
+                    for (int i = 0; i < itemStreamIdx.size(); i++) {
+                        if (itemStreamIdx.get(i) == at) { selected = i; break; }
+                    }
+                }
             }
         }
         if (selected < 0 && !itemLabels.isEmpty()) selected = 0;
@@ -972,7 +988,14 @@ public class CloudStreamManager {
             String br = asi.bps > 0 ? " " + FormatUtils.formatBitrate(asi.bps) : "";
             items[i] = "音轨" + (i + 1) + "  " + lang + "  " + codec + (ch.isEmpty() ? "" : "  " + ch) + br;
         }
-        int selected = trackSelected(items, lastAudioTrackLabel);
+        int selected = -1;
+        String[] pref = loadManualAudioPref();
+        if (pref != null) {
+            StreamResponse.AudioStreamInfo saved = findSavedAudio(pref[0], pref.length > 1 ? pref[1] : "");
+            if (saved != null) selected = streamAudioTracks.indexOf(saved);
+        }
+        if (selected < 0) selected = playingAudioStreamIndex();
+        if (selected < 0) selected = trackSelected(items, lastAudioTrackLabel);
         if (selected < 0 && items.length > 0) selected = 0;
         final int curSelected = selected;
         SideSheet.showCards(activity, "音频", null, trackChoices(items), selected, "", (dialog, which) -> {
@@ -1354,14 +1377,14 @@ public class CloudStreamManager {
         itemGroupIdx.add(-2);
         itemTrackIdx.add(-2);
 
-        boolean textOff = isTextTrackDisabled(selector);
-        int selected = textOff || "关闭字幕".equals(lastSubtitleTrackLabel) ? 0 : -1;
+        boolean textOff = selectedTextFormat() == null;
+        int selected = textOff ? 0 : -1;
 
         int trackCount = 0;
         for (int g = 0; g < groups.length; g++) trackCount += groups.get(g).length;
         boolean aligned = streamSubtitleTracks != null && streamSubtitleTracks.size() == trackCount;
         int seen = 0;
-        Tracks tracks = player.getCurrentTracks();
+        Format playingText = selectedTextFormat();
         for (int g = 0; g < groups.length; g++) {
             TrackGroup group = groups.get(g);
             for (int t = 0; t < group.length; t++) {
@@ -1382,13 +1405,7 @@ public class CloudStreamManager {
                 itemKeys.add(subtitleMatchKey(title, language));
                 itemGroupIdx.add(g);
                 itemTrackIdx.add(t);
-                if (!textOff) {
-                    if (isTextTrackSelected(tracks, group, t)) selected = idx;
-                    else if (selected < 0 && (label.equals(lastSubtitleTrackLabel)
-                            || itemKeys.get(itemKeys.size() - 1).equals(lastSubtitleTrackLabel))) {
-                        selected = idx;
-                    }
-                }
+                if (playingText != null && sameText(playingText, fmt, title, language)) selected = idx;
                 seen++;
             }
         }
@@ -1453,7 +1470,17 @@ public class CloudStreamManager {
             items[i + 1] = subtitleChoiceText(ssi.title, ssi.language, codec, i + 1);
             keys[i + 1] = subtitleMatchKey(ssi.title, ssi.language);
         }
-        int selected = trackSelected(items, lastSubtitleTrackLabel);
+        int selected = -1;
+        Format playingText = selectedTextFormat();
+        if (playingText == null) selected = 0;
+        else {
+            for (int i = 0; i < streamSubtitleTracks.size(); i++) {
+                StreamResponse.SubtitleStreamInfo ssi = streamSubtitleTracks.get(i);
+                if (ssi == null) continue;
+                if (sameText(playingText, null, ssi.title, ssi.language)) { selected = i + 1; break; }
+            }
+        }
+        if (selected < 0) selected = trackSelected(items, lastSubtitleTrackLabel);
         if (selected < 0) selected = 0;
         SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), selected, "当前没有字幕可选择", (dialog, which) -> {
                     if (which < 0) return;
@@ -1617,6 +1644,91 @@ public class CloudStreamManager {
             list.add(new SideSheet.Choice(title, detail, null));
         }
         return list;
+    }
+
+    private int playingAudioIndex(java.util.ArrayList<Tracks.Group> groups, java.util.ArrayList<Integer> trackIdx) {
+        Format playing = player != null ? player.getAudioFormat() : null;
+        if (playing == null || groups == null) return -1;
+        int loose = -1;
+        for (int i = 0; i < groups.size(); i++) {
+            Tracks.Group group = groups.get(i);
+            int t = trackIdx.get(i);
+            if (group == null || t < 0 || t >= group.length) continue;
+            Format fmt = group.getTrackFormat(t);
+            if (fmt == playing) return i;
+            if (sameAudio(playing, fmt)) {
+                if (group.isTrackSelected(t)) return i;
+                if (loose < 0) loose = i;
+            }
+        }
+        return loose;
+    }
+
+    private int playingAudioStreamIndex() {
+        Format playing = player != null ? player.getAudioFormat() : null;
+        if (playing == null || streamAudioTracks == null) return -1;
+        int loose = -1;
+        for (int i = 0; i < streamAudioTracks.size(); i++) {
+            StreamResponse.AudioStreamInfo a = streamAudioTracks.get(i);
+            if (a == null) continue;
+            boolean lang = normLang(playing.language).equals(normLang(a.language));
+            if (!lang || normLang(a.language).isEmpty()) continue;
+            String codec = a.codecName != null && !a.codecName.isEmpty() ? a.codecName : a.codec;
+            boolean codecOk = codec == null || codec.isEmpty() || playing.codecs == null
+                    || playing.codecs.toLowerCase(java.util.Locale.US).contains(codec.toLowerCase(java.util.Locale.US))
+                    || codec.toLowerCase(java.util.Locale.US).contains(String.valueOf(playing.sampleMimeType).replace("audio/", ""));
+            boolean chOk = a.channels <= 0 || playing.channelCount <= 0 || a.channels == playing.channelCount;
+            if (lang && codecOk && chOk) return i;
+            if (loose < 0) loose = i;
+        }
+        return loose;
+    }
+
+    private static boolean sameAudio(Format playing, Format fmt) {
+        if (playing == null || fmt == null) return false;
+        if (playing == fmt) return true;
+        if (playing.id != null && playing.id.equals(fmt.id)) return true;
+        String pl = normLang(playing.language);
+        String fl = normLang(fmt.language);
+        if (pl.isEmpty() || !pl.equals(fl)) return false;
+        if (playing.channelCount > 0 && fmt.channelCount > 0 && playing.channelCount != fmt.channelCount) return false;
+        if (playing.codecs != null && fmt.codecs != null
+                && !playing.codecs.equalsIgnoreCase(fmt.codecs)) return false;
+        return true;
+    }
+
+    /** 当前正在显示的字幕；没有选中字幕时返回 null。 */
+    private Format selectedTextFormat() {
+        if (player == null) return null;
+        Tracks tracks = player.getCurrentTracks();
+        Format found = null;
+        for (int i = 0; i < tracks.getGroups().size(); i++) {
+            Tracks.Group g = tracks.getGroups().get(i);
+            if (g.getType() != C.TRACK_TYPE_TEXT) continue;
+            for (int t = 0; t < g.length; t++) {
+                if (g.isTrackSelected(t)) found = g.getTrackFormat(t);
+            }
+        }
+        return found;
+    }
+
+    private boolean sameText(Format playing, Format row, String title, String language) {
+        if (playing == null) return false;
+        if (row != null) {
+            if (playing == row) return true;
+            if (playing.id != null && playing.id.equals(row.id)) return true;
+            if (playing.label != null && playing.label.equals(row.label)
+                    && normLang(playing.language).equals(normLang(row.language))) return true;
+        }
+        String pl = normLang(playing.language);
+        String rl = normLang(language != null && !language.isEmpty() ? language : (row != null ? row.language : ""));
+        if (!pl.isEmpty() && pl.equals(rl)) {
+            String pt = playing.label != null ? playing.label : "";
+            String tt = title != null ? title : "";
+            if (pt.isEmpty() || tt.isEmpty() || pt.equalsIgnoreCase(tt) || pt.contains(tt) || tt.contains(pt)) return true;
+        }
+        if (title != null && playing.label != null && playing.label.equalsIgnoreCase(title)) return true;
+        return false;
     }
 
     private int trackSelected(String[] items, String current) {

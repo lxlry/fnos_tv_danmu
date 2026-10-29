@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527050,
-    "versionName": "9527.050",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.050/FNTV_release_v9527.050.apk",
-    "changelog": "从历史记录进入时恢复上次选择的音轨",
+    "versionCode": 9527051,
+    "versionName": "9527.051",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.051/FNTV_release_v9527.051.apk",
+    "changelog": "音轨和字幕列表的勾选改为对应当前正在使用的那一项",
     "forceUpdate": false
 }
