@@ -578,6 +578,36 @@ public class PlayerActivity extends AppCompatActivity {
                 cloudStreamManager.resetForQualitySwitch();
                 loadPlayInfo();
             }
+            @Override public void onAudioPlayLink(String playLink, String res, int bps, String newAudioGuid) {
+                if (newAudioGuid != null && !newAudioGuid.isEmpty()) audioGuid = newAudioGuid;
+                customQualityRes = res != null ? res : "";
+                customQualityBitrate = bps;
+                customPlayLink = playLink != null ? playLink : "";
+                refreshQualityLabel();
+                String fullUrl = baseUrl + playLink;
+                Log.d(TAG, "换音轨新链接: " + fullUrl + " audio=" + audioGuid
+                        + " res=" + res + " bitrate=" + bps);
+                if (player == null || playLink == null || playLink.isEmpty()) return;
+                savedPlaybackUrl = fullUrl;
+                useHls = fullUrl.contains(".m3u8");
+                // play/play 已带 startTimestamp，服务端从当前进度起播，勿再本地 seek
+                player.setMediaSource(buildMediaSource(fullUrl, useHls));
+                player.prepare();
+                player.setPlayWhenReady(true);
+                updateInfo();
+            }
+            @Override public long getPlaybackPositionMs() {
+                return player != null ? Math.max(0, player.getCurrentPosition()) : 0;
+            }
+            @Override public String getCurrentResolution() {
+                if (customQualityRes != null && !customQualityRes.isEmpty()) return customQualityRes;
+                if (streamResolution != null && !streamResolution.isEmpty()) return streamResolution;
+                return resolution != null ? resolution : "";
+            }
+            @Override public int getCurrentBitrate() {
+                if (customQualityBitrate > 0) return customQualityBitrate;
+                return streamBitrate > 0 ? streamBitrate : 0;
+            }
             @Override public void probeWithMediaExtractor() { PlayerActivity.this.probeWithMediaExtractor(); }
             @Override public void onCloudBtnVisibilityChanged(boolean vis) {
                 // 直链/STRM 按钮显示时，隐藏画质按钮
@@ -843,18 +873,20 @@ public class PlayerActivity extends AppCompatActivity {
                 if (s == Player.STATE_READY) {
                     progressHeld = false;
                     if (danmuManager != null) danmuManager.setHoldStatus(false);
+                    // 先应用字幕，再续播 seek，避免选轨把进度打回开头
+                    if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
                     boolean resumedNow = !seeked && seekTs > 0;
-                    if (resumedNow) { player.seekTo(seekTs); seeked = true; }
+                    if (resumedNow) {
+                        seeked = true;
+                        seekToSafe(seekTs);
+                    }
                     ensureSaveLoop(); updateTime();
                     if (firstReady) { scheduleInitialSave(); showCtrl(true); focusEntrySeekBar(); firstReady = false; }
                     if (resumedNow) offerResumeRestart();
                     syncPlayButton();
                     applyPlaybackSpeed();
                     if (danmuManager != null) danmuManager.onPlayerReady();
-                    if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
-                    // HDR 检测（延时等格式就绪）
                     checkHdr();
-                    // 打印音轨信息
                     com.google.android.exoplayer2.Format af2 = player.getAudioFormat();
                     if (af2 != null) {
                         Log.d(TAG, "音轨: codec=" + af2.codecs + " mime=" + af2.sampleMimeType
@@ -1123,15 +1155,18 @@ public class PlayerActivity extends AppCompatActivity {
                 if (s == Player.STATE_READY) {
                     progressHeld = false;
                     if (danmuManager != null) danmuManager.setHoldStatus(false);
+                    if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
                     boolean resumedNow = !seeked && seekTs > 0;
-                    if (resumedNow) { player.seekTo(seekTs); seeked = true; }
+                    if (resumedNow) {
+                        seeked = true;
+                        seekToSafe(seekTs);
+                    }
                     ensureSaveLoop();
                     updateTime();
                     applyPlaybackSpeed();
                     if (firstReady) { scheduleInitialSave(); showCtrl(true); focusEntrySeekBar(); firstReady = false; }
                     if (resumedNow) offerResumeRestart();
                     syncPlayButton();
-                    if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
                 } else if (s == Player.STATE_ENDED) {
                     noteProgress();
                     saveProgress(true);
@@ -1193,8 +1228,9 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     /**
-     * 安全 seek：时长未知（TIME_UNSET）时不能用 Math.min(duration, …)，
-     * 否则结果变成 0。多音轨 MKV 等不可 seek 源会回到开头，改走服务端起播。
+     * 安全 seek：时长未知时不能 Math.min(TIME_UNSET, …)。
+     * 仅在明确不可 seek 时走服务端起播；不要用延时猜「是否跳回开头」，
+     * 缓冲中 position 仍可能是 0，误触发会导致一直加载中。
      */
     private void seekToSafe(long targetMs) {
         if (player == null) return;
@@ -1202,8 +1238,7 @@ public class PlayerActivity extends AppCompatActivity {
         long target = Math.max(0, targetMs);
         if (dur > 0) target = Math.min(dur, target);
 
-        boolean seekable = player.isCurrentMediaItemSeekable();
-        if (!seekable && target > 1500) {
+        if (!player.isCurrentMediaItemSeekable() && target > 1500) {
             Log.w(TAG, "媒体不可本地 seek，改用服务端起播 targetMs=" + target);
             seekViaServer(target);
             return;
@@ -1211,19 +1246,6 @@ public class PlayerActivity extends AppCompatActivity {
 
         player.seekTo(target);
         if (danmuManager != null) danmuManager.onSeekTo(target);
-
-        // 有些源谎称可 seek，实际仍跳回开头：就绪后校验一次
-        if (target > 5000) {
-            final long expect = target;
-            handler.postDelayed(() -> {
-                if (player == null || serverSeekInFlight) return;
-                long now = player.getCurrentPosition();
-                if (now < 2000 && expect > 5000) {
-                    Log.w(TAG, "seek 落到开头 now=" + now + " expect=" + expect + "，改用服务端起播");
-                    seekViaServer(expect);
-                }
-            }, 900);
-        }
     }
 
     /** 不可本地 seek 时：play/play + startTimestamp，由服务端从目标时间起播 */

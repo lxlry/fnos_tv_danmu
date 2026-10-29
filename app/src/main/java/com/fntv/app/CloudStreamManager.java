@@ -10,6 +10,7 @@ import android.widget.Button;
 import android.widget.TextView;
 import com.fntv.app.api.FnApiManager;
 import com.fntv.app.api.model.ApiResponse;
+import com.fntv.app.api.model.PlayLinkResponse;
 import com.fntv.app.api.model.StreamResponse;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
@@ -45,9 +46,16 @@ public class CloudStreamManager {
         void startPlayback();
         void reloadPlayback();
         void onTrackChanged();
+        /** 服务端换音轨后换播放地址；已带 startTimestamp，勿再本地 seek。 */
+        void onAudioPlayLink(String playLink, String resolution, int bitrate, String audioGuid);
         void probeWithMediaExtractor();
         void onCloudBtnVisibilityChanged(boolean vis);
         void runOnUiThread(Runnable r);
+        /** 当前播放进度毫秒 */
+        long getPlaybackPositionMs();
+        /** 当前画质（换音轨时保持，勿升到最高） */
+        String getCurrentResolution();
+        int getCurrentBitrate();
     }
 
     /** Stream API 解析出的音视频元数据（传给 Activity 更新信息面板） */
@@ -745,14 +753,24 @@ public class CloudStreamManager {
 
     // ========== 音轨/字幕选择 ==========
 
-    /** 显示音轨选择弹窗（匹配弹幕设置的美化风格） */
+    /**
+     * 音轨选择：
+     * - 播放器里能列出 ≥2 路 → 本地 TrackSelectionOverride 切换（原画多音轨 MKV）
+     * - 否则若 stream 元数据有多路 → 服务端 play/play 换 audio_guid（转码/HLS 通常只混一路）
+     */
     public void showAudioTrackDialog(Activity activity) {
         if (player == null) return;
-        // 用 Player.getCurrentTracks（按 track type），避免把 TRACK_TYPE_* 误当 renderer index
         java.util.ArrayList<Tracks.Group> audioGroups = collectAudioGroups();
-        if (!audioGroups.isEmpty()) {
+        int playerCount = countSupportedAudioTracks(audioGroups);
+        int streamCount = streamAudioTracks != null ? streamAudioTracks.size() : 0;
+
+        if (playerCount >= 2) {
             showAudioTracksFromPlayer(activity, audioGroups);
-        } else if (streamAudioTracks != null && !streamAudioTracks.isEmpty()) {
+        } else if (streamCount >= 2) {
+            showAudioTracksFromStreamApi(activity);
+        } else if (playerCount >= 1) {
+            showAudioTracksFromPlayer(activity, audioGroups);
+        } else if (streamCount >= 1) {
             showAudioTracksFromStreamApi(activity);
         } else {
             AppToast.show(activity, "无可用音轨");
@@ -766,14 +784,23 @@ public class CloudStreamManager {
         Tracks tracks = player.getCurrentTracks();
         for (int i = 0; i < tracks.getGroups().size(); i++) {
             Tracks.Group group = tracks.getGroups().get(i);
-            // 允许「超出能力」音轨（DTS/TrueHD 等常靠 FFmpeg 播）
             if (group.getType() != C.TRACK_TYPE_AUDIO || !group.isSupported(true)) continue;
             out.add(group);
         }
         return out;
     }
 
-    /** ExoPlayer 有音轨 → 用 TrackSelectionOverride 切换（兼容多音频 renderer） */
+    private static int countSupportedAudioTracks(java.util.ArrayList<Tracks.Group> audioGroups) {
+        int n = 0;
+        for (Tracks.Group group : audioGroups) {
+            for (int t = 0; t < group.length; t++) {
+                if (group.isTrackSupported(t, true)) n++;
+            }
+        }
+        return n;
+    }
+
+    /** ExoPlayer 有多路音轨 → 本地 Override 切换 */
     private void showAudioTracksFromPlayer(Activity activity, java.util.ArrayList<Tracks.Group> audioGroups) {
         final java.util.ArrayList<String> itemLabels = new java.util.ArrayList<>();
         final java.util.ArrayList<Tracks.Group> itemGroups = new java.util.ArrayList<>();
@@ -785,16 +812,9 @@ public class CloudStreamManager {
             for (int t = 0; t < group.length; t++) {
                 if (!group.isTrackSupported(t, /* allowExceedsCapabilities= */ true)) continue;
                 Format fmt = group.getTrackFormat(t);
+                int streamIdx = seen;
                 seen++;
-                String label = "音轨" + seen;
-                String langName = audioLanguageLabel(fmt, seen - 1);
-                if (!langName.isEmpty()) label += "  " + langName;
-                String codecStr = fmt.codecs != null ? fmt.codecs
-                        : (fmt.sampleMimeType != null ? fmt.sampleMimeType.replace("audio/", "") : "");
-                if (!codecStr.isEmpty()) label += "  " + codecStr;
-                if (fmt.channelCount > 0) label += "  " + fmt.channelCount + "ch";
-                if (fmt.sampleRate > 0) label += "  " + (fmt.sampleRate / 1000) + "kHz";
-
+                String label = buildPlayerAudioLabel(fmt, streamIdx, seen);
                 int idx = itemLabels.size();
                 itemLabels.add(label);
                 itemGroups.add(group);
@@ -808,11 +828,14 @@ public class CloudStreamManager {
         final String[] items = itemLabels.toArray(new String[0]);
         SideSheet.showCards(activity, "音频", null, trackChoices(items), selected, "", (dialog, which) -> {
             if (which < 0 || which >= itemLabels.size()) return;
+            if (which == selected) {
+                dialog.dismiss();
+                return;
+            }
             Tracks.Group selGroup = itemGroups.get(which);
             int selTrack = itemTrackIdx.get(which);
-            if (selGroup != null && selTrack >= 0) {
-                applyAudioTrackOverride(selGroup, selTrack);
-            }
+            if (selGroup == null || selTrack < 0) return;
+            applyAudioTrackOverride(selGroup, selTrack);
             lastAudioTrackLabel = items[which];
             cb.onTrackChanged();
             AppToast.show(activity, "已切换: " + items[which]);
@@ -820,12 +843,26 @@ public class CloudStreamManager {
         });
     }
 
-    /** 强制选中指定音轨；setOverrideForType 会关掉同类型其它 renderer 上的旧选择 */
+    private String buildPlayerAudioLabel(Format fmt, int streamIdx, int displayIndex) {
+        String label = "音轨" + displayIndex;
+        String langName = audioLanguageLabel(fmt, streamIdx);
+        if (!langName.isEmpty()) label += "  " + langName;
+        String codecStr = fmt.codecs != null ? fmt.codecs
+                : (fmt.sampleMimeType != null ? fmt.sampleMimeType.replace("audio/", "") : "");
+        if (!codecStr.isEmpty()) label += "  " + codecStr;
+        if (fmt.channelCount > 0) label += "  " + fmt.channelCount + "ch";
+        if (fmt.sampleRate > 0) label += "  " + (fmt.sampleRate / 1000) + "kHz";
+        return label;
+    }
+
+    /** 强制选中指定音轨；清掉旧 override / 语言偏好，避免切不生效 */
     private void applyAudioTrackOverride(Tracks.Group group, int trackIndex) {
         player.setTrackSelectionParameters(
                 player.getTrackSelectionParameters()
                         .buildUpon()
                         .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                        .clearPreferredAudioLanguages()
                         .setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), trackIndex))
                         .build());
     }
@@ -845,7 +882,10 @@ public class CloudStreamManager {
         return "";
     }
 
-    /** ExoPlayer 暂无音轨列表 → 用 stream API 元数据 + 语言偏好尝试切换 */
+    /**
+     * 播放器里只有一路（或没有）时：用 stream 元数据列表，
+     * 选中后走 play/play 换 audio_guid（仅改语言偏好对转码流无效）。
+     */
     private void showAudioTracksFromStreamApi(Activity activity) {
         final String[] items = new String[streamAudioTracks.size()];
         for (int i = 0; i < streamAudioTracks.size(); i++) {
@@ -860,26 +900,122 @@ public class CloudStreamManager {
         }
         int selected = trackSelected(items, lastAudioTrackLabel);
         if (selected < 0 && items.length > 0) selected = 0;
+        final int curSelected = selected;
         SideSheet.showCards(activity, "音频", null, trackChoices(items), selected, "", (dialog, which) -> {
             if (which < 0 || which >= streamAudioTracks.size()) return;
-            StreamResponse.AudioStreamInfo sel = streamAudioTracks.get(which);
-            String lang = sel.language;
-            if (lang != null && !lang.isEmpty()) {
-                // 先按语言偏好；若之后 tracks 就绪，下次打开对话框可用 Override 精确切换
-                player.setTrackSelectionParameters(
-                        player.getTrackSelectionParameters()
-                                .buildUpon()
-                                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-                                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                                .setPreferredAudioLanguage(lang)
-                                .build());
-                lastAudioTrackLabel = items[which];
-                cb.onTrackChanged();
-                AppToast.show(activity, "已切换: " + items[which]);
-            } else {
-                AppToast.show(activity, "该音轨无语言标记，无法自动切换");
+            if (which == curSelected) {
+                dialog.dismiss();
+                return;
             }
+            StreamResponse.AudioStreamInfo sel = streamAudioTracks.get(which);
+            if (sel.guid == null || sel.guid.isEmpty()) {
+                // 无 guid 时尽量用语言偏好兜底（仅对播放器内多语言轨有效）
+                String lang = sel.language;
+                if (lang != null && !lang.isEmpty()) {
+                    player.setTrackSelectionParameters(
+                            player.getTrackSelectionParameters()
+                                    .buildUpon()
+                                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                                    .clearPreferredAudioLanguages()
+                                    .setPreferredAudioLanguage(lang)
+                                    .build());
+                    lastAudioTrackLabel = items[which];
+                    cb.onTrackChanged();
+                    AppToast.show(activity, "已切换: " + items[which]);
+                } else {
+                    AppToast.show(activity, "该音轨无法切换");
+                }
+                dialog.dismiss();
+                return;
+            }
+            lastAudioTrackLabel = items[which];
             dialog.dismiss();
+            remuxWithAudio(activity, sel, items[which]);
+        });
+    }
+
+    /** play/play 指定 audio_guid，从当前进度起播 */
+    private void remuxWithAudio(Activity activity, StreamResponse.AudioStreamInfo sel, String label) {
+        String mediaGuid = cb.getMediaGuid();
+        if (mediaGuid == null || mediaGuid.isEmpty()) {
+            AppToast.show(activity, "无法切换音轨");
+            return;
+        }
+        StreamResponse sd = lastStreamData;
+        String res = "";
+        int bps = 0;
+        try {
+            res = cb.getCurrentResolution();
+            bps = cb.getCurrentBitrate();
+        } catch (Throwable ignored) {}
+        if (res == null) res = "";
+        if (res.isEmpty() && sd != null && sd.qualities != null && !sd.qualities.isEmpty()) {
+            StreamResponse.Quality pick = sd.qualities.get(0);
+            for (StreamResponse.Quality q : sd.qualities) {
+                if (q != null && q.bitrate > pick.bitrate) pick = q;
+            }
+            res = pick.resolution != null ? pick.resolution : "";
+            bps = pick.bitrate;
+        }
+        if (res.isEmpty() && sd != null && sd.directLinkQualities != null && !sd.directLinkQualities.isEmpty()) {
+            StreamResponse.DirectLinkQuality q = sd.directLinkQualities.get(
+                    Math.min(qualityIndex, sd.directLinkQualities.size() - 1));
+            res = q.resolution != null ? q.resolution : "";
+            bps = q.bitrate;
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("media_guid", mediaGuid);
+        if (sd != null && sd.videoStream != null) {
+            body.put("video_guid", sd.videoStream.guid != null ? sd.videoStream.guid : "");
+            body.put("video_encoder", sd.videoStream.codecName != null ? sd.videoStream.codecName : "");
+        }
+        if (res != null && !res.isEmpty()) {
+            body.put("resolution", res);
+            body.put("bitrate", bps);
+        }
+        long posMs = 0;
+        try { posMs = Math.max(0, cb.getPlaybackPositionMs()); } catch (Throwable ignored) {}
+        body.put("startTimestamp", posMs / 1000);
+        body.put("audio_guid", sel.guid);
+        body.put("audio_encoder", sel.codecName != null ? sel.codecName : "");
+        body.put("channels", sel.channels);
+
+        String prefId = null;
+        try { prefId = cb.getSubtitlePrefId(); } catch (Throwable ignored) {}
+        if (prefId == null || prefId.isEmpty()) prefId = mediaGuid;
+        String savedSub = prefs.getString("subtitle_manual_" + prefId, "");
+        String subGuid = chooseSubtitleGuid(sd != null ? sd.subtitleStreams : null, savedSub);
+        if (!subGuid.isEmpty()) body.put("subtitle_guid", subGuid);
+
+        AppToast.show(activity, "正在切换音轨…");
+        Log.d(TAG, "换音轨 play/play: " + new Gson().toJson(body));
+        final String useRes = res != null ? res : "";
+        final int useBps = bps;
+        final String audioId = sel.guid;
+        cb.getApiManager().getApi().getPlayLink(body).enqueue(new retrofit2.Callback<ApiResponse<PlayLinkResponse>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<PlayLinkResponse>> call,
+                                   Response<ApiResponse<PlayLinkResponse>> response) {
+                if (response.isSuccessful() && response.body() != null && response.body().code == 0
+                        && response.body().data != null && response.body().data.playLink != null
+                        && !response.body().data.playLink.isEmpty()) {
+                    String playLink = response.body().data.playLink;
+                    cb.runOnUiThread(() -> {
+                        cb.onAudioPlayLink(playLink, useRes, useBps, audioId);
+                        cb.onTrackChanged();
+                        AppToast.show(activity, "已切换: " + label);
+                    });
+                } else {
+                    cb.runOnUiThread(() -> AppToast.show(activity, "音轨切换失败"));
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<PlayLinkResponse>> call, Throwable t) {
+                cb.runOnUiThread(() -> AppToast.show(activity, "音轨切换失败: " + t.getMessage()));
+            }
         });
     }
 

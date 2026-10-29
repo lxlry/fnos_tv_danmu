@@ -18,8 +18,7 @@ import okhttp3.ResponseBody;
 
 /**
  * 基于 OkHttp 的 ExoPlayer DataSource。
- * Range 必须返回正确的分段内容；服务器忽略 Range 时不能假装成功，
- * 否则快进后仍从文件头读，表现为「一快进就从头播放」。
+ * 对齐官方行为：服务器忽略 Range 返回 200 时，手动 skip 到请求位置。
  */
 public class OkHttpExoDataSource extends BaseDataSource {
 
@@ -64,7 +63,6 @@ public class OkHttpExoDataSource extends BaseDataSource {
 
         Request.Builder builder = new Request.Builder().url(dataSpec.uri.toString());
 
-        // 分块模式：每次只请求 chunkSize 字节，避免云盘风控
         long rangeEnd = -1;
         if (chunkSize > 0) {
             long endFromChunk = position + chunkSize - 1;
@@ -112,14 +110,7 @@ public class OkHttpExoDataSource extends BaseDataSource {
                 + " pos=" + position + " range=" + range
                 + " len=" + body.contentLength());
 
-        // 请求了非 0 位置却返回 200：服务器忽略了 Range。大文件不能 skip，直接失败。
-        if (code == 200 && position != 0) {
-            closeQuietly();
-            throw new IOException("HTTP 200 for Range at position " + position
-                    + " (server ignores Range)");
-        }
-
-        // 206 但 Content-Range 起点对不上
+        // 206 但起点对不上 → 明确失败（比读错位置更好）
         if (code == 206) {
             long rangeStart = parseRangeStart(response.header("Content-Range"));
             if (rangeStart >= 0 && rangeStart != position) {
@@ -130,6 +121,9 @@ public class OkHttpExoDataSource extends BaseDataSource {
         }
 
         inputStream = new BufferedInputStream(body.byteStream(), 65536);
+
+        // 官方行为：200 + 非零 position → 手动跳过。大跨度 skip 可能慢，但抛错会导致一直「加载中」。
+        long bytesToSkip = (code == 200 && position != 0) ? position : 0;
 
         if (length != C.LENGTH_UNSET) {
             bytesToRead = length;
@@ -143,10 +137,9 @@ public class OkHttpExoDataSource extends BaseDataSource {
             }
         } else {
             long contentLen = body.contentLength();
-            bytesToRead = contentLen != -1 ? contentLen : C.LENGTH_UNSET;
+            bytesToRead = contentLen != -1 ? Math.max(0, contentLen - bytesToSkip) : C.LENGTH_UNSET;
         }
 
-        // 分块上限（仅在未指定精确 length 时收紧）
         if (chunkSize > 0 && length == C.LENGTH_UNSET) {
             if (bytesToRead == C.LENGTH_UNSET || bytesToRead > chunkSize) {
                 bytesToRead = chunkSize;
@@ -155,6 +148,13 @@ public class OkHttpExoDataSource extends BaseDataSource {
 
         transferStarted(dataSpec);
         transferStarted = true;
+
+        try {
+            skipFully(bytesToSkip);
+        } catch (IOException e) {
+            closeQuietly();
+            throw e;
+        }
         return bytesToRead;
     }
 
@@ -199,6 +199,26 @@ public class OkHttpExoDataSource extends BaseDataSource {
                 transferStarted = false;
             }
             dataSpec = null;
+        }
+    }
+
+    private void skipFully(long bytes) throws IOException {
+        if (bytes <= 0 || inputStream == null) return;
+        byte[] skipBuffer = null;
+        long remaining = bytes;
+        while (remaining > 0) {
+            long skipped = inputStream.skip(remaining);
+            if (skipped > 0) {
+                remaining -= skipped;
+                continue;
+            }
+            if (skipBuffer == null) skipBuffer = new byte[8192];
+            int n = inputStream.read(skipBuffer, 0, (int) Math.min(skipBuffer.length, remaining));
+            if (n == -1) {
+                throw new EOFException("Failed to skip to position "
+                        + (dataSpec != null ? dataSpec.position : -1));
+            }
+            remaining -= n;
         }
     }
 
