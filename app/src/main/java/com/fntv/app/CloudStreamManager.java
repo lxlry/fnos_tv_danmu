@@ -113,6 +113,8 @@ public class CloudStreamManager {
     private String lastSubtitleTrackLabel = "";
     private boolean defaultSubtitleApplied;
     private boolean defaultAudioApplied;
+    /** 当前这路播放地址已经按该音轨 guid 打开。 */
+    private String openedAudioGuid = "";
 
     private static final String TAG = "Player";
 
@@ -179,6 +181,12 @@ public class CloudStreamManager {
         lastSubtitleTrackLabel = "";
         defaultAudioApplied = false;
         lastAudioTrackLabel = "";
+        openedAudioGuid = "";
+    }
+
+    /** 换播放地址后允许重新套用记住的音轨。 */
+    public void invalidateAppliedAudio() {
+        defaultAudioApplied = false;
     }
 
     /**
@@ -1099,11 +1107,16 @@ public class CloudStreamManager {
         return "audio_manual_" + id;
     }
 
-    /** 同一文件用 guid，换集用语言+编码+声道对上。 */
+    /** 同一文件用 guid，换集用语言+编码+声道对上。同时按 media 再存一份，避免历史进入时记忆键不一致。 */
     private void saveManualAudioPref(String guid, String lang, String codec, int channels, String label) {
         lastAudioTrackLabel = label != null ? label : "";
         String g = guid != null ? guid : "";
-        prefs.edit().putString(audioPrefKey(), g + "\n" + audioSig(lang, codec, channels)).apply();
+        String value = g + "\n" + audioSig(lang, codec, channels);
+        SharedPreferences.Editor ed = prefs.edit().putString(audioPrefKey(), value);
+        String media = null;
+        try { media = cb.getMediaGuid(); } catch (Throwable ignored) {}
+        if (media != null && !media.isEmpty()) ed.putString("audio_manual_media_" + media, value);
+        ed.apply();
         if (!g.isEmpty()) {
             try { cb.onAudioPreference(g); } catch (Throwable ignored) {}
         }
@@ -1112,6 +1125,11 @@ public class CloudStreamManager {
     /** @return [guid, sig]，没有记录时返回 null */
     private String[] loadManualAudioPref() {
         String raw = prefs.getString(audioPrefKey(), "");
+        if (raw == null || raw.isEmpty()) {
+            String media = null;
+            try { media = cb.getMediaGuid(); } catch (Throwable ignored) {}
+            if (media != null && !media.isEmpty()) raw = prefs.getString("audio_manual_media_" + media, "");
+        }
         if (raw == null || raw.isEmpty()) return null;
         int nl = raw.indexOf('\n');
         if (nl < 0) return new String[]{raw, ""};
@@ -1155,6 +1173,73 @@ public class CloudStreamManager {
         return streamAudioTracks.get(0);
     }
 
+    public void noteOpenedAudio(String guid) {
+        openedAudioGuid = guid != null ? guid : "";
+    }
+
+    /** @return {groups 下标, 轨下标}，没有对上时返回 null */
+    private int[] findPlayerAudioTrack(java.util.ArrayList<Tracks.Group> groups,
+                                       StreamResponse.AudioStreamInfo saved, String guid, String sig) {
+        int savedStreamIndex = -1;
+        if (saved != null && streamAudioTracks != null) {
+            for (int i = 0; i < streamAudioTracks.size(); i++) {
+                if (streamAudioTracks.get(i) == saved) { savedStreamIndex = i; break; }
+            }
+        }
+        String wantLang = saved != null ? normLang(saved.language) : "";
+        int seen = 0;
+        int indexGroup = -1, indexTrack = -1;
+        int langGroup = -1, langTrack = -1;
+        int sigGroup = -1, sigTrack = -1;
+        for (int gi = 0; gi < groups.size(); gi++) {
+            Tracks.Group group = groups.get(gi);
+            for (int t = 0; t < group.length; t++) {
+                if (!group.isTrackSupported(t, true)) continue;
+                Format fmt = group.getTrackFormat(t);
+                if (seen == savedStreamIndex) {
+                    indexGroup = gi;
+                    indexTrack = t;
+                }
+                if (!wantLang.isEmpty() && wantLang.equals(normLang(fmt.language))) {
+                    boolean better = langGroup < 0
+                            || (saved != null && saved.channels > 0 && fmt.channelCount == saved.channels);
+                    if (langGroup < 0 || better) {
+                        langGroup = gi;
+                        langTrack = t;
+                    }
+                }
+                if (sig != null && !sig.isEmpty() && sig.equals(audioSig(fmt.language, fmt.codecs, fmt.channelCount))) {
+                    sigGroup = gi;
+                    sigTrack = t;
+                }
+                if (guid != null && !guid.isEmpty() && streamAudioTracks != null
+                        && seen < streamAudioTracks.size()) {
+                    StreamResponse.AudioStreamInfo a = streamAudioTracks.get(seen);
+                    if (a != null && guid.equals(a.guid)) {
+                        return new int[]{gi, t};
+                    }
+                }
+                seen++;
+            }
+        }
+        if (indexGroup >= 0) return new int[]{indexGroup, indexTrack};
+        if (langGroup >= 0) return new int[]{langGroup, langTrack};
+        if (sigGroup >= 0) return new int[]{sigGroup, sigTrack};
+        return null;
+    }
+
+    private static String normLang(String lang) {
+        if (lang == null) return "";
+        String l = lang.trim().toLowerCase(java.util.Locale.US);
+        if (l.startsWith("zh") || l.equals("chi") || l.equals("zho") || l.equals("cmn")) return "zh";
+        if (l.startsWith("en") || l.equals("eng")) return "en";
+        if (l.startsWith("ja") || l.equals("jpn")) return "ja";
+        if (l.startsWith("ko") || l.equals("kor")) return "ko";
+        int dash = l.indexOf('-');
+        if (dash > 0) l = l.substring(0, dash);
+        return l.length() > 3 ? l.substring(0, 3) : l;
+    }
+
     /**
      * 进入播放后套用上次选的音轨。
      * @return true 表示已改走服务端换流，调用方不要再按原进度 seek
@@ -1177,49 +1262,34 @@ public class CloudStreamManager {
         int playerCount = countSupportedAudioTracks(groups);
         int streamCount = streamAudioTracks != null ? streamAudioTracks.size() : 0;
         if (playerCount == 0 && streamCount == 0) return false;
+        if (!guid.isEmpty()) {
+            try { cb.onAudioPreference(guid); } catch (Throwable ignored) {}
+        }
 
+        StreamResponse.AudioStreamInfo saved = findSavedAudio(guid, sig);
         if (playerCount >= 2) {
-            int seen = 0;
-            Tracks.Group hitGroup = null;
-            int hitTrack = -1;
-            boolean already = false;
-            String hitGuid = guid;
-            for (Tracks.Group group : groups) {
-                for (int t = 0; t < group.length; t++) {
-                    if (!group.isTrackSupported(t, true)) continue;
-                    Format fmt = group.getTrackFormat(t);
-                    boolean match = false;
-                    if (streamAudioTracks != null && seen < streamAudioTracks.size()) {
-                        StreamResponse.AudioStreamInfo a = streamAudioTracks.get(seen);
-                        match = audioInfoMatches(a, guid, sig);
-                        if (match && a != null && a.guid != null && !a.guid.isEmpty()) hitGuid = a.guid;
-                    }
-                    if (!match) {
-                        match = !sig.isEmpty() && sig.equals(audioSig(fmt.language, fmt.codecs, fmt.channelCount));
-                    }
-                    if (match) {
-                        hitGroup = group;
-                        hitTrack = t;
-                        already = group.isTrackSelected(t);
-                        break;
-                    }
-                    seen++;
-                }
-                if (hitGroup != null) break;
-            }
+            int[] hit = findPlayerAudioTrack(groups, saved, guid, sig);
             defaultAudioApplied = true;
-            if (hitGroup != null && hitTrack >= 0 && !already) {
-                applyAudioTrackOverride(hitGroup, hitTrack);
+            if (hit != null) {
+                Tracks.Group hitGroup = groups.get(hit[0]);
+                int hitTrack = hit[1];
+                if (hitGroup != null && !hitGroup.isTrackSelected(hitTrack)) {
+                    applyAudioTrackOverride(hitGroup, hitTrack);
+                }
             }
-            if (hitGuid != null && !hitGuid.isEmpty()) {
-                try { cb.onAudioPreference(hitGuid); } catch (Throwable ignored) {}
+            if (saved != null && saved.guid != null && !saved.guid.isEmpty()) {
+                try { cb.onAudioPreference(saved.guid); } catch (Throwable ignored) {}
             }
             return false;
         }
 
-        StreamResponse.AudioStreamInfo saved = findSavedAudio(guid, sig);
         if (saved == null) {
             if (streamCount > 0 || playerCount > 0) defaultAudioApplied = true;
+            return false;
+        }
+        if (saved.guid != null && !saved.guid.isEmpty() && saved.guid.equals(openedAudioGuid)) {
+            defaultAudioApplied = true;
+            try { cb.onAudioPreference(saved.guid); } catch (Throwable ignored) {}
             return false;
         }
         StreamResponse.AudioStreamInfo current = currentMuxedAudio();

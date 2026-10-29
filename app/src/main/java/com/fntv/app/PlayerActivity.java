@@ -592,6 +592,10 @@ public class PlayerActivity extends AppCompatActivity {
                 final long keepPos = Math.max(0, positionMs);
                 savedPlaybackUrl = fullUrl;
                 useHls = fullUrl.contains(".m3u8");
+                if (cloudStreamManager != null) {
+                    cloudStreamManager.noteOpenedAudio(audioGuid);
+                    cloudStreamManager.invalidateAppliedAudio();
+                }
                 holdFrameThen(() -> {
                     if (player == null) return;
                     long start = keepPos > 1500 ? keepPos : 0;
@@ -1496,6 +1500,10 @@ public class PlayerActivity extends AppCompatActivity {
                         savedPlaybackUrl = fullUrl;
                         useHls = fullUrl.contains(".m3u8");
                         final long oldDur = player.getDuration();
+                        if (cloudStreamManager != null) {
+                            cloudStreamManager.noteOpenedAudio(audioGuid);
+                            cloudStreamManager.invalidateAppliedAudio();
+                        }
                         player.setMediaSource(buildMediaSource(fullUrl, useHls));
                         player.prepare();
                         player.setPlayWhenReady(true);
