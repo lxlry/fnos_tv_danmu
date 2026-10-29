@@ -18,14 +18,16 @@ import okhttp3.ResponseBody;
 
 /**
  * 基于 OkHttp 的 ExoPlayer DataSource。
- * 必须正确处理 Range：服务器若忽略 Range 返回 200，需手动跳过到 position，
- * 否则快进后仍从文件头读数据，表现为「一快进就从头播放」。
+ * Range 必须返回正确的分段内容；服务器忽略 Range 时不能假装成功，
+ * 否则快进后仍从文件头读，表现为「一快进就从头播放」。
  */
 public class OkHttpExoDataSource extends BaseDataSource {
 
     private static final String TAG = "OkHttpDS";
-    private static final Pattern CONTENT_RANGE =
+    private static final Pattern CONTENT_RANGE_SIZE =
             Pattern.compile("bytes (?:(?:\\d+-\\d+)|\\*)/(\\d+)");
+    private static final Pattern CONTENT_RANGE_START =
+            Pattern.compile("bytes (\\d+)-");
 
     private static int chunkSize = 0; // 0 = 不分块
     private static String cloudCookie = "";
@@ -36,7 +38,6 @@ public class OkHttpExoDataSource extends BaseDataSource {
     private DataSpec dataSpec;
     private Response response;
     private InputStream inputStream;
-    private long bytesToSkip;
     private long bytesToRead;
     private long bytesRead;
     private boolean transferStarted;
@@ -56,7 +57,6 @@ public class OkHttpExoDataSource extends BaseDataSource {
         this.dataSpec = dataSpec;
         bytesRead = 0;
         bytesToRead = 0;
-        bytesToSkip = 0;
         transferInitializing(dataSpec);
 
         long position = dataSpec.position;
@@ -112,13 +112,24 @@ public class OkHttpExoDataSource extends BaseDataSource {
                 + " pos=" + position + " range=" + range
                 + " len=" + body.contentLength());
 
-        inputStream = new BufferedInputStream(body.byteStream(), 65536);
-
-        // 关键了 Range 却返回 200：服务器不支持分段，必须手动跳过到请求位置。
-        // 不做这一步时，ExoPlayer 以为已在 seek 点，实际读的仍是文件头 → 快进变从头播。
+        // 请求了非 0 位置却返回 200：服务器忽略了 Range。大文件不能 skip，直接失败。
         if (code == 200 && position != 0) {
-            bytesToSkip = position;
+            closeQuietly();
+            throw new IOException("HTTP 200 for Range at position " + position
+                    + " (server ignores Range)");
         }
+
+        // 206 但 Content-Range 起点对不上
+        if (code == 206) {
+            long rangeStart = parseRangeStart(response.header("Content-Range"));
+            if (rangeStart >= 0 && rangeStart != position) {
+                closeQuietly();
+                throw new IOException("Content-Range start " + rangeStart
+                        + " != requested " + position);
+            }
+        }
+
+        inputStream = new BufferedInputStream(body.byteStream(), 65536);
 
         if (length != C.LENGTH_UNSET) {
             bytesToRead = length;
@@ -132,7 +143,7 @@ public class OkHttpExoDataSource extends BaseDataSource {
             }
         } else {
             long contentLen = body.contentLength();
-            bytesToRead = contentLen != -1 ? Math.max(0, contentLen - bytesToSkip) : C.LENGTH_UNSET;
+            bytesToRead = contentLen != -1 ? contentLen : C.LENGTH_UNSET;
         }
 
         // 分块上限（仅在未指定精确 length 时收紧）
@@ -144,14 +155,6 @@ public class OkHttpExoDataSource extends BaseDataSource {
 
         transferStarted(dataSpec);
         transferStarted = true;
-
-        try {
-            skipFully(bytesToSkip);
-        } catch (IOException e) {
-            closeQuietly();
-            throw e;
-        }
-        bytesToSkip = 0;
         return bytesToRead;
     }
 
@@ -199,30 +202,20 @@ public class OkHttpExoDataSource extends BaseDataSource {
         }
     }
 
-    private void skipFully(long bytes) throws IOException {
-        if (bytes <= 0 || inputStream == null) return;
-        byte[] skipBuffer = null;
-        long remaining = bytes;
-        while (remaining > 0) {
-            long skipped = inputStream.skip(remaining);
-            if (skipped > 0) {
-                remaining -= skipped;
-                continue;
-            }
-            // skip 返回 0 时改用 read 推进（部分流 skip 不可靠）
-            if (skipBuffer == null) skipBuffer = new byte[4096];
-            int n = inputStream.read(skipBuffer, 0, (int) Math.min(skipBuffer.length, remaining));
-            if (n == -1) {
-                throw new EOFException("Failed to skip " + bytes + " bytes to position "
-                        + (dataSpec != null ? dataSpec.position : -1));
-            }
-            remaining -= n;
+    private static long parseDocumentSize(String contentRange) {
+        if (contentRange == null) return -1;
+        Matcher m = CONTENT_RANGE_SIZE.matcher(contentRange);
+        if (!m.find()) return -1;
+        try {
+            return Long.parseLong(m.group(1));
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 
-    private static long parseDocumentSize(String contentRange) {
+    private static long parseRangeStart(String contentRange) {
         if (contentRange == null) return -1;
-        Matcher m = CONTENT_RANGE.matcher(contentRange);
+        Matcher m = CONTENT_RANGE_START.matcher(contentRange);
         if (!m.find()) return -1;
         try {
             return Long.parseLong(m.group(1));

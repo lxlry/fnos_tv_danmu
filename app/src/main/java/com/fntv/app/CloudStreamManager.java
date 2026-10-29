@@ -93,6 +93,8 @@ public class CloudStreamManager {
     // Stream API 返回的音轨/字幕信息（供对话框显示标签用）
     private List<StreamResponse.AudioStreamInfo> streamAudioTracks;
     private List<StreamResponse.SubtitleStreamInfo> streamSubtitleTracks;
+    /** 最近一次 stream 响应（服务端 seek / play/play 用） */
+    private StreamResponse lastStreamData;
 
     // 用户最后一次选择的音轨/字幕标签（供信息面板显示）
     private String lastAudioTrackLabel = "";
@@ -149,6 +151,9 @@ public class CloudStreamManager {
 
     /** 注入 ExoPlayer 引用（用于音轨/字幕切换） */
     public void setPlayer(SimpleExoPlayer player) { this.player = player; }
+
+    /** 最近一次 stream API 数据（服务端起播/seek 用） */
+    public StreamResponse getLastStreamData() { return lastStreamData; }
 
     /** 获取用户最后选择的音轨标签（供信息面板展示） */
     public String getLastAudioTrackLabel() { return lastAudioTrackLabel; }
@@ -602,6 +607,7 @@ public class CloudStreamManager {
                                 }
 
                                 // 音频/字幕流（保存本地副本供音轨切换用）
+                                lastStreamData = sd;
                                 streamAudioTracks = sd.audioStreams;
                                 streamSubtitleTracks = sd.subtitleStreams;
                                 info.audioTracks = sd.audioStreams;

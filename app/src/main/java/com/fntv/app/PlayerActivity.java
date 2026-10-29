@@ -98,6 +98,10 @@ public class PlayerActivity extends AppCompatActivity {
     private String customQualityRes = "";   // 非原画时的分辨率
     private int customQualityBitrate = 0;   // 非原画时的码率
     private String customPlayLink = "";     // 非原画时的 play_link
+    /** 不可本地 seek 时，正在请求服务端从目标时间起播 */
+    private boolean serverSeekInFlight = false;
+    /** 服务端起播对应的目标毫秒（用于弹幕/进度同步，不再二次 seek） */
+    private long serverSeekTargetMs = -1;
     private static final String TAG = "Player";
 
     private static final String[] RATIO_LABELS = {"适应", "填充", "4:3", "16:9", "21:9"};
@@ -429,16 +433,27 @@ public class PlayerActivity extends AppCompatActivity {
                         customQualityBitrate = bps;
                         customPlayLink = playLink;
                         refreshQualityLabel();
-                        // 记录切换前的播放位置（秒）
-                        final long seekPosMs = player != null ? Math.max(0, player.getCurrentPosition()) : 0;
+                        // 服务端按 startTimestamp 起播时不要再本地 seek
+                        final boolean fromServerSeek = serverSeekTargetMs >= 0;
+                        final long seekPosMs = fromServerSeek
+                                ? serverSeekTargetMs
+                                : (player != null ? Math.max(0, player.getCurrentPosition()) : 0);
+                        serverSeekTargetMs = -1;
+                        serverSeekInFlight = false;
                         String fullUrl = baseUrl + playLink;
-                        Log.d(TAG, "画质切换新链接: " + fullUrl + " res=" + res + " bitrate=" + bps + " seek=" + seekPosMs);
+                        Log.d(TAG, "画质/定位新链接: " + fullUrl + " res=" + res + " bitrate=" + bps
+                                + " seek=" + seekPosMs + " serverSeek=" + fromServerSeek);
                         if (player != null) {
                             savedPlaybackUrl = fullUrl;
                             useHls = fullUrl.contains(".m3u8");
                             player.setMediaSource(buildMediaSource(fullUrl, useHls));
                             player.prepare();
                             player.setPlayWhenReady(true);
+                            if (fromServerSeek) {
+                                if (danmuManager != null) danmuManager.onSeekTo(seekPosMs);
+                                updateInfo();
+                                return;
+                            }
                             // 等播放器就绪后 seek 到切换前位置 + 更新信息面板
                             player.addListener(new Player.Listener() {
                                 @Override public void onPlaybackStateChanged(int s) {
@@ -1006,17 +1021,20 @@ public class PlayerActivity extends AppCompatActivity {
 
     /** 视频源。没有内嵌字幕时附上中文外部字幕。 */
     private com.google.android.exoplayer2.source.MediaSource buildMediaSource(String url, boolean hls) {
-        com.google.android.exoplayer2.upstream.DataSource.Factory f = () -> new OkHttpExoDataSource(apiManager.getStreamClient());
+        com.google.android.exoplayer2.upstream.DataSource.Factory f =
+                () -> new OkHttpExoDataSource(apiManager.getStreamClient());
         CloudStreamManager.ExternalSubtitle side = cloudStreamManager != null
                 ? cloudStreamManager.defaultExternalSubtitle(baseUrl) : null;
         if (side != null) Log.d(TAG, "外挂中文字幕: " + side.label + " " + side.url);
+
+        // HLS 用专用 Factory；外挂字幕仍用 Merging，但给字幕设无限时长以免拖垮主视频 seek
         if (hls) {
-            com.google.android.exoplayer2.source.hls.HlsMediaSource video =
+            com.google.android.exoplayer2.source.MediaSource video =
                     new com.google.android.exoplayer2.source.hls.HlsMediaSource.Factory(f)
                             .createMediaSource(MediaItem.fromUri(url));
             return withExternalSubtitle(video, f, side);
         }
-        com.google.android.exoplayer2.source.ProgressiveMediaSource video =
+        com.google.android.exoplayer2.source.MediaSource video =
                 new ProgressiveMediaSource.Factory(f, new DefaultExtractorsFactory())
                         .createMediaSource(MediaItem.fromUri(url));
         return withExternalSubtitle(video, f, side);
@@ -1035,7 +1053,9 @@ public class PlayerActivity extends AppCompatActivity {
                                 .setLabel(side.label)
                                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                                 .build(), C.TIME_UNSET);
-        return new com.google.android.exoplayer2.source.MergingMediaSource(video, text);
+        // adjustPeriodTimeOffsets=false：避免外挂字幕时间轴校准把 progressive seek 弄丢
+        return new com.google.android.exoplayer2.source.MergingMediaSource(
+                /* adjustPeriodTimeOffsets= */ false, video, text);
     }
 
     /** 开始播放（加载到 ExoPlayer） */
@@ -1174,15 +1194,157 @@ public class PlayerActivity extends AppCompatActivity {
 
     /**
      * 安全 seek：时长未知（TIME_UNSET）时不能用 Math.min(duration, …)，
-     * 否则结果变成 0，表现为「一快进就从头播放」。
+     * 否则结果变成 0。多音轨 MKV 等不可 seek 源会回到开头，改走服务端起播。
      */
     private void seekToSafe(long targetMs) {
         if (player == null) return;
         long dur = player.getDuration();
         long target = Math.max(0, targetMs);
         if (dur > 0) target = Math.min(dur, target);
+
+        boolean seekable = player.isCurrentMediaItemSeekable();
+        if (!seekable && target > 1500) {
+            Log.w(TAG, "媒体不可本地 seek，改用服务端起播 targetMs=" + target);
+            seekViaServer(target);
+            return;
+        }
+
         player.seekTo(target);
         if (danmuManager != null) danmuManager.onSeekTo(target);
+
+        // 有些源谎称可 seek，实际仍跳回开头：就绪后校验一次
+        if (target > 5000) {
+            final long expect = target;
+            handler.postDelayed(() -> {
+                if (player == null || serverSeekInFlight) return;
+                long now = player.getCurrentPosition();
+                if (now < 2000 && expect > 5000) {
+                    Log.w(TAG, "seek 落到开头 now=" + now + " expect=" + expect + "，改用服务端起播");
+                    seekViaServer(expect);
+                }
+            }, 900);
+        }
+    }
+
+    /** 不可本地 seek 时：play/play + startTimestamp，由服务端从目标时间起播 */
+    private void seekViaServer(long targetMs) {
+        if (serverSeekInFlight || mediaGuid == null || mediaGuid.isEmpty() || apiManager == null) {
+            if (player != null) player.seekTo(Math.max(0, targetMs));
+            return;
+        }
+        StreamResponse sd = cloudStreamManager != null ? cloudStreamManager.getLastStreamData() : null;
+        String res = customQualityRes;
+        int bps = customQualityBitrate;
+        if ((res == null || res.isEmpty()) && sd != null && sd.qualities != null && !sd.qualities.isEmpty()) {
+            StreamResponse.Quality pick = sd.qualities.get(0);
+            for (StreamResponse.Quality q : sd.qualities) {
+                if (q != null && q.bitrate > 0 && (pick == null || q.bitrate > pick.bitrate)) pick = q;
+            }
+            if (pick != null) {
+                res = pick.resolution != null ? pick.resolution : "";
+                bps = pick.bitrate;
+            }
+        }
+        if (res == null || res.isEmpty()) {
+            res = !streamResolution.isEmpty() ? streamResolution : (resolution != null ? resolution : "");
+            bps = streamBitrate > 0 ? streamBitrate : bps;
+        }
+        if (res == null || res.isEmpty()) {
+            AppToast.show(this, "当前片源不支持精确定位");
+            return;
+        }
+
+        serverSeekInFlight = true;
+        serverSeekTargetMs = targetMs;
+        AppToast.show(this, "正在定位…");
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("media_guid", mediaGuid);
+        if (sd != null && sd.videoStream != null) {
+            body.put("video_guid", sd.videoStream.guid != null ? sd.videoStream.guid : "");
+            body.put("video_encoder", sd.videoStream.codecName != null ? sd.videoStream.codecName : "");
+        } else {
+            body.put("video_guid", videoGuid != null ? videoGuid : "");
+        }
+        body.put("resolution", res);
+        body.put("bitrate", bps);
+        body.put("startTimestamp", Math.max(0, targetMs / 1000));
+
+        StreamResponse.AudioStreamInfo audio = null;
+        if (sd != null && sd.audioStreams != null && !sd.audioStreams.isEmpty()) {
+            audio = sd.audioStreams.get(0);
+            if (audioGuid != null && !audioGuid.isEmpty()) {
+                for (StreamResponse.AudioStreamInfo a : sd.audioStreams) {
+                    if (a != null && audioGuid.equals(a.guid)) { audio = a; break; }
+                }
+            }
+        }
+        if (audio != null) {
+            body.put("audio_encoder", audio.codecName != null ? audio.codecName : "");
+            body.put("audio_guid", audio.guid != null ? audio.guid : "");
+            body.put("channels", audio.channels);
+        } else if (audioGuid != null) {
+            body.put("audio_guid", audioGuid);
+        }
+
+        String prefId = parentGuid != null && !parentGuid.isEmpty() ? parentGuid
+                : (itemGuid != null && !itemGuid.isEmpty() ? itemGuid : mediaGuid);
+        String savedSub = getSharedPreferences("fntv_prefs", MODE_PRIVATE)
+                .getString("subtitle_manual_" + prefId, "");
+        String subGuid = CloudStreamManager.chooseSubtitleGuid(
+                sd != null ? sd.subtitleStreams : null, savedSub);
+        if (!subGuid.isEmpty()) body.put("subtitle_guid", subGuid);
+
+        Log.d(TAG, "服务端 seek play/play: " + new com.google.gson.Gson().toJson(body));
+        final String useRes = res;
+        final int useBps = bps;
+        apiManager.getApi().getPlayLink(body).enqueue(new retrofit2.Callback<ApiResponse<PlayLinkResponse>>() {
+            @Override
+            public void onResponse(retrofit2.Call<ApiResponse<PlayLinkResponse>> call,
+                                   retrofit2.Response<ApiResponse<PlayLinkResponse>> response) {
+                if (response.isSuccessful() && response.body() != null && response.body().code == 0
+                        && response.body().data != null && response.body().data.playLink != null
+                        && !response.body().data.playLink.isEmpty()) {
+                    String playLink = response.body().data.playLink;
+                    runOnUiThread(() -> {
+                        customQualityRes = useRes;
+                        customQualityBitrate = useBps;
+                        customPlayLink = playLink;
+                        refreshQualityLabel();
+                        String fullUrl = baseUrl + playLink;
+                        if (player == null) {
+                            serverSeekInFlight = false;
+                            serverSeekTargetMs = -1;
+                            return;
+                        }
+                        savedPlaybackUrl = fullUrl;
+                        useHls = fullUrl.contains(".m3u8");
+                        player.setMediaSource(buildMediaSource(fullUrl, useHls));
+                        player.prepare();
+                        player.setPlayWhenReady(true);
+                        if (danmuManager != null) danmuManager.onSeekTo(targetMs);
+                        serverSeekInFlight = false;
+                        serverSeekTargetMs = -1;
+                        updateInfo();
+                    });
+                } else {
+                    runOnUiThread(() -> {
+                        serverSeekInFlight = false;
+                        serverSeekTargetMs = -1;
+                        AppToast.show(PlayerActivity.this, "定位失败，请稍后再试");
+                    });
+                }
+            }
+
+            @Override
+            public void onFailure(retrofit2.Call<ApiResponse<PlayLinkResponse>> call, Throwable t) {
+                runOnUiThread(() -> {
+                    serverSeekInFlight = false;
+                    serverSeekTargetMs = -1;
+                    AppToast.show(PlayerActivity.this, "定位失败: " + t.getMessage());
+                });
+            }
+        });
     }
 
     /** 左 25%、中 50%、右 25%。 */
