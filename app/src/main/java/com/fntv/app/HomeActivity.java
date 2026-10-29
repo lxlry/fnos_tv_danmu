@@ -46,7 +46,7 @@ public class HomeActivity extends AppCompatActivity {
     /** 点开搜索时所在的标签。返回时回到这一页，而不是媒体库。 */
     private int searchEntryTab = -1;
     private TextView tvSettingUsername, tvSettingServer, tvDecoderValue, tvDanmuUrl;
-    private Button btnLogout, btnFeedback;
+    private Button btnLogout, btnFeedback, btnSwitchAccount;
     private UpdateManager updateManager;
     private RelativeLayout rlDecoderSetting, rlDanmuSetting, rlSeekStep, rlBufferTime;
     private TextView tvSeekStepValue, tvBufferTimeValue;
@@ -258,6 +258,7 @@ public class HomeActivity extends AppCompatActivity {
         tvSettingServer = findViewById(R.id.tvSettingServer);
         tvDecoderValue = findViewById(R.id.tvDecoderValue);
         btnLogout = findViewById(R.id.btnLogout);
+        btnSwitchAccount = findViewById(R.id.btnSwitchAccount);
         Button btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
         updateManager = new UpdateManager(this, btnCheckUpdate, BuildConfig.VERSION_CODE);
         btnFeedback = findViewById(R.id.btnFeedback);
@@ -472,7 +473,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void placeTvTabFocus(int index) {
         if (index == 2) {
-            View first = rlDecoderSetting;
+            View first = btnSwitchAccount != null ? btnSwitchAccount : rlDecoderSetting;
             if (first != null) first.post(() -> {
                 if (currentTab == 2 && isUsableFocus(first)) first.requestFocus();
             });
@@ -4140,7 +4141,8 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void setupSettings() {
-        tvSettingUsername.setText("用户名: " + prefs.getString("user", ""));
+        refreshAccountSummary();
+        if (btnSwitchAccount != null) btnSwitchAccount.setOnClickListener(v -> switchAccount());
         String d = prefs.getString(PREF_DECODER, "hardware");
         tvDecoderValue.setText("hardware".equals(d) ? "硬解" : "软解");
         rlDecoderSetting.setOnClickListener(v -> toggleDecoder());
@@ -4396,6 +4398,27 @@ public class HomeActivity extends AppCompatActivity {
 
     // ==================== 登出 ====================
 
+
+    private void refreshAccountSummary() {
+        boolean fnid = "fnid".equals(prefs.getString("login_mode", ""));
+        String user = fnid ? prefs.getString("fnid_user", "") : prefs.getString("user", "");
+        if (user == null || user.isEmpty()) user = prefs.getString("user", "");
+        tvSettingUsername.setText("用户名: " + user);
+        String server = prefs.getString("host", "");
+        if (fnid) {
+            String fnId = prefs.getString("fnid_host", "");
+            tvSettingServer.setText(fnId == null || fnId.isEmpty() ? server : "FN ID · " + fnId + "\n" + server);
+        } else {
+            tvSettingServer.setText(server);
+        }
+    }
+
+    private void switchAccount() {
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.putExtra("skip_auto_login", true);
+        intent.putExtra("switch_account", true);
+        startActivity(intent);
+    }
 
     private void setupLogout() {
         btnLogout.setOnClickListener(v -> logout());
@@ -4919,6 +4942,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void wireSettingsFocus() {
         List<View> items = new ArrayList<>();
+        if (btnSwitchAccount != null) items.add(btnSwitchAccount);
         if (rlDecoderSetting != null) items.add(rlDecoderSetting);
         if (rlSeekStep != null) items.add(rlSeekStep);
         if (rlBufferTime != null) items.add(rlBufferTime);
