@@ -2,59 +2,90 @@ package com.fntv.app;
 
 import android.net.Uri;
 import android.util.Log;
+import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.upstream.BaseDataSource;
 import com.google.android.exoplayer2.upstream.DataSpec;
 import java.io.BufferedInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import okhttp3.ResponseBody;
 
+/**
+ * 基于 OkHttp 的 ExoPlayer DataSource。
+ * 必须正确处理 Range：服务器若忽略 Range 返回 200，需手动跳过到 position，
+ * 否则快进后仍从文件头读数据，表现为「一快进就从头播放」。
+ */
 public class OkHttpExoDataSource extends BaseDataSource {
 
     private static final String TAG = "OkHttpDS";
+    private static final Pattern CONTENT_RANGE =
+            Pattern.compile("bytes (?:(?:\\d+-\\d+)|\\*)/(\\d+)");
+
     private static int chunkSize = 0; // 0 = 不分块
     private static String cloudCookie = "";
     public static int lastResponseCode = 0;
     public static String lastContentType = "";
-    private final OkHttpClient client;
 
-    public static void setCloudCookie(String cookie) { cloudCookie = cookie; }
+    private final OkHttpClient client;
+    private DataSpec dataSpec;
     private Response response;
-    private BufferedInputStream bufferedInput;
+    private InputStream inputStream;
+    private long bytesToSkip;
+    private long bytesToRead;
     private long bytesRead;
     private boolean transferStarted;
+
+    public static void setCloudCookie(String cookie) { cloudCookie = cookie; }
 
     /** 设置分块模式（字节数），用于夸克等云盘直链 */
     public static void setChunkedMode(int bytes) { chunkSize = bytes; }
 
     public OkHttpExoDataSource(OkHttpClient client) {
-        super(true);
+        super(/* isNetwork= */ true);
         this.client = client;
     }
 
     @Override
     public long open(DataSpec dataSpec) throws IOException {
-        Request.Builder builder = new Request.Builder()
-                .url(dataSpec.uri.toString());
+        this.dataSpec = dataSpec;
+        bytesRead = 0;
+        bytesToRead = 0;
+        bytesToSkip = 0;
+        transferInitializing(dataSpec);
 
-        // 分块模式：每次只请求 chunkSize 字节（如 10MB），避免云盘风控
+        long position = dataSpec.position;
+        long length = dataSpec.length;
+
+        Request.Builder builder = new Request.Builder().url(dataSpec.uri.toString());
+
+        // 分块模式：每次只请求 chunkSize 字节，避免云盘风控
         long rangeEnd = -1;
-        if (chunkSize > 0 && dataSpec.length > chunkSize) {
-            rangeEnd = dataSpec.position + chunkSize - 1;
+        if (chunkSize > 0) {
+            long endFromChunk = position + chunkSize - 1;
+            if (length != C.LENGTH_UNSET) {
+                rangeEnd = Math.min(position + length - 1, endFromChunk);
+            } else {
+                rangeEnd = endFromChunk;
+            }
+        } else if (length != C.LENGTH_UNSET) {
+            rangeEnd = position + length - 1;
         }
-        String range = rangeEnd > 0
-                ? "bytes=" + dataSpec.position + "-" + rangeEnd
-                : "bytes=" + dataSpec.position + "-";
+
+        String range = rangeEnd >= 0
+                ? "bytes=" + position + "-" + rangeEnd
+                : "bytes=" + position + "-";
         builder.header("Range", range);
         builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
-        // 云盘直链 Cookie
         if (!cloudCookie.isEmpty()) {
             builder.header("Cookie", cloudCookie);
         }
-
         if (dataSpec.httpRequestHeaders != null) {
             for (String key : dataSpec.httpRequestHeaders.keySet()) {
                 builder.header(key, dataSpec.httpRequestHeaders.get(key));
@@ -62,43 +93,90 @@ public class OkHttpExoDataSource extends BaseDataSource {
         }
 
         response = client.newCall(builder.build()).execute();
-
-        lastResponseCode = response.code();
+        int code = response.code();
+        lastResponseCode = code;
         lastContentType = response.header("Content-Type", "");
 
-        if (response.code() != 200 && response.code() != 206) {
-            response.close();
-            throw new IOException("HTTP " + response.code() + " " + response.message());
+        ResponseBody body = response.body();
+        if (body == null) {
+            closeQuietly();
+            throw new IOException("HTTP " + code + " empty body");
         }
-        String ct = response.header("Content-Type");
-        long len = response.body() != null ? response.body().contentLength() : -1;
-        Log.d(TAG, "open: code=" + response.code() + " type=" + ct + " len=" + len);
 
-        InputStream rawIn = response.body().byteStream();
-        bufferedInput = new BufferedInputStream(rawIn, 65536);
+        if (code != 200 && code != 206) {
+            closeQuietly();
+            throw new IOException("HTTP " + code + " " + response.message());
+        }
 
-        bytesRead = 0;
+        Log.d(TAG, "open: code=" + code + " type=" + lastContentType
+                + " pos=" + position + " range=" + range
+                + " len=" + body.contentLength());
+
+        inputStream = new BufferedInputStream(body.byteStream(), 65536);
+
+        // 关键了 Range 却返回 200：服务器不支持分段，必须手动跳过到请求位置。
+        // 不做这一步时，ExoPlayer 以为已在 seek 点，实际读的仍是文件头 → 快进变从头播。
+        if (code == 200 && position != 0) {
+            bytesToSkip = position;
+        }
+
+        if (length != C.LENGTH_UNSET) {
+            bytesToRead = length;
+        } else if (code == 206) {
+            long contentLen = body.contentLength();
+            if (contentLen != -1) {
+                bytesToRead = contentLen;
+            } else {
+                long docSize = parseDocumentSize(response.header("Content-Range"));
+                bytesToRead = docSize != -1 ? Math.max(0, docSize - position) : C.LENGTH_UNSET;
+            }
+        } else {
+            long contentLen = body.contentLength();
+            bytesToRead = contentLen != -1 ? Math.max(0, contentLen - bytesToSkip) : C.LENGTH_UNSET;
+        }
+
+        // 分块上限（仅在未指定精确 length 时收紧）
+        if (chunkSize > 0 && length == C.LENGTH_UNSET) {
+            if (bytesToRead == C.LENGTH_UNSET || bytesToRead > chunkSize) {
+                bytesToRead = chunkSize;
+            }
+        }
+
         transferStarted(dataSpec);
         transferStarted = true;
 
-        // 返回实际可读长度（分块模式下不超过 chunkSize）
-        long contentLen = response.body().contentLength();
-        if (chunkSize > 0 && contentLen > chunkSize) contentLen = chunkSize;
-        return contentLen;
+        try {
+            skipFully(bytesToSkip);
+        } catch (IOException e) {
+            closeQuietly();
+            throw e;
+        }
+        bytesToSkip = 0;
+        return bytesToRead;
     }
 
     @Override
     public int read(byte[] buffer, int offset, int readLength) throws IOException {
-        if (bufferedInput == null) return -1;
-        // 分块模式下，读完块大小后截断
-        if (chunkSize > 0 && bytesRead >= chunkSize) return -1;
-        int maxRead = readLength;
-        if (chunkSize > 0) maxRead = (int) Math.min(readLength, chunkSize - bytesRead);
-        int n = bufferedInput.read(buffer, offset, maxRead);
-        if (n > 0) {
-            bytesRead += n;
-            bytesTransferred(n);
+        if (readLength == 0) return 0;
+        if (bytesToRead != C.LENGTH_UNSET && bytesRead >= bytesToRead) return C.RESULT_END_OF_INPUT;
+        if (inputStream == null) return C.RESULT_END_OF_INPUT;
+
+        int toRead = readLength;
+        if (bytesToRead != C.LENGTH_UNSET) {
+            long remaining = bytesToRead - bytesRead;
+            if (remaining == 0) return C.RESULT_END_OF_INPUT;
+            toRead = (int) Math.min(toRead, remaining);
         }
+
+        int n = inputStream.read(buffer, offset, toRead);
+        if (n == -1) {
+            if (bytesToRead != C.LENGTH_UNSET && bytesRead < bytesToRead) {
+                throw new EOFException("End of stream before expected length");
+            }
+            return C.RESULT_END_OF_INPUT;
+        }
+        bytesRead += n;
+        bytesTransferred(n);
         return n;
     }
 
@@ -110,13 +188,57 @@ public class OkHttpExoDataSource extends BaseDataSource {
 
     @Override
     public void close() throws IOException {
-        if (transferStarted) {
-            transferEnded();
-            transferStarted = false;
+        try {
+            closeQuietly();
+        } finally {
+            if (transferStarted) {
+                transferEnded();
+                transferStarted = false;
+            }
+            dataSpec = null;
         }
-        if (bufferedInput != null) bufferedInput.close();
-        if (response != null) response.close();
-        bufferedInput = null;
-        response = null;
+    }
+
+    private void skipFully(long bytes) throws IOException {
+        if (bytes <= 0 || inputStream == null) return;
+        byte[] skipBuffer = null;
+        long remaining = bytes;
+        while (remaining > 0) {
+            long skipped = inputStream.skip(remaining);
+            if (skipped > 0) {
+                remaining -= skipped;
+                continue;
+            }
+            // skip 返回 0 时改用 read 推进（部分流 skip 不可靠）
+            if (skipBuffer == null) skipBuffer = new byte[4096];
+            int n = inputStream.read(skipBuffer, 0, (int) Math.min(skipBuffer.length, remaining));
+            if (n == -1) {
+                throw new EOFException("Failed to skip " + bytes + " bytes to position "
+                        + (dataSpec != null ? dataSpec.position : -1));
+            }
+            remaining -= n;
+        }
+    }
+
+    private static long parseDocumentSize(String contentRange) {
+        if (contentRange == null) return -1;
+        Matcher m = CONTENT_RANGE.matcher(contentRange);
+        if (!m.find()) return -1;
+        try {
+            return Long.parseLong(m.group(1));
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private void closeQuietly() {
+        if (inputStream != null) {
+            try { inputStream.close(); } catch (IOException ignored) {}
+            inputStream = null;
+        }
+        if (response != null) {
+            response.close();
+            response = null;
+        }
     }
 }

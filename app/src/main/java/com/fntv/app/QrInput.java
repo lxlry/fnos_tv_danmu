@@ -47,6 +47,17 @@ final class QrInput {
 
     private QrInput() {}
 
+    /** 同一页多个输入框共用一个扫码入口。 */
+    static final class Field {
+        final EditText edit;
+        final String label;
+
+        Field(EditText edit, String label) {
+            this.edit = edit;
+            this.label = label == null || label.isEmpty() ? "输入" : label;
+        }
+    }
+
     static boolean isTelevision(Context context) {
         if (context == null) return false;
         int mode = context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK;
@@ -54,7 +65,13 @@ final class QrInput {
         return context.getResources().getConfiguration().smallestScreenWidthDp >= 600;
     }
 
+    /** 单个输入框旁的扫码按钮（设置页、搜索等仍可用）。 */
     static Button scanButton(Activity activity, EditText target, String label) {
+        return pageScanButton(activity, new Field(target, label));
+    }
+
+    /** 整页一个扫码按钮：手机端一次填写多个输入框。 */
+    static Button pageScanButton(Activity activity, Field... fields) {
         Button button = new Button(activity);
         button.setText("扫码");
         button.setAllCaps(false);
@@ -65,14 +82,21 @@ final class QrInput {
         button.setMinHeight(0);
         button.setMinimumHeight(0);
         button.setPadding(0, 0, 0, 0);
-        button.setOnClickListener(v -> show(activity, target, label));
+        button.setOnClickListener(v -> show(activity, fields));
         return button;
     }
 
     static void show(Activity activity, EditText target, String label) {
-        if (activity == null || activity.isFinishing() || target == null) return;
+        show(activity, new Field(target, label));
+    }
+
+    static void show(Activity activity, Field... fields) {
+        if (activity == null || activity.isFinishing() || fields == null || fields.length == 0) return;
+        for (Field field : fields) {
+            if (field == null || field.edit == null) return;
+        }
         if (active != null) active.close();
-        active = new Session(activity, target, label == null || label.isEmpty() ? "输入" : label);
+        active = new Session(activity, fields);
         active.open();
     }
 
@@ -82,12 +106,8 @@ final class QrInput {
 
     private static final class Session {
         private final Activity activity;
-        private final EditText target;
-        private final String label;
+        private final Field[] fields;
         private final String token;
-        private final boolean password;
-        private final boolean number;
-        private final String initial;
         private final Handler handler = MAIN;
         private ServerSocket socket;
         private Thread thread;
@@ -98,14 +118,9 @@ final class QrInput {
         private volatile boolean running;
         private volatile boolean stopped;
 
-        Session(Activity activity, EditText target, String label) {
+        Session(Activity activity, Field[] fields) {
             this.activity = activity;
-            this.target = target;
-            this.label = label;
-            int inputType = target.getInputType();
-            password = isPassword(inputType);
-            number = (inputType & InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_NUMBER;
-            initial = password || target.getText() == null ? "" : target.getText().toString();
+            this.fields = fields;
             byte[] raw = new byte[6];
             new SecureRandom().nextBytes(raw);
             StringBuilder builder = new StringBuilder();
@@ -153,7 +168,10 @@ final class QrInput {
                 Bitmap qr = encode(url, 480);
                 handler.post(() -> {
                     if (activity.isFinishing() || dialog == null || !dialog.isShowing()) return;
-                    setMessage("手机和电视连同一个 Wi-Fi，扫码后输入，发送后自动填入。", url);
+                    String tip = fields.length > 1
+                            ? "手机和电视连同一个 Wi-Fi，扫码后一次填入本页全部输入框。"
+                            : "手机和电视连同一个 Wi-Fi，扫码后输入，发送后自动填入。";
+                    setMessage(tip, url);
                     if (imageView != null && qr != null) {
                         imageView.setImageBitmap(qr);
                         imageView.setVisibility(View.VISIBLE);
@@ -194,7 +212,8 @@ final class QrInput {
                 }
                 if ("POST".equals(method)) {
                     int length = contentLength(head);
-                    if (length < 0 || length > 4096) {
+                    int maxBody = Math.max(4096, fields.length * 600 + 256);
+                    if (length < 0 || length > maxBody) {
                         write(client, 400, "text/plain; charset=utf-8", "bad request");
                         return;
                     }
@@ -205,9 +224,17 @@ final class QrInput {
                         if (n < 0) break;
                         offset += n;
                     }
-                    String text = formValue(new String(body, "UTF-8"), "text");
-                    if (text.length() > 500) text = text.substring(0, 500);
-                    deliver(text);
+                    String raw = new String(body, "UTF-8");
+                    String[] values = new String[fields.length];
+                    for (int i = 0; i < fields.length; i++) {
+                        String key = fields.length == 1 ? "text" : ("f" + i);
+                        String text = formValue(raw, key);
+                        // 兼容旧单字段表单
+                        if (text.isEmpty() && fields.length == 1) text = formValue(raw, "text");
+                        if (text.length() > 500) text = text.substring(0, 500);
+                        values[i] = text;
+                    }
+                    deliver(values);
                     write(client, 200, "text/html; charset=utf-8", successPage());
                 } else {
                     write(client, 200, "text/html; charset=utf-8", formPage());
@@ -220,12 +247,22 @@ final class QrInput {
             }
         }
 
-        private void deliver(String text) {
+        private void deliver(String[] values) {
             handler.post(() -> {
                 if (activity.isFinishing()) return;
-                target.setText(text);
-                if (target.getText() != null) target.setSelection(target.getText().length());
-                AppToast.show(activity, text.isEmpty() ? "已清空" : "已填入");
+                int filled = 0;
+                for (int i = 0; i < fields.length; i++) {
+                    String text = values[i] == null ? "" : values[i];
+                    EditText target = fields[i].edit;
+                    target.setText(text);
+                    if (target.getText() != null) target.setSelection(target.getText().length());
+                    if (!text.isEmpty()) filled++;
+                }
+                if (fields.length == 1) {
+                    AppToast.show(activity, values[0] == null || values[0].isEmpty() ? "已清空" : "已填入");
+                } else {
+                    AppToast.show(activity, filled == 0 ? "已提交" : "已填入 " + filled + " 项");
+                }
                 close();
             });
         }
@@ -240,7 +277,7 @@ final class QrInput {
             root.setPadding(pad, dp(activity, 18), pad, dp(activity, 16));
 
             TextView title = new TextView(activity);
-            title.setText("扫码输入 · " + label);
+            title.setText(fields.length == 1 ? ("扫码输入 · " + fields[0].label) : "扫码输入");
             title.setTextColor(ContextCompat.getColor(activity, R.color.text_primary));
             title.setTextSize(18);
             title.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -311,33 +348,59 @@ final class QrInput {
         }
 
         private String formPage() {
-            String type = password ? "password" : number ? "number" : "text";
-            String value = escape(initial);
-            return "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
-                    + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                    + "<title>扫码输入</title><style>"
-                    + "body{margin:0;background:#0b0f14;color:#f4f6f8;font-family:sans-serif}"
-                    + "main{max-width:480px;margin:0 auto;padding:28px 16px}"
-                    + "h1{font-size:20px;margin:0 0 8px}p{color:#a8b0bc;font-size:14px;line-height:1.5}"
-                    + "input,button{width:100%;box-sizing:border-box;border-radius:10px;font-size:16px}"
-                    + "input{background:#1c2430;color:#fff;border:1px solid #2a3340;padding:14px;margin:16px 0}"
-                    + "button{background:#3b6fff;color:#fff;border:0;padding:14px;font-weight:700}"
-                    + "</style></head><body><main><h1>" + escape(label) + "</h1>"
-                    + "<p>输入后点发送，内容会填到电视上的输入框。</p>"
-                    + "<form method=\"post\" action=\"/?k=" + token + "\">"
-                    + "<input name=\"text\" type=\"" + type + "\" value=\"" + value
-                    + "\" maxlength=\"500\" autofocus autocomplete=\"off\">"
-                    + "<button type=\"submit\">发送到电视</button></form></main></body></html>";
+            StringBuilder html = new StringBuilder();
+            html.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">")
+                    .append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
+                    .append("<title>扫码输入</title><style>")
+                    .append("body{margin:0;background:#0b0f14;color:#f4f6f8;font-family:sans-serif}")
+                    .append("main{max-width:480px;margin:0 auto;padding:28px 16px}")
+                    .append("h1{font-size:20px;margin:0 0 8px}p{color:#a8b0bc;font-size:14px;line-height:1.5}")
+                    .append("label{display:block;margin:14px 0 6px;color:#a8b0bc;font-size:13px}")
+                    .append("input,button{width:100%;box-sizing:border-box;border-radius:10px;font-size:16px}")
+                    .append("input{background:#1c2430;color:#fff;border:1px solid #2a3340;padding:14px}")
+                    .append("button{background:#3b6fff;color:#fff;border:0;padding:14px;font-weight:700;margin-top:18px}")
+                    .append("</style></head><body><main>");
+            if (fields.length == 1) {
+                html.append("<h1>").append(escape(fields[0].label)).append("</h1>")
+                        .append("<p>输入后点发送，内容会填到电视上的输入框。</p>");
+            } else {
+                html.append("<h1>扫码输入</h1>")
+                        .append("<p>一次填写本页全部内容，发送后会填到电视对应输入框。</p>");
+            }
+            html.append("<form method=\"post\" action=\"/?k=").append(token).append("\">");
+            for (int i = 0; i < fields.length; i++) {
+                Field field = fields[i];
+                int inputType = field.edit.getInputType();
+                boolean password = isPassword(inputType);
+                boolean number = (inputType & InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_NUMBER;
+                String type = password ? "password" : number ? "number" : "text";
+                String name = fields.length == 1 ? "text" : ("f" + i);
+                String value = password || field.edit.getText() == null
+                        ? "" : escape(field.edit.getText().toString());
+                if (fields.length > 1) {
+                    html.append("<label>").append(escape(field.label)).append("</label>");
+                }
+                html.append("<input name=\"").append(name).append("\" type=\"").append(type)
+                        .append("\" value=\"").append(value)
+                        .append("\" maxlength=\"500\" autocomplete=\"off\"");
+                if (i == 0) html.append(" autofocus");
+                html.append(">");
+            }
+            html.append("<button type=\"submit\">发送到电视</button></form></main></body></html>");
+            return html.toString();
         }
 
         private String successPage() {
+            String tip = fields.length > 1
+                    ? "电视上的输入框已填好，可以关闭这个页面。"
+                    : "电视上的输入框已填好，可以关闭这个页面。";
             return "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
                     + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                     + "<title>已发送</title><style>"
                     + "body{margin:0;background:#0b0f14;color:#f4f6f8;font-family:sans-serif}"
                     + "main{max-width:480px;margin:0 auto;padding:48px 16px}h1{font-size:22px}"
                     + "p{color:#a8b0bc;font-size:15px}</style></head><body><main>"
-                    + "<h1>已发送</h1><p>电视上的输入框已填好，可以关闭这个页面。</p>"
+                    + "<h1>已发送</h1><p>" + tip + "</p>"
                     + "</main></body></html>";
         }
     }

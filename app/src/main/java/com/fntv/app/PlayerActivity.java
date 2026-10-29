@@ -612,11 +612,9 @@ public class PlayerActivity extends AppCompatActivity {
                     // 防抖：停止操作 1s 后才真正 seek，避免按住时大量请求
                     if (seekCommitR != null) handler.removeCallbacks(seekCommitR);
                     pendingSeekMs = p;
+                    final int seekPos = p;
                     seekCommitR = () -> {
-                        if (player != null) {
-                            player.seekTo(p);
-                            if (danmuManager != null) danmuManager.onSeekTo(p);
-                        }
+                        seekToSafe(seekPos);
                         pendingSeekMs = -1;
                     };
                     handler.postDelayed(seekCommitR, 1000);
@@ -628,8 +626,7 @@ public class PlayerActivity extends AppCompatActivity {
                 pendingSeekMs = -1;
                 if (seekCommitR != null) handler.removeCallbacks(seekCommitR);
                 if (player != null && sb.getProgress() >= 0) {
-                    player.seekTo(sb.getProgress());
-                    if (danmuManager != null) danmuManager.onSeekTo(sb.getProgress());
+                    seekToSafe(sb.getProgress());
                 }
             }
         });
@@ -777,6 +774,8 @@ public class PlayerActivity extends AppCompatActivity {
                 .setPreferredTextLanguages("zh", "zh-Hans", "zh-CN", "chi", "zho", "cmn")
                 .setRendererDisabled(com.google.android.exoplayer2.C.TRACK_TYPE_TEXT, false)
                 .setTunnelingEnabled(false)
+                // 多音轨时声道约束会反复重选并打断 seek，电视/盒子上关掉
+                .setConstrainAudioChannelCountToDeviceCapabilities(false)
                 .build());
         player = new SimpleExoPlayer.Builder(this, rf)
                 .setTrackSelector(trackSelector)
@@ -1082,7 +1081,10 @@ public class PlayerActivity extends AppCompatActivity {
         }
         DefaultRenderersFactory rf2 = createRenderersFactory(true);
         DefaultTrackSelector swSelector = new DefaultTrackSelector(this);
-        swSelector.setParameters(swSelector.buildUponParameters().setTunnelingEnabled(false).build());
+        swSelector.setParameters(swSelector.buildUponParameters()
+                .setTunnelingEnabled(false)
+                .setConstrainAudioChannelCountToDeviceCapabilities(false)
+                .build());
         player = new SimpleExoPlayer.Builder(this, rf2)
                 .setTrackSelector(swSelector)
                 .setLoadControl(createLoadControl())
@@ -1167,9 +1169,20 @@ public class PlayerActivity extends AppCompatActivity {
     private void seekRel(int ms) {
         if (nextEpCountdownRunning) cancelNextEpisodeCountdown();
         if (player == null) return;
-        long p = Math.max(0, Math.min(player.getDuration(), player.getCurrentPosition() + ms));
-        player.seekTo(p);
-        if (danmuManager != null) danmuManager.onSeekTo(p);
+        seekToSafe(player.getCurrentPosition() + ms);
+    }
+
+    /**
+     * 安全 seek：时长未知（TIME_UNSET）时不能用 Math.min(duration, …)，
+     * 否则结果变成 0，表现为「一快进就从头播放」。
+     */
+    private void seekToSafe(long targetMs) {
+        if (player == null) return;
+        long dur = player.getDuration();
+        long target = Math.max(0, targetMs);
+        if (dur > 0) target = Math.min(dur, target);
+        player.seekTo(target);
+        if (danmuManager != null) danmuManager.onSeekTo(target);
     }
 
     /** 左 25%、中 50%、右 25%。 */
@@ -1250,7 +1263,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void applyScreenDrag(float dx, long originMs) {
         if (player == null || tvSeekOverlay == null) return;
         long dur = player.getDuration();
-        if (dur <= 0) return;
+        if (dur <= 0) return; // TIME_UNSET / 未知时长时不拖进度
         int width = Math.max(1, getResources().getDisplayMetrics().widthPixels);
         long span = Math.min(dur, 10 * 60 * 1000L);
         long delta = (long) (dx / width * span);
@@ -1277,8 +1290,7 @@ public class PlayerActivity extends AppCompatActivity {
         pendingSeekMs = -1;
         if (seekCommitR != null) handler.removeCallbacks(seekCommitR);
         if (commit && player != null && target >= 0) {
-            player.seekTo(target);
-            if (danmuManager != null) danmuManager.onSeekTo(target);
+            seekToSafe(target);
         } else {
             updateTime();
         }
@@ -3033,13 +3045,14 @@ public class PlayerActivity extends AppCompatActivity {
     private void updateTime() {
         if (player == null) return;
         long cur = player.getCurrentPosition(), dur = player.getDuration();
-        seekBar.setMax((int) Math.max(dur, 1));
+        // TIME_UNSET 为负数，不能当 max
+        seekBar.setMax((int) Math.max(dur > 0 ? dur : 1, 1));
         refreshSkipMarks();
         seekBar.setKeyProgressIncrement(5000); // 方向键每次 5 秒
         // 防抖期间不覆盖 UI，避免抽搐（tvTime 和 seekBar 进度由 onProgressChanged 控制）
         if (pendingSeekMs < 0) {
-            tvTime.setText(playClock(cur, dur));
-            seekBar.setProgress((int) cur);
+            tvTime.setText(playClock(cur, dur > 0 ? dur : 0));
+            seekBar.setProgress((int) Math.max(cur, 0));
         }
         // 显示缓冲进度（灰色条）
         long buffered = player.getBufferedPosition();
@@ -3456,9 +3469,11 @@ public class PlayerActivity extends AppCompatActivity {
                     long step = k == KeyEvent.KEYCODE_DPAD_LEFT ? -seekStep : seekStep;
                     long cur = pendingSeekMs >= 0 ? pendingSeekMs : (player != null ? player.getCurrentPosition() : 0);
                     long dur = player != null ? player.getDuration() : 0;
-                    long target = Math.max(0, Math.min(dur, cur + step));
+                    long target = Math.max(0, cur + step);
+                    // TIME_UNSET 为很大的负数，不能参与 Math.min，否则目标会变成 0
+                    if (dur > 0) target = Math.min(dur, target);
                     // 立即更新 UI
-                    String timeText = playClock(target, dur);
+                    String timeText = playClock(target, dur > 0 ? dur : 0);
                     tvSeekOverlay.setText(timeText);
                     tvSeekOverlay.setVisibility(View.VISIBLE);
                     tvTime.setText(timeText);
@@ -3467,11 +3482,9 @@ public class PlayerActivity extends AppCompatActivity {
                     // 防抖：真正 seek 延迟到停止操作后
                     pendingSeekMs = target;
                     if (seekCommitR != null) handler.removeCallbacks(seekCommitR);
+                    final long commitTarget = target;
                     seekCommitR = () -> {
-                        if (player != null) {
-                            player.seekTo(target);
-                            if (danmuManager != null) danmuManager.onSeekTo(target);
-                        }
+                        seekToSafe(commitTarget);
                         pendingSeekMs = -1;
                     };
                     handler.postDelayed(seekCommitR, 1000);

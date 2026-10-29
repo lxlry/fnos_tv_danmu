@@ -33,13 +33,13 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout httpCard;
     private EditText httpHostEt, httpUserEt, httpPassEt;
     private CheckBox httpRememberCb;
-    private Button httpHostScan, httpUserScan, httpPassScan;
+    private Button httpPageScan;
 
     // FN ID 登录卡片
     private LinearLayout fnidCard;
     private EditText fnidHostEt, fnidUserEt, fnidPassEt;
     private CheckBox fnidRememberCb;
-    private Button fnidHostScan, fnidUserScan, fnidPassScan;
+    private Button fnidPageScan;
 
     private FrameLayout cardContainer;
     private Button btnLogin;
@@ -271,15 +271,28 @@ public class MainActivity extends AppCompatActivity {
                 ? android.text.InputType.TYPE_CLASS_TEXT
                 : android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI;
 
-        Button[] hostScan = new Button[1];
-        Button[] userScan = new Button[1];
-        Button[] passScan = new Button[1];
-        EditText etHost = addInputRow(card, isFnId ? "FN ID" : "服务器地址", hostHint, hostInputType, dp(16), hostScan);
+        String hostLabel = isFnId ? "FN ID" : "服务器地址";
+        EditText etHost = addInputRow(card, hostLabel, hostHint, hostInputType, dp(16));
         EditText etUser = addInputRow(card, "用户名", "输入用户名",
-                android.text.InputType.TYPE_CLASS_TEXT, dp(16), userScan);
+                android.text.InputType.TYPE_CLASS_TEXT, dp(16));
         EditText etPass = addInputRow(card, "密码", "输入密码",
                 android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
-                dp(16), passScan);
+                dp(16));
+
+        Button pageScan = null;
+        if (QrInput.isTelevision(this)) {
+            pageScan = QrInput.pageScanButton(this,
+                    new QrInput.Field(etHost, hostLabel),
+                    new QrInput.Field(etUser, "用户名"),
+                    new QrInput.Field(etPass, "密码"));
+            LinearLayout.LayoutParams scanLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+            scanLp.bottomMargin = dp(16);
+            pageScan.setLayoutParams(scanLp);
+            pageScan.setText("扫码填入本页");
+            pageScan.setTextSize(15);
+            card.addView(pageScan);
+        }
 
         // 记住密码
         RelativeLayout cbWrap = new RelativeLayout(this);
@@ -317,9 +330,7 @@ public class MainActivity extends AppCompatActivity {
             fnidHostEt = etHost;
             fnidUserEt = etUser;
             fnidPassEt = etPass;
-            fnidHostScan = hostScan[0];
-            fnidUserScan = userScan[0];
-            fnidPassScan = passScan[0];
+            fnidPageScan = pageScan;
             fnidRememberCb = cb;
             fnidRememberWrap = cbWrap;
         } else {
@@ -327,9 +338,7 @@ public class MainActivity extends AppCompatActivity {
             httpHostEt = etHost;
             httpUserEt = etUser;
             httpPassEt = etPass;
-            httpHostScan = hostScan[0];
-            httpUserScan = userScan[0];
-            httpPassScan = passScan[0];
+            httpPageScan = pageScan;
             httpRememberCb = cb;
             httpRememberWrap = cbWrap;
         }
@@ -337,29 +346,15 @@ public class MainActivity extends AppCompatActivity {
         return card;
     }
 
-    private void linkScan(View field, View scan, View up, View down) {
-        if (field == null || scan == null || scan.getVisibility() != View.VISIBLE) return;
-        TvFocus.point(field, View.FOCUS_RIGHT, scan);
-        TvFocus.point(scan, View.FOCUS_LEFT, field);
-        TvFocus.point(scan, View.FOCUS_RIGHT, scan);
-        TvFocus.point(scan, View.FOCUS_UP, up);
-        TvFocus.point(scan, View.FOCUS_DOWN, down);
-    }
-
-    /** 标签加输入框。电视端右侧多一个扫码按钮。 */
+    /** 标签加输入框。 */
     private EditText addInputRow(LinearLayout card, String label, String hint, int inputType,
-                                 int bottomMargin, Button[] scanOut) {
+                                 int bottomMargin) {
         card.addView(makeLabel(label));
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowLp.bottomMargin = bottomMargin;
-        row.setLayoutParams(rowLp);
-
         EditText field = new EditText(this);
-        field.setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1));
+        LinearLayout.LayoutParams fieldLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        fieldLp.bottomMargin = bottomMargin;
+        field.setLayoutParams(fieldLp);
         field.setBackgroundResource(R.drawable.bg_input);
         field.setHint(hint);
         field.setInputType(inputType);
@@ -369,17 +364,7 @@ public class MainActivity extends AppCompatActivity {
         field.setHintTextColor(color(R.color.text_hint));
         field.setTextSize(15);
         field.setId(View.generateViewId());
-        row.addView(field);
-
-        if (QrInput.isTelevision(this)) {
-            Button scan = QrInput.scanButton(this, field, label);
-            LinearLayout.LayoutParams scanLp = new LinearLayout.LayoutParams(dp(72), dp(48));
-            scanLp.leftMargin = dp(8);
-            scan.setLayoutParams(scanLp);
-            row.addView(scan);
-            if (scanOut != null && scanOut.length > 0) scanOut[0] = scan;
-        }
-        card.addView(row);
+        card.addView(field);
         return field;
     }
 
@@ -462,19 +447,29 @@ public class MainActivity extends AppCompatActivity {
         TvFocus.point(btnHttpMode, View.FOCUS_DOWN, host);
         TvFocus.point(btnFnIdMode, View.FOCUS_DOWN, host);
 
+        Button pageScan = isFnIdMode ? fnidPageScan : httpPageScan;
+        View afterPass = pageScan != null ? pageScan : remember;
         TvFocus.point(host, View.FOCUS_UP, mode);
         TvFocus.point(host, View.FOCUS_DOWN, user);
+        TvFocus.point(host, View.FOCUS_LEFT, host);
+        TvFocus.point(host, View.FOCUS_RIGHT, host);
         TvFocus.point(user, View.FOCUS_UP, host);
         TvFocus.point(user, View.FOCUS_DOWN, pass);
+        TvFocus.point(user, View.FOCUS_LEFT, user);
+        TvFocus.point(user, View.FOCUS_RIGHT, user);
         TvFocus.point(pass, View.FOCUS_UP, user);
-        TvFocus.point(pass, View.FOCUS_DOWN, remember);
-        Button hostScan = isFnIdMode ? fnidHostScan : httpHostScan;
-        Button userScan = isFnIdMode ? fnidUserScan : httpUserScan;
-        Button passScan = isFnIdMode ? fnidPassScan : httpPassScan;
-        linkScan(host, hostScan, mode, userScan != null ? userScan : user);
-        linkScan(user, userScan, hostScan != null ? hostScan : host, passScan != null ? passScan : pass);
-        linkScan(pass, passScan, userScan != null ? userScan : user, remember);
-        TvFocus.point(remember, View.FOCUS_UP, pass);
+        TvFocus.point(pass, View.FOCUS_DOWN, afterPass);
+        TvFocus.point(pass, View.FOCUS_LEFT, pass);
+        TvFocus.point(pass, View.FOCUS_RIGHT, pass);
+        if (pageScan != null) {
+            TvFocus.point(pageScan, View.FOCUS_UP, pass);
+            TvFocus.point(pageScan, View.FOCUS_DOWN, remember);
+            TvFocus.point(pageScan, View.FOCUS_LEFT, pageScan);
+            TvFocus.point(pageScan, View.FOCUS_RIGHT, pageScan);
+            TvFocus.point(remember, View.FOCUS_UP, pageScan);
+        } else {
+            TvFocus.point(remember, View.FOCUS_UP, pass);
+        }
         TvFocus.point(remember, View.FOCUS_DOWN, btnLogin);
         TvFocus.point(remember, View.FOCUS_LEFT, remember);
         TvFocus.point(remember, View.FOCUS_RIGHT, remember);

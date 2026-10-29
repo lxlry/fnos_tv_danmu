@@ -773,10 +773,7 @@ public class CloudStreamManager {
         final java.util.ArrayList<Tracks.Group> itemGroups = new java.util.ArrayList<>();
         final java.util.ArrayList<Integer> itemTrackIdx = new java.util.ArrayList<>();
 
-        itemLabels.add("默认");
-        itemGroups.add(null);
-        itemTrackIdx.add(-1);
-
+        int selected = -1;
         int seen = 0;
         for (Tracks.Group group : audioGroups) {
             for (int t = 0; t < group.length; t++) {
@@ -792,21 +789,23 @@ public class CloudStreamManager {
                 if (fmt.channelCount > 0) label += "  " + fmt.channelCount + "ch";
                 if (fmt.sampleRate > 0) label += "  " + (fmt.sampleRate / 1000) + "kHz";
 
+                int idx = itemLabels.size();
                 itemLabels.add(label);
                 itemGroups.add(group);
                 itemTrackIdx.add(t);
+                if (group.isTrackSelected(t)) selected = idx;
+                else if (selected < 0 && label.equals(lastAudioTrackLabel)) selected = idx;
             }
         }
+        if (selected < 0 && !itemLabels.isEmpty()) selected = 0;
 
         final String[] items = itemLabels.toArray(new String[0]);
-        SideSheet.showCards(activity, "音频", null, trackChoices(items), trackSelected(items, lastAudioTrackLabel), "", (dialog, which) -> {
+        SideSheet.showCards(activity, "音频", null, trackChoices(items), selected, "", (dialog, which) -> {
             if (which < 0 || which >= itemLabels.size()) return;
             Tracks.Group selGroup = itemGroups.get(which);
             int selTrack = itemTrackIdx.get(which);
             if (selGroup != null && selTrack >= 0) {
                 applyAudioTrackOverride(selGroup, selTrack);
-            } else {
-                clearAudioTrackOverride();
             }
             lastAudioTrackLabel = items[which];
             cb.onTrackChanged();
@@ -822,15 +821,6 @@ public class CloudStreamManager {
                         .buildUpon()
                         .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                         .setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), trackIndex))
-                        .build());
-    }
-
-    private void clearAudioTrackOverride() {
-        player.setTrackSelectionParameters(
-                player.getTrackSelectionParameters()
-                        .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                         .build());
     }
 
@@ -862,7 +852,9 @@ public class CloudStreamManager {
             String br = asi.bps > 0 ? " " + FormatUtils.formatBitrate(asi.bps) : "";
             items[i] = "音轨" + (i + 1) + "  " + lang + "  " + codec + (ch.isEmpty() ? "" : "  " + ch) + br;
         }
-        SideSheet.showCards(activity, "音频", null, trackChoices(items), trackSelected(items, lastAudioTrackLabel), "", (dialog, which) -> {
+        int selected = trackSelected(items, lastAudioTrackLabel);
+        if (selected < 0 && items.length > 0) selected = 0;
+        SideSheet.showCards(activity, "音频", null, trackChoices(items), selected, "", (dialog, which) -> {
             if (which < 0 || which >= streamAudioTracks.size()) return;
             StreamResponse.AudioStreamInfo sel = streamAudioTracks.get(which);
             String lang = sel.language;
@@ -915,15 +907,15 @@ public class CloudStreamManager {
         itemKeys.add("关闭字幕");
         itemGroupIdx.add(-2);
         itemTrackIdx.add(-2);
-        itemLabels.add("默认");
-        itemKeys.add("");
-        itemGroupIdx.add(-1);
-        itemTrackIdx.add(-1);
+
+        boolean textOff = isTextTrackDisabled(selector);
+        int selected = textOff || "关闭字幕".equals(lastSubtitleTrackLabel) ? 0 : -1;
 
         int trackCount = 0;
         for (int g = 0; g < groups.length; g++) trackCount += groups.get(g).length;
         boolean aligned = streamSubtitleTracks != null && streamSubtitleTracks.size() == trackCount;
         int seen = 0;
+        Tracks tracks = player.getCurrentTracks();
         for (int g = 0; g < groups.length; g++) {
             TrackGroup group = groups.get(g);
             for (int t = 0; t < group.length; t++) {
@@ -938,16 +930,26 @@ public class CloudStreamManager {
                 String codecStr = fmt.codecs != null ? fmt.codecs
                         : (fmt.sampleMimeType != null ? fmt.sampleMimeType.replace("text/", "") : "");
                 if (codecStr.isEmpty() && ssi != null && ssi.codecName != null) codecStr = ssi.codecName;
-                itemLabels.add(subtitleChoiceText(title, language, codecStr, seen + 1));
+                String label = subtitleChoiceText(title, language, codecStr, seen + 1);
+                int idx = itemLabels.size();
+                itemLabels.add(label);
                 itemKeys.add(subtitleMatchKey(title, language));
                 itemGroupIdx.add(g);
                 itemTrackIdx.add(t);
+                if (!textOff) {
+                    if (isTextTrackSelected(tracks, group, t)) selected = idx;
+                    else if (selected < 0 && (label.equals(lastSubtitleTrackLabel)
+                            || itemKeys.get(itemKeys.size() - 1).equals(lastSubtitleTrackLabel))) {
+                        selected = idx;
+                    }
+                }
                 seen++;
             }
         }
+        if (selected < 0) selected = 0;
 
         final String[] items = itemLabels.toArray(new String[0]);
-        SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), trackSelected(items, lastSubtitleTrackLabel), "当前没有字幕可选择", (dialog, which) -> {
+        SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), selected, "当前没有字幕可选择", (dialog, which) -> {
                     if (which < 0 || which >= itemLabels.size()) return;
                     int selGroup = itemGroupIdx.get(which);
                     int selTrack = itemTrackIdx.get(which);
@@ -967,28 +969,30 @@ public class CloudStreamManager {
                                     new DefaultTrackSelector.SelectionOverride(selGroup, selTrack))
                                 .build()
                         );
-                    } else {
-                        // 默认：清掉手动记忆，下次按偏好顺序
-                        prefs.edit().remove(subtitlePrefKey()).apply();
-                        selector.setParameters(
-                            selector.buildUponParameters()
-                                .clearSelectionOverrides(C.TRACK_TYPE_TEXT)
-                                .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
-                                .build()
-                        );
-                        lastSubtitleTrackLabel = items[which];
-                        defaultSubtitleApplied = false;
-                        applyDefaultChineseSubtitle();
-                        cb.onTrackChanged();
-                        AppToast.show(activity, "已切换: " + items[which]);
-                        dialog.dismiss();
-                        return;
                     }
                     saveManualSubtitlePref(items[which], itemKeys.get(which));
                     cb.onTrackChanged();
                     AppToast.show(activity, "已切换: " + items[which]);
                     dialog.dismiss();
                 });
+    }
+
+    private boolean isTextTrackDisabled(DefaultTrackSelector selector) {
+        if (selector == null) return false;
+        DefaultTrackSelector.Parameters params = selector.getParameters();
+        // 旧 API 用 renderer index；与 TRACK_TYPE_TEXT(=3) 在常见 renderer 布局下碰巧一致
+        return params.getRendererDisabled(C.TRACK_TYPE_TEXT);
+    }
+
+    private boolean isTextTrackSelected(Tracks tracks, TrackGroup mediaGroup, int trackIndex) {
+        if (tracks == null || mediaGroup == null) return false;
+        for (int i = 0; i < tracks.getGroups().size(); i++) {
+            Tracks.Group g = tracks.getGroups().get(i);
+            if (g.getType() != C.TRACK_TYPE_TEXT) continue;
+            if (!g.getMediaTrackGroup().equals(mediaGroup)) continue;
+            return trackIndex >= 0 && trackIndex < g.length && g.isTrackSelected(trackIndex);
+        }
+        return false;
     }
 
     /** ExoPlayer 无 TrackGroup（FFmpeg 软解）→ 用 stream API 试切换（语言匹配） */
@@ -1000,12 +1004,12 @@ public class CloudStreamManager {
         for (int i = 0; i < streamSubtitleTracks.size(); i++) {
             StreamResponse.SubtitleStreamInfo ssi = streamSubtitleTracks.get(i);
             String codec = ssi.codecName != null ? ssi.codecName : "";
-            String text = subtitleChoiceText(ssi.title, ssi.language, codec, i + 1);
-            if (ssi.isDefault != 0) text = text + "  默认";
-            items[i + 1] = text;
+            items[i + 1] = subtitleChoiceText(ssi.title, ssi.language, codec, i + 1);
             keys[i + 1] = subtitleMatchKey(ssi.title, ssi.language);
         }
-        SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), trackSelected(items, lastSubtitleTrackLabel), "当前没有字幕可选择", (dialog, which) -> {
+        int selected = trackSelected(items, lastSubtitleTrackLabel);
+        if (selected < 0) selected = 0;
+        SideSheet.showCards(activity, "字幕", "字幕列表", trackChoices(items), selected, "当前没有字幕可选择", (dialog, which) -> {
                     if (which < 0) return;
                     DefaultTrackSelector selector = (DefaultTrackSelector) player.getTrackSelector();
                     if (which == 0) {
@@ -1171,11 +1175,11 @@ public class CloudStreamManager {
 
     private int trackSelected(String[] items, String current) {
         if (items == null || items.length == 0) return -1;
-        if (current == null || current.isEmpty()) return 0;
+        if (current == null || current.isEmpty()) return -1;
         for (int i = 0; i < items.length; i++) {
             if (current.equals(items[i])) return i;
         }
-        return 0;
+        return -1;
     }
 
     public void reloadPlayback() {

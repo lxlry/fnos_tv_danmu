@@ -333,6 +333,7 @@ final class SideSheet {
         }
         LinearLayout text = new LinearLayout(context);
         text.setOrientation(LinearLayout.VERTICAL);
+        text.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView title = new TextView(context);
         title.setText(choice.title);
         title.setTextColor(selected ? 0xFF4C8DFF : Color.WHITE);
@@ -347,6 +348,14 @@ final class SideSheet {
             text.addView(detail);
         }
         card.addView(text);
+        if (choice.badge != null && !choice.badge.isEmpty()) {
+            TextView badge = new TextView(context);
+            badge.setText(choice.badge);
+            badge.setTextColor(selected ? 0xFF4C8DFF : 0xFFB0B0B0);
+            badge.setTextSize(12);
+            badge.setPadding((int) (8 * density), 0, 0, 0);
+            card.addView(badge);
+        }
         return card;
     }
 
