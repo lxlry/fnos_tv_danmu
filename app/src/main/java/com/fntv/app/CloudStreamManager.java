@@ -58,6 +58,8 @@ public class CloudStreamManager {
         int getCurrentBitrate();
         /** 记住的音轨 guid，供进度上报和之后的服务端 seek 使用。 */
         void onAudioPreference(String audioGuid);
+        /** 换音轨前定住当前画面，再执行会重开解码的操作。 */
+        void holdVideoFrame(Runnable then);
     }
 
     /** Stream API 解析出的音视频元数据（传给 Activity 更新信息面板） */
@@ -844,10 +846,13 @@ public class CloudStreamManager {
             int selTrack = itemTrackIdx.get(which);
             if (selGroup == null || selTrack < 0) return;
             final long keepPos = player.getCurrentPosition();
-            applyAudioTrackOverride(selGroup, selTrack);
-            keepPositionAfterAudioChange(keepPos);
-            int streamIdx = itemStreamIdx.get(which);
-            Format fmt = selGroup.getTrackFormat(selTrack);
+            final int streamIdx = itemStreamIdx.get(which);
+            final Format fmt = selGroup.getTrackFormat(selTrack);
+            dialog.dismiss();
+            cb.holdVideoFrame(() -> {
+                applyAudioTrackOverride(selGroup, selTrack);
+                keepPositionAfterAudioChange(keepPos);
+            });
             String guid = null;
             String lang = fmt.language;
             String codec = fmt.codecs;
@@ -864,7 +869,6 @@ public class CloudStreamManager {
             saveManualAudioPref(guid, lang, codec, channels, items[which]);
             cb.onTrackChanged();
             AppToast.show(activity, "已切换: " + items[which]);
-            dialog.dismiss();
         });
     }
 

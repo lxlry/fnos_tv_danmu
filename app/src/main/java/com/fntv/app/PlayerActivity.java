@@ -590,30 +590,27 @@ public class PlayerActivity extends AppCompatActivity {
                         + " res=" + res + " bitrate=" + bps + " pos=" + positionMs);
                 if (player == null || playLink == null || playLink.isEmpty()) return;
                 final long keepPos = Math.max(0, positionMs);
-                final long oldDur = player.getDuration();
                 savedPlaybackUrl = fullUrl;
                 useHls = fullUrl.contains(".m3u8");
-                player.setMediaSource(buildMediaSource(fullUrl, useHls));
-                player.prepare();
-                player.setPlayWhenReady(true);
+                holdFrameThen(() -> {
+                    if (player == null) return;
+                    long start = keepPos > 1500 ? keepPos : 0;
+                    player.setMediaSource(buildMediaSource(fullUrl, useHls), start);
+                    player.prepare();
+                    player.setPlayWhenReady(true);
+                }, keepPos);
                 if (keepPos > 1500) {
                     player.addListener(new Player.Listener() {
                         @Override public void onPlaybackStateChanged(int s) {
                             if (s != Player.STATE_READY) return;
                             player.removeListener(this);
                             long now = player.getCurrentPosition();
-                            long newDur = player.getDuration();
-                            // 新流时长明显变短：服务端已按 startTimestamp 截过，不要再 seek
-                            boolean serverAlreadyOffset = oldDur > 5000 && newDur > 0
-                                    && newDur < oldDur - Math.min(keepPos, 8000);
-                            if (!serverAlreadyOffset && now + 2500 < keepPos) {
-                                long target = keepPos;
-                                if (newDur > 0) target = Math.min(newDur, target);
+                            if (now + 2500 < keepPos && player.isCurrentMediaItemSeekable()) {
+                                long dur = player.getDuration();
+                                long target = dur > 0 ? Math.min(dur, keepPos) : keepPos;
                                 player.seekTo(target);
-                                if (danmuManager != null) danmuManager.onSeekTo(target);
-                            } else if (danmuManager != null) {
-                                danmuManager.onSeekTo(Math.max(now, keepPos));
                             }
+                            if (danmuManager != null) danmuManager.onSeekTo(keepPos);
                             updateInfo();
                         }
                     });
@@ -635,6 +632,9 @@ public class PlayerActivity extends AppCompatActivity {
             }
             @Override public void onAudioPreference(String guid) {
                 if (guid != null && !guid.isEmpty()) audioGuid = guid;
+            }
+            @Override public void holdVideoFrame(Runnable then) {
+                holdFrameThen(then, player != null ? player.getCurrentPosition() : 0);
             }
             @Override public void probeWithMediaExtractor() { PlayerActivity.this.probeWithMediaExtractor(); }
             @Override public void onCloudBtnVisibilityChanged(boolean vis) {
@@ -857,6 +857,7 @@ public class PlayerActivity extends AppCompatActivity {
         playerView.setPlayer(player);
         playerView.setUseController(false);
         playerView.setShutterBackgroundColor(Color.TRANSPARENT);
+        playerView.setKeepContentOnPlayerReset(true);
         playerView.setKeepScreenOn(true);
         // 字幕样式：白色文字，透明背景，黑色描边
         com.google.android.exoplayer2.ui.CaptionStyleCompat captionStyle =
@@ -1113,23 +1114,122 @@ public class PlayerActivity extends AppCompatActivity {
                 /* adjustPeriodTimeOffsets= */ false, video, text);
     }
 
+    private ImageView frameHold;
+    private boolean frameHeld;
+    private Runnable clearHoldR;
+    private Player.Listener holdClearListener;
+
+    /**
+     * 换源前截住当前画面盖在播放器上，避免 Surface 被清成黑屏。
+     * 新画面落到原进度附近，或播放仍在往前走时，再拿掉这张定格。
+     */
+    private void holdFrameThen(Runnable then, long keepPos) {
+        Runnable go = () -> {
+            if (then != null) then.run();
+            armClearHold(keepPos);
+        };
+        if (playerView == null || Build.VERSION.SDK_INT < 24) {
+            if (playerView != null) playerView.setKeepContentOnPlayerReset(true);
+            go.run();
+            return;
+        }
+        View video = playerView.getVideoSurfaceView();
+        if (!(video instanceof android.view.SurfaceView) || video.getWidth() < 2 || video.getHeight() < 2) {
+            playerView.setKeepContentOnPlayerReset(true);
+            go.run();
+            return;
+        }
+        android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
+                video.getWidth(), video.getHeight(), android.graphics.Bitmap.Config.RGB_565);
+        android.view.PixelCopy.request((android.view.SurfaceView) video, bmp, result -> {
+            if (result == android.view.PixelCopy.SUCCESS) showHold(bmp);
+            else bmp.recycle();
+            go.run();
+        }, new Handler(Looper.getMainLooper()));
+    }
+
+    private void showHold(android.graphics.Bitmap bmp) {
+        if (playerView == null || !(playerView.getParent() instanceof FrameLayout)) {
+            bmp.recycle();
+            return;
+        }
+        FrameLayout parent = (FrameLayout) playerView.getParent();
+        if (frameHold == null) {
+            frameHold = new ImageView(this);
+            frameHold.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            int index = parent.indexOfChild(playerView);
+            parent.addView(frameHold, Math.max(0, index + 1), new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        android.graphics.drawable.Drawable old = frameHold.getDrawable();
+        frameHold.setImageBitmap(bmp);
+        frameHold.setVisibility(View.VISIBLE);
+        frameHeld = true;
+        if (old instanceof android.graphics.drawable.BitmapDrawable) {
+            android.graphics.Bitmap prev = ((android.graphics.drawable.BitmapDrawable) old).getBitmap();
+            if (prev != null && prev != bmp && !prev.isRecycled()) prev.recycle();
+        }
+    }
+
+    private void armClearHold(long keepPos) {
+        if (player == null) return;
+        if (holdClearListener != null) player.removeListener(holdClearListener);
+        final long mark = player.getCurrentPosition();
+        holdClearListener = new Player.Listener() {
+            @Override public void onRenderedFirstFrame() {
+                long now = player != null ? player.getCurrentPosition() : 0;
+                if (keepPos > 1500 && now + 2500 < keepPos) return;
+                clearHold();
+            }
+        };
+        player.addListener(holdClearListener);
+        if (clearHoldR != null) handler.removeCallbacks(clearHoldR);
+        clearHoldR = () -> {
+            if (!frameHeld || player == null) return;
+            long now = player.getCurrentPosition();
+            if (keepPos <= 1500 || now + 2500 >= keepPos || (player.isPlaying() && now > mark + 400)) {
+                clearHold();
+            }
+        };
+        handler.postDelayed(clearHoldR, 700);
+        handler.postDelayed(this::clearHold, 4000);
+    }
+
+    private void clearHold() {
+        frameHeld = false;
+        if (clearHoldR != null) handler.removeCallbacks(clearHoldR);
+        if (holdClearListener != null && player != null) player.removeListener(holdClearListener);
+        holdClearListener = null;
+        if (frameHold == null) return;
+        frameHold.setVisibility(View.GONE);
+        android.graphics.drawable.Drawable d = frameHold.getDrawable();
+        frameHold.setImageDrawable(null);
+        if (d instanceof android.graphics.drawable.BitmapDrawable) {
+            android.graphics.Bitmap b = ((android.graphics.drawable.BitmapDrawable) d).getBitmap();
+            if (b != null && !b.isRecycled()) b.recycle();
+        }
+    }
+
     /**
      * 就绪后套用字幕和本地记住的音轨。
-     * @return 这次是否按历史进度做了本地 seek（换流恢复时由换流自己接进度）
+     * @return 这次是否按历史进度做了 seek（换流恢复时由换流自己接进度）
      */
     private boolean restoreTracksThenResume() {
         if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
-        long resumeMs = !seeked && seekTs > 0 ? seekTs
-                : (player != null ? Math.max(0, player.getCurrentPosition()) : 0);
+        long pos = player != null ? Math.max(0, player.getCurrentPosition()) : 0;
+        // 进度还没落到历史位置时，音轨换流也要用 seekTs，不能用当前的 0
+        long resumeMs = (seekTs > 0 && pos + 2500 < seekTs) ? seekTs : pos;
         boolean audioRemux = cloudStreamManager != null && cloudStreamManager.applySavedAudioTrack(resumeMs);
         if (audioRemux) {
             seeked = true;
             return seekTs > 0;
         }
         if (!seeked && seekTs > 0) {
-            seeked = true;
-            seekToSafe(seekTs);
-            return true;
+            if (seekToSafe(seekTs, true)) {
+                seeked = true;
+                return true;
+            }
+            return false;
         }
         return false;
     }
@@ -1187,6 +1287,7 @@ public class PlayerActivity extends AppCompatActivity {
                 .build();
         playerView.setPlayer(player);
         playerView.setUseController(false);
+        playerView.setKeepContentOnPlayerReset(true);
         playerView.setKeepScreenOn(true);
         if (cloudStreamManager != null) {
             cloudStreamManager.setPlayer(player);
@@ -1268,27 +1369,41 @@ public class PlayerActivity extends AppCompatActivity {
 
     /**
      * 安全 seek：时长未知时不能 Math.min(TIME_UNSET, …)。
-     * 仅在明确不可 seek 时走服务端起播；不要用延时猜「是否跳回开头」，
-     * 缓冲中 position 仍可能是 0，误触发会导致一直加载中。
+     * 仅在时长已知且明确不可 seek 时走服务端起播。
+     * @return false 表示时间轴还没就绪，调用方不要把这次续播记成已完成
      */
-    private void seekToSafe(long targetMs) {
-        if (player == null) return;
+    private boolean seekToSafe(long targetMs) {
+        return seekToSafe(targetMs, false);
+    }
+
+    private boolean seekToSafe(long targetMs, boolean silent) {
+        if (player == null) return true;
         long dur = player.getDuration();
         long target = Math.max(0, targetMs);
         if (dur > 0) target = Math.min(dur, target);
 
         if (!player.isCurrentMediaItemSeekable() && target > 1500) {
+            if (dur <= 0) {
+                player.seekTo(target);
+                if (danmuManager != null) danmuManager.onSeekTo(target);
+                return false;
+            }
             Log.w(TAG, "媒体不可本地 seek，改用服务端起播 targetMs=" + target);
-            seekViaServer(target);
-            return;
+            seekViaServer(target, silent);
+            return true;
         }
 
         player.seekTo(target);
         if (danmuManager != null) danmuManager.onSeekTo(target);
+        return true;
     }
 
     /** 不可本地 seek 时：play/play + startTimestamp，由服务端从目标时间起播 */
     private void seekViaServer(long targetMs) {
+        seekViaServer(targetMs, false);
+    }
+
+    private void seekViaServer(long targetMs, boolean silent) {
         if (serverSeekInFlight || mediaGuid == null || mediaGuid.isEmpty() || apiManager == null) {
             if (player != null) player.seekTo(Math.max(0, targetMs));
             return;
@@ -1317,7 +1432,7 @@ public class PlayerActivity extends AppCompatActivity {
 
         serverSeekInFlight = true;
         serverSeekTargetMs = targetMs;
-        AppToast.show(this, "正在定位…");
+        if (!silent) AppToast.show(this, "正在定位…");
 
         Map<String, Object> body = new HashMap<>();
         body.put("media_guid", mediaGuid);
@@ -1380,13 +1495,29 @@ public class PlayerActivity extends AppCompatActivity {
                         }
                         savedPlaybackUrl = fullUrl;
                         useHls = fullUrl.contains(".m3u8");
+                        final long oldDur = player.getDuration();
                         player.setMediaSource(buildMediaSource(fullUrl, useHls));
                         player.prepare();
                         player.setPlayWhenReady(true);
-                        if (danmuManager != null) danmuManager.onSeekTo(targetMs);
                         serverSeekInFlight = false;
                         serverSeekTargetMs = -1;
-                        updateInfo();
+                        player.addListener(new Player.Listener() {
+                            @Override public void onPlaybackStateChanged(int s) {
+                                if (s != Player.STATE_READY) return;
+                                player.removeListener(this);
+                                long now = player.getCurrentPosition();
+                                long newDur = player.getDuration();
+                                boolean serverAlreadyOffset = oldDur > 5000 && newDur > 0
+                                        && newDur < oldDur - Math.min(targetMs, 8000);
+                                long land = targetMs;
+                                if (!serverAlreadyOffset && now + 2500 < targetMs) {
+                                    if (newDur > 0) land = Math.min(newDur, targetMs);
+                                    player.seekTo(land);
+                                }
+                                if (danmuManager != null) danmuManager.onSeekTo(land);
+                                updateInfo();
+                            }
+                        });
                     });
                 } else {
                     runOnUiThread(() -> {

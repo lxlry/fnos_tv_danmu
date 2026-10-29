@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527048,
-    "versionName": "9527.048",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.048/FNTV_release_v9527.048.apk",
-    "changelog": "切换音轨保持播放进度，并在本地记住上次选择的音轨",
+    "versionCode": 9527049,
+    "versionName": "9527.049",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.049/FNTV_release_v9527.049.apk",
+    "changelog": "历史进入从记录进度续播；切换音轨时定住画面，避免黑屏后重头播放",
     "forceUpdate": false
 }
