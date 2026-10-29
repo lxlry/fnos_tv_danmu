@@ -862,7 +862,7 @@ public class CloudStreamManager {
                         .buildUpon()
                         .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                         .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                        .clearPreferredAudioLanguages()
+                        .setPreferredAudioLanguages()
                         .setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), trackIndex))
                         .build());
     }
@@ -917,8 +917,7 @@ public class CloudStreamManager {
                                     .buildUpon()
                                     .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                                     .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                                    .clearPreferredAudioLanguages()
-                                    .setPreferredAudioLanguage(lang)
+                                    .setPreferredAudioLanguages(lang)
                                     .build());
                     lastAudioTrackLabel = items[which];
                     cb.onTrackChanged();
