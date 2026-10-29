@@ -712,7 +712,7 @@ public class MainActivity extends AppCompatActivity {
         e.putString("login_mode", "fnid");
         e.putBoolean("_was_fnid", true);
         e.putString("auth_token", token);
-        e.apply();
+        e.commit();
         AccountStore.get(prefs).remember("fnid", rawFnId, domain, user, pass, rem);
         Log.i(TAG, "FN ID 登录成功！fnId=" + rawFnId + " domain=" + domain);
         AppToast.show(this, "FN ID 登录成功！");
@@ -722,7 +722,7 @@ public class MainActivity extends AppCompatActivity {
     private void doLoginHttp(String host, String user, String pass) {
         loginStartTime = System.currentTimeMillis();
         final String server = AccountStore.normalizeHttp(host);
-        if (!switching) persistHttp(server, user, pass);
+        if (!switching) persistHttp(server, user, pass, null, false);
 
         FnApiManager.getInstance().updateBaseUrl(server);
         Log.d(TAG, "尝试登录到: " + server + ", 用户: " + user);
@@ -740,8 +740,7 @@ public class MainActivity extends AppCompatActivity {
                         sessionReplaced = true;
                         FnApiManager.getInstance().setToken(token);
                         SessionGuard.onLogin();
-                        persistHttp(server, user, pass);
-                        prefs.edit().putString("auth_token", token).apply();
+                        persistHttp(server, user, pass, token, true);
                         boolean keep = httpRememberCb != null && httpRememberCb.isChecked();
                         AccountStore.get(prefs).remember("http", server, server, user, pass, keep);
                         Log.i(TAG, "HTTP 登录成功！耗时 " + (System.currentTimeMillis() - loginStartTime) + "ms");
@@ -769,7 +768,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void persistHttp(String host, String user, String pass) {
+    private void persistHttp(String host, String user, String pass, String token, boolean sync) {
         SharedPreferences.Editor e = prefs.edit();
         e.putString("host", host);
         e.putString("user", user);
@@ -778,7 +777,10 @@ public class MainActivity extends AppCompatActivity {
         if (rem) e.putString("pass", pass);
         else e.remove("pass");
         e.putString("login_mode", "http");
-        e.apply();
+        e.putBoolean("_was_fnid", false);
+        if (token != null) e.putString("auth_token", token);
+        if (sync) e.commit();
+        else e.apply();
     }
 
     /** 进程被系统回收后，用上次的登录态直接进主页，不再停在登录页。 */

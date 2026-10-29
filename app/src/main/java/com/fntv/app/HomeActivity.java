@@ -339,6 +339,7 @@ public class HomeActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         SessionGuard.attach(this);
+        if (tvSettingUsername != null) refreshAccountSummary();
         if (updateManager != null) updateManager.setInForeground(true);
         if (updateManager != null && pendingLaunchCheck) {
             pendingLaunchCheck = false;

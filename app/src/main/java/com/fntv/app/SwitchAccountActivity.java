@@ -339,8 +339,14 @@ public class SwitchAccountActivity extends AppCompatActivity {
             editor.putString("pass", pass);
             editor.putBoolean("remember", true);
             editor.putBoolean("_was_fnid", false);
+            // 避免设置页仍按旧的 FN ID 模式读账号
+            editor.remove("fnid_host");
+            editor.remove("fnid_user");
+            editor.remove("fnid_pass");
+            editor.putBoolean("fnid_remember", false);
         }
-        editor.apply();
+        // 同步写入，避免立刻打开首页时还读到上一个账号
+        editor.commit();
         AccountStore.get(prefs).remember(mode, endpoint, server, user, pass, true);
         AppToast.show(this, "登录成功");
         openHome();
