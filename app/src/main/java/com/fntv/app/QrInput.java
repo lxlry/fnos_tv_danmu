@@ -406,10 +406,14 @@ final class QrInput {
     }
 
     private static boolean isPassword(int inputType) {
+        int clazz = inputType & InputType.TYPE_MASK_CLASS;
         int variation = inputType & InputType.TYPE_MASK_VARIATION;
+        if (clazz == InputType.TYPE_CLASS_NUMBER) {
+            return variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+        }
+        if (clazz != InputType.TYPE_CLASS_TEXT) return false;
         return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD
-                || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
-                || variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+                || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
     }
 
     private static String lanIp() {
