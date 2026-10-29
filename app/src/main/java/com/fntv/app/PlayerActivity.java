@@ -578,7 +578,8 @@ public class PlayerActivity extends AppCompatActivity {
                 cloudStreamManager.resetForQualitySwitch();
                 loadPlayInfo();
             }
-            @Override public void onAudioPlayLink(String playLink, String res, int bps, String newAudioGuid) {
+            @Override public void onAudioPlayLink(String playLink, String res, int bps,
+                                                    String newAudioGuid, long positionMs) {
                 if (newAudioGuid != null && !newAudioGuid.isEmpty()) audioGuid = newAudioGuid;
                 customQualityRes = res != null ? res : "";
                 customQualityBitrate = bps;
@@ -586,15 +587,39 @@ public class PlayerActivity extends AppCompatActivity {
                 refreshQualityLabel();
                 String fullUrl = baseUrl + playLink;
                 Log.d(TAG, "换音轨新链接: " + fullUrl + " audio=" + audioGuid
-                        + " res=" + res + " bitrate=" + bps);
+                        + " res=" + res + " bitrate=" + bps + " pos=" + positionMs);
                 if (player == null || playLink == null || playLink.isEmpty()) return;
+                final long keepPos = Math.max(0, positionMs);
+                final long oldDur = player.getDuration();
                 savedPlaybackUrl = fullUrl;
                 useHls = fullUrl.contains(".m3u8");
-                // play/play 已带 startTimestamp，服务端从当前进度起播，勿再本地 seek
                 player.setMediaSource(buildMediaSource(fullUrl, useHls));
                 player.prepare();
                 player.setPlayWhenReady(true);
-                updateInfo();
+                if (keepPos > 1500) {
+                    player.addListener(new Player.Listener() {
+                        @Override public void onPlaybackStateChanged(int s) {
+                            if (s != Player.STATE_READY) return;
+                            player.removeListener(this);
+                            long now = player.getCurrentPosition();
+                            long newDur = player.getDuration();
+                            // 新流时长明显变短：服务端已按 startTimestamp 截过，不要再 seek
+                            boolean serverAlreadyOffset = oldDur > 5000 && newDur > 0
+                                    && newDur < oldDur - Math.min(keepPos, 8000);
+                            if (!serverAlreadyOffset && now + 2500 < keepPos) {
+                                long target = keepPos;
+                                if (newDur > 0) target = Math.min(newDur, target);
+                                player.seekTo(target);
+                                if (danmuManager != null) danmuManager.onSeekTo(target);
+                            } else if (danmuManager != null) {
+                                danmuManager.onSeekTo(Math.max(now, keepPos));
+                            }
+                            updateInfo();
+                        }
+                    });
+                } else {
+                    updateInfo();
+                }
             }
             @Override public long getPlaybackPositionMs() {
                 return player != null ? Math.max(0, player.getCurrentPosition()) : 0;
@@ -607,6 +632,9 @@ public class PlayerActivity extends AppCompatActivity {
             @Override public int getCurrentBitrate() {
                 if (customQualityBitrate > 0) return customQualityBitrate;
                 return streamBitrate > 0 ? streamBitrate : 0;
+            }
+            @Override public void onAudioPreference(String guid) {
+                if (guid != null && !guid.isEmpty()) audioGuid = guid;
             }
             @Override public void probeWithMediaExtractor() { PlayerActivity.this.probeWithMediaExtractor(); }
             @Override public void onCloudBtnVisibilityChanged(boolean vis) {
@@ -873,13 +901,8 @@ public class PlayerActivity extends AppCompatActivity {
                 if (s == Player.STATE_READY) {
                     progressHeld = false;
                     if (danmuManager != null) danmuManager.setHoldStatus(false);
-                    // 先应用字幕，再续播 seek，避免选轨把进度打回开头
-                    if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
-                    boolean resumedNow = !seeked && seekTs > 0;
-                    if (resumedNow) {
-                        seeked = true;
-                        seekToSafe(seekTs);
-                    }
+                    // 先套用字幕和记住的音轨，再续播 seek，避免选轨把进度打回开头
+                    boolean resumedNow = restoreTracksThenResume();
                     ensureSaveLoop(); updateTime();
                     if (firstReady) { scheduleInitialSave(); showCtrl(true); focusEntrySeekBar(); firstReady = false; }
                     if (resumedNow) offerResumeRestart();
@@ -1090,6 +1113,27 @@ public class PlayerActivity extends AppCompatActivity {
                 /* adjustPeriodTimeOffsets= */ false, video, text);
     }
 
+    /**
+     * 就绪后套用字幕和本地记住的音轨。
+     * @return 这次是否按历史进度做了本地 seek（换流恢复时由换流自己接进度）
+     */
+    private boolean restoreTracksThenResume() {
+        if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
+        long resumeMs = !seeked && seekTs > 0 ? seekTs
+                : (player != null ? Math.max(0, player.getCurrentPosition()) : 0);
+        boolean audioRemux = cloudStreamManager != null && cloudStreamManager.applySavedAudioTrack(resumeMs);
+        if (audioRemux) {
+            seeked = true;
+            return seekTs > 0;
+        }
+        if (!seeked && seekTs > 0) {
+            seeked = true;
+            seekToSafe(seekTs);
+            return true;
+        }
+        return false;
+    }
+
     /** 开始播放（加载到 ExoPlayer） */
     private void startPlayback() {
         if (mediaGuid == null) return;
@@ -1155,12 +1199,7 @@ public class PlayerActivity extends AppCompatActivity {
                 if (s == Player.STATE_READY) {
                     progressHeld = false;
                     if (danmuManager != null) danmuManager.setHoldStatus(false);
-                    if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
-                    boolean resumedNow = !seeked && seekTs > 0;
-                    if (resumedNow) {
-                        seeked = true;
-                        seekToSafe(seekTs);
-                    }
+                    boolean resumedNow = restoreTracksThenResume();
                     ensureSaveLoop();
                     updateTime();
                     applyPlaybackSpeed();
