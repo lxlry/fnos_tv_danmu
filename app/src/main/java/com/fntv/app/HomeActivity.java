@@ -6260,6 +6260,7 @@ public class HomeActivity extends AppCompatActivity {
             page.addView(empty);
         }
         moviesContainer.addView(page);
+        new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(page, 0));
         wirePersonNav(page);
     }
 
