@@ -2602,12 +2602,6 @@ public class HomeActivity extends AppCompatActivity {
 
         String parent = info.parentGuid != null && !info.parentGuid.isEmpty()
                 ? info.parentGuid : item.parentGuid;
-        String openedType = info.type != null ? info.type : item.type;
-        String castGuid = item.guid;
-        if ("Episode".equals(openedType) && parent != null && !parent.isEmpty()) {
-            castGuid = parent;
-        }
-        attachDetailExtras(below, castGuid, "Episode".equals(openedType) ? item.guid : null, info);
 
         LinearLayout seasonsBox = new LinearLayout(this);
         seasonsBox.setLayoutParams(new LinearLayout.LayoutParams(
@@ -2877,13 +2871,13 @@ public class HomeActivity extends AppCompatActivity {
         Button playBtn = makeSeriesPlayButton(sameSeasonEp > 0 ? "第" + sameSeasonEp + "集" : "播放");
         below.addView(playBtn);
         addDetailOverview(below, info, item);
-        attachDetailExtras(below, season.guid, null, info);
 
         LinearLayout epBox = prepareEpisodeSection(below);
         if (seasons != null && seasons.size() > 1 && detailRangeScroll != null) {
             below.addView(makeSeasonTabRow(seasons, season, epBox, item, playBtn, 0),
                     below.indexOfChild(detailRangeScroll));
         }
+        attachDetailExtras(below, season.guid, null, info);
         moviesContainer.addView(below);
         detailPlayBtn = playBtn;
         long pTs = info.ts > 0 ? info.ts : item.ts;
@@ -2907,6 +2901,7 @@ public class HomeActivity extends AppCompatActivity {
                 if (seasons == null || seasons.isEmpty()) {
                     if (fallbackSeasonGuid != null && !fallbackSeasonGuid.isEmpty()) {
                         LinearLayout epBox = prepareEpisodeSection(content);
+                        attachDetailExtras(content, fallbackSeasonGuid, null, savedDetailInfo);
                         fillSeasonEpisodes(epBox, fallbackSeasonGuid, item, playBtn, pTs, 1, preferSeason);
                     }
                     return;
@@ -2929,6 +2924,7 @@ public class HomeActivity extends AppCompatActivity {
                         && savedDetailItem != null && item.guid != null
                         && item.guid.equals(savedDetailItem.guid)) {
                     LinearLayout epBox = prepareEpisodeSection(content);
+                    attachDetailExtras(content, fallbackSeasonGuid, null, savedDetailInfo);
                     fillSeasonEpisodes(epBox, fallbackSeasonGuid, item, playBtn, pTs, 1, preferSeason);
                 }
             }
@@ -3167,7 +3163,6 @@ public class HomeActivity extends AppCompatActivity {
         epBox.addView(loading);
         if (detailRangeScroll != null) detailRangeScroll.setVisibility(View.GONE);
         if (detailRangeRow != null) detailRangeRow.setVisibility(View.GONE);
-        final int fileToken = detailExtrasToken;
 
         apiManager.getApi().getEpisodeList(seasonGuid).enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
             @Override
@@ -3207,9 +3202,6 @@ public class HomeActivity extends AppCompatActivity {
                 if (showingSeasonEpisodes) {
                     detailPlayTarget = pick;
                     if (pick.episodeNumber > 0) currentEp = pick.episodeNumber;
-                }
-                if (fileToken == detailExtrasToken && pick.guid != null && !pick.guid.isEmpty()) {
-                    requestDetailFile(pick.guid, savedDetailInfo);
                 }
                 applySeriesPlayLabel(playBtn, showingSeasonEpisodes ? 1 : seasonCount, seasonNum, currentEp);
                 buildEpisodeRanges(epBox, episodes, currentPage, item, playBtn);
@@ -5848,7 +5840,7 @@ public class HomeActivity extends AppCompatActivity {
     /**
      * 演职员来自 POST /v/api/v1/person/list/{guid}。
      * 文件和媒体轨来自 GET /v/api/v1/stream/list/{guid}。
-     * 剧集季页面只拉演职员；电影和视频两者都拉。
+     * 电影、视频两者都显示。剧集只在选集页、并且排在选集下面显示演职员。
      */
     private void attachDetailExtras(LinearLayout below, String personGuid, String fileGuid,
                                     PlayInfoResponse info) {
@@ -6254,12 +6246,12 @@ public class HomeActivity extends AppCompatActivity {
         List<List<View>> rows = new ArrayList<>();
         if (!play.isEmpty()) rows.add(play);
         if (!ov.isEmpty()) rows.add(ov);
-        if (!cast.isEmpty()) rows.add(cast);
-        if (!media.isEmpty()) rows.add(media);
         if (!seasons.isEmpty()) rows.add(seasons);
         if (!chips.isEmpty()) rows.add(chips);
         if (!ranges.isEmpty()) rows.add(ranges);
         if (!eps.isEmpty()) rows.add(eps);
+        if (!cast.isEmpty()) rows.add(cast);
+        if (!media.isEmpty()) rows.add(media);
 
         for (List<View> row : rows) TvFocus.bindRow(row);
         for (View chip : chips) {
