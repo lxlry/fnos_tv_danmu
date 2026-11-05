@@ -142,6 +142,16 @@ public class HomeActivity extends AppCompatActivity {
     private ViewGroup detailEpisodeBox;
     private LinearLayout detailEpisodeHost;
     private TextView detailSeasonLine;
+    private ViewGroup detailCastRow;
+    private View detailMediaBtn;
+    private LinearLayout detailFileSlot;
+    private int detailExtrasToken;
+    private boolean detailMetaReady;
+    private boolean detailMetaLoading;
+    private final List<Runnable> detailMetaWaiters = new ArrayList<>();
+    private final Map<String, String> iso6391 = new HashMap<>();
+    private final Map<String, String> iso6392 = new HashMap<>();
+    private final List<AuthDirList.AuthDir> authDirs = new ArrayList<>();
     private boolean showingSeasonEpisodes;
     private PlayListItem detailOpenedSeason;
     private List<PlayListItem> detailSeasons;
@@ -765,6 +775,10 @@ public class HomeActivity extends AppCompatActivity {
         detailEpCount = null;
         detailEpisodeBox = null;
         detailEpisodeHost = null;
+        detailCastRow = null;
+        detailMediaBtn = null;
+        detailFileSlot = null;
+        detailExtrasToken++;
 
         LinearLayout continueWatchingBox = new LinearLayout(this);
         continueWatchingBox.setLayoutParams(new LinearLayout.LayoutParams(
@@ -2106,6 +2120,7 @@ public class HomeActivity extends AppCompatActivity {
         showingOverview = false;
         showingEpisodes = false;
         showingSeasonEpisodes = false;
+        detailExtrasToken++;
         revealTab(0);
         syncHomeSwipe();
         setDetailChrome(true);
@@ -2156,6 +2171,9 @@ public class HomeActivity extends AppCompatActivity {
         detailEpCount = null;
         detailEpisodeBox = null;
         detailEpisodeHost = null;
+        detailCastRow = null;
+        detailMediaBtn = null;
+        detailFileSlot = null;
         setDetailChrome(true);
 
         boolean land = getResources().getConfiguration().orientation
@@ -2442,6 +2460,8 @@ public class HomeActivity extends AppCompatActivity {
             below.addView(makeSpacer(dp(12)));
         }
 
+        attachDetailExtras(below, item.guid, item.guid, info);
+
         if (isSeries && item.guid != null && !item.guid.isEmpty()) {
             LinearLayout seasonsBox = new LinearLayout(this);
             seasonsBox.setLayoutParams(new LinearLayout.LayoutParams(
@@ -2580,6 +2600,15 @@ public class HomeActivity extends AppCompatActivity {
         below.addView(playBtn);
         addDetailOverview(below, info, item);
 
+        String parent = info.parentGuid != null && !info.parentGuid.isEmpty()
+                ? info.parentGuid : item.parentGuid;
+        String openedType = info.type != null ? info.type : item.type;
+        String castGuid = item.guid;
+        if ("Episode".equals(openedType) && parent != null && !parent.isEmpty()) {
+            castGuid = parent;
+        }
+        attachDetailExtras(below, castGuid, "Episode".equals(openedType) ? item.guid : null, info);
+
         LinearLayout seasonsBox = new LinearLayout(this);
         seasonsBox.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -2588,8 +2617,6 @@ public class HomeActivity extends AppCompatActivity {
         moviesContainer.addView(below);
 
         detailPlayBtn = playBtn;
-        String parent = info.parentGuid != null && !info.parentGuid.isEmpty()
-                ? info.parentGuid : item.parentGuid;
         long pTs = info.ts > 0 ? info.ts : (item.ts > 0 ? item.ts : 0);
         loadSeasons(seasonsBox, item.guid, item, playBtn, pTs, seasonNum, parent);
         wireDetailNav();
@@ -2737,6 +2764,9 @@ public class HomeActivity extends AppCompatActivity {
         detailEpisodeBox = null;
         detailEpisodeHost = null;
         detailSeasonLine = null;
+        detailCastRow = null;
+        detailMediaBtn = null;
+        detailFileSlot = null;
         setDetailChrome(true);
 
         boolean land = getResources().getConfiguration().orientation
@@ -2847,6 +2877,7 @@ public class HomeActivity extends AppCompatActivity {
         Button playBtn = makeSeriesPlayButton(sameSeasonEp > 0 ? "第" + sameSeasonEp + "集" : "播放");
         below.addView(playBtn);
         addDetailOverview(below, info, item);
+        attachDetailExtras(below, season.guid, null, info);
 
         LinearLayout epBox = prepareEpisodeSection(below);
         if (seasons != null && seasons.size() > 1 && detailRangeScroll != null) {
@@ -3136,6 +3167,7 @@ public class HomeActivity extends AppCompatActivity {
         epBox.addView(loading);
         if (detailRangeScroll != null) detailRangeScroll.setVisibility(View.GONE);
         if (detailRangeRow != null) detailRangeRow.setVisibility(View.GONE);
+        final int fileToken = detailExtrasToken;
 
         apiManager.getApi().getEpisodeList(seasonGuid).enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
             @Override
@@ -3175,6 +3207,9 @@ public class HomeActivity extends AppCompatActivity {
                 if (showingSeasonEpisodes) {
                     detailPlayTarget = pick;
                     if (pick.episodeNumber > 0) currentEp = pick.episodeNumber;
+                }
+                if (fileToken == detailExtrasToken && pick.guid != null && !pick.guid.isEmpty()) {
+                    requestDetailFile(pick.guid, savedDetailInfo);
                 }
                 applySeriesPlayLabel(playBtn, showingSeasonEpisodes ? 1 : seasonCount, seasonNum, currentEp);
                 buildEpisodeRanges(epBox, episodes, currentPage, item, playBtn);
@@ -5810,6 +5845,388 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 演职员来自 POST /v/api/v1/person/list/{guid}。
+     * 文件和媒体轨来自 GET /v/api/v1/stream/list/{guid}。
+     * 剧集季页面只拉演职员；电影和视频两者都拉。
+     */
+    private void attachDetailExtras(LinearLayout below, String personGuid, String fileGuid,
+                                    PlayInfoResponse info) {
+        if (below == null || apiManager.getApi() == null) return;
+        final int token = ++detailExtrasToken;
+        detailCastRow = null;
+        detailMediaBtn = null;
+        final LinearLayout host = new LinearLayout(this);
+        host.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        host.setOrientation(LinearLayout.VERTICAL);
+        final LinearLayout castSlot = new LinearLayout(this);
+        castSlot.setOrientation(LinearLayout.VERTICAL);
+        castSlot.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        final LinearLayout fileSlot = new LinearLayout(this);
+        fileSlot.setOrientation(LinearLayout.VERTICAL);
+        fileSlot.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        host.addView(castSlot);
+        host.addView(fileSlot);
+        below.addView(host);
+        detailFileSlot = fileSlot;
+
+        if (personGuid != null && !personGuid.isEmpty()) {
+            apiManager.getApi().getPersonList(personGuid, new HashMap<String, String>())
+                    .enqueue(new Callback<ApiResponse<PersonListData>>() {
+                        @Override
+                        public void onResponse(Call<ApiResponse<PersonListData>> call,
+                                               Response<ApiResponse<PersonListData>> response) {
+                            if (!detailExtrasCurrent(token, host)) return;
+                            if (!response.isSuccessful() || response.body() == null
+                                    || response.body().code != 0 || response.body().data == null) {
+                                return;
+                            }
+                            renderCastRow(castSlot, response.body().data.list);
+                        }
+                        @Override
+                        public void onFailure(Call<ApiResponse<PersonListData>> call, Throwable t) {}
+                    });
+        }
+        if (fileGuid != null && !fileGuid.isEmpty()) {
+            requestDetailFile(fileGuid, info);
+        }
+    }
+
+    /** 按当前详情页的令牌拉取某一集或电影的文件和媒体轨。 */
+    private void requestDetailFile(String fileGuid, PlayInfoResponse info) {
+        if (fileGuid == null || fileGuid.isEmpty() || detailFileSlot == null
+                || apiManager.getApi() == null) return;
+        final int token = detailExtrasToken;
+        final LinearLayout slot = detailFileSlot;
+        final View host = (View) slot.getParent();
+        apiManager.getApi().getStreamList(fileGuid)
+                .enqueue(new Callback<ApiResponse<MediaStreamList>>() {
+                    @Override
+                    public void onResponse(Call<ApiResponse<MediaStreamList>> call,
+                                           Response<ApiResponse<MediaStreamList>> response) {
+                        if (!response.isSuccessful() || response.body() == null
+                                || response.body().code != 0) {
+                            return;
+                        }
+                        final MediaStreamList streams = response.body().data;
+                        whenDetailMetaReady(() -> {
+                            if (!detailExtrasCurrent(token, host)) return;
+                            renderFileInfo(slot, streams, info);
+                        });
+                    }
+                    @Override
+                    public void onFailure(Call<ApiResponse<MediaStreamList>> call, Throwable t) {}
+                });
+    }
+
+    private boolean detailExtrasCurrent(int token, View host) {
+        return host != null && token == detailExtrasToken && host.getParent() != null && !isFinishing();
+    }
+
+    private void whenDetailMetaReady(Runnable next) {
+        if (detailMetaReady) {
+            next.run();
+            return;
+        }
+        detailMetaWaiters.add(next);
+        if (detailMetaLoading || apiManager.getApi() == null) {
+            if (apiManager.getApi() == null) finishDetailMeta();
+            return;
+        }
+        detailMetaLoading = true;
+        final int[] left = {3};
+        Runnable step = () -> {
+            if (--left[0] > 0) return;
+            finishDetailMeta();
+        };
+        apiManager.getApi().getTag("iso6391", "zh-CN").enqueue(new Callback<ApiResponse<List<TagEntry>>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<List<TagEntry>>> call,
+                                   Response<ApiResponse<List<TagEntry>>> response) {
+                if (response.isSuccessful() && response.body() != null && response.body().code == 0) {
+                    readTagMap(response.body().data, iso6391);
+                }
+                step.run();
+            }
+            @Override public void onFailure(Call<ApiResponse<List<TagEntry>>> call, Throwable t) { step.run(); }
+        });
+        apiManager.getApi().getTag("iso6392", "zh-CN").enqueue(new Callback<ApiResponse<List<TagEntry>>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<List<TagEntry>>> call,
+                                   Response<ApiResponse<List<TagEntry>>> response) {
+                if (response.isSuccessful() && response.body() != null && response.body().code == 0) {
+                    readTagMap(response.body().data, iso6392);
+                }
+                step.run();
+            }
+            @Override public void onFailure(Call<ApiResponse<List<TagEntry>>> call, Throwable t) { step.run(); }
+        });
+        apiManager.getApi().getAuthorizedDirs().enqueue(new Callback<ApiResponse<AuthDirList>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<AuthDirList>> call,
+                                   Response<ApiResponse<AuthDirList>> response) {
+                if (response.isSuccessful() && response.body() != null && response.body().code == 0
+                        && response.body().data != null && response.body().data.authDirList != null) {
+                    authDirs.clear();
+                    authDirs.addAll(response.body().data.authDirList);
+                }
+                step.run();
+            }
+            @Override public void onFailure(Call<ApiResponse<AuthDirList>> call, Throwable t) { step.run(); }
+        });
+    }
+
+    private void finishDetailMeta() {
+        detailMetaReady = true;
+        detailMetaLoading = false;
+        List<Runnable> pending = new ArrayList<>(detailMetaWaiters);
+        detailMetaWaiters.clear();
+        for (Runnable job : pending) job.run();
+    }
+
+    private void readTagMap(List<TagEntry> entries, Map<String, String> into) {
+        if (entries == null) return;
+        for (TagEntry entry : entries) {
+            if (entry != null && entry.key != null && entry.value != null && !entry.value.isEmpty()) {
+                into.put(entry.key, entry.value);
+            }
+        }
+    }
+
+    private void renderCastRow(LinearLayout slot, List<PersonCredit> people) {
+        slot.removeAllViews();
+        detailCastRow = null;
+        if (people == null || people.isEmpty()) {
+            wireDetailNav();
+            return;
+        }
+        slot.addView(makePlainLabel("演职人员"));
+        HorizontalScrollView hsv = makeHsv();
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, 0, dp(8), dp(8));
+        for (PersonCredit person : people) {
+            if (person == null) continue;
+            if (person.displayName().isEmpty() && person.roleLabel().isEmpty()) continue;
+            row.addView(makeCastCard(person));
+        }
+        if (row.getChildCount() == 0) {
+            slot.removeAllViews();
+            wireDetailNav();
+            return;
+        }
+        hsv.addView(row);
+        slot.addView(hsv);
+        detailCastRow = row;
+        wireDetailNav();
+    }
+
+    private View makeCastCard(PersonCredit person) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        card.setFocusable(true);
+        card.setBackgroundResource(R.drawable.bg_poster_card);
+        card.setPadding(dp(4), dp(4), dp(4), dp(4));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(8);
+        card.setLayoutParams(lp);
+
+        FrameLayout avatar = new FrameLayout(this);
+        avatar.setLayoutParams(new LinearLayout.LayoutParams(dp(64), dp(64)));
+        String initial = person.displayName().isEmpty() ? "" : person.displayName().substring(0, 1);
+        TextView letter = new TextView(this);
+        letter.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        letter.setGravity(Gravity.CENTER);
+        letter.setText(initial);
+        letter.setTextColor(color(R.color.text_secondary));
+        letter.setTextSize(18);
+        letter.setBackground(circleDrawable(0xFF202021));
+        avatar.addView(letter);
+
+        String imageUrl = makeImageUrl(person.profilePath, 200);
+        if (imageUrl != null) {
+            RoundedImageView photo = new RoundedImageView(this);
+            photo.setLayoutParams(new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            photo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            photo.setCornerRadius(32);
+            photo.setTag(imageUrl);
+            avatar.addView(photo);
+            SimpleImageLoader.load(imageUrl, photo, apiManager.getClient());
+        }
+        card.addView(avatar);
+
+        if (!person.displayName().isEmpty()) {
+            TextView name = new TextView(this);
+            name.setPadding(0, dp(6), 0, 0);
+            name.setText(person.displayName());
+            name.setTextColor(color(R.color.text_primary));
+            name.setTextSize(12);
+            name.setGravity(Gravity.CENTER);
+            name.setMaxLines(1);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            card.addView(name);
+            card.setOnFocusChangeListener((v, hasFocus) ->
+                    name.setTextColor(hasFocus ? color(R.color.colorPrimaryLight) : color(R.color.text_primary)));
+        }
+        String role = person.roleLabel();
+        if (!role.isEmpty()) {
+            TextView roleTv = new TextView(this);
+            roleTv.setPadding(0, dp(2), 0, 0);
+            roleTv.setText(role);
+            roleTv.setTextColor(color(R.color.text_hint));
+            roleTv.setTextSize(11);
+            roleTv.setGravity(Gravity.CENTER);
+            roleTv.setMaxLines(1);
+            roleTv.setEllipsize(TextUtils.TruncateAt.END);
+            card.addView(roleTv);
+        }
+        return card;
+    }
+
+    private android.graphics.drawable.GradientDrawable circleDrawable(int fill) {
+        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
+        drawable.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        drawable.setColor(fill);
+        return drawable;
+    }
+
+    private void renderFileInfo(LinearLayout slot, MediaStreamList streams, PlayInfoResponse info) {
+        slot.removeAllViews();
+        detailMediaBtn = null;
+        DetailMediaText.Picked picked = DetailMediaText.pick(streams, info, authDirs, iso6391, iso6392);
+        if (picked == null) {
+            wireDetailNav();
+            return;
+        }
+        boolean anyFact = !picked.location.isEmpty() || !picked.size.isEmpty()
+                || !picked.created.isEmpty() || !picked.added.isEmpty();
+        boolean anyStream = !picked.hideStreams && (!picked.videoLine.isEmpty()
+                || !picked.audioLine.isEmpty() || !picked.subtitleLine.isEmpty());
+        if (!anyFact && !anyStream) {
+            wireDetailNav();
+            return;
+        }
+        slot.addView(makePlainLabel("文件信息"));
+        addDetailFact(slot, "位置", picked.location);
+        addDetailFact(slot, "大小", picked.size);
+        addDetailFact(slot, "创建时间", picked.created);
+        addDetailFact(slot, "添加时间", picked.added);
+        if (!picked.hideStreams) {
+            addDetailFact(slot, "视频", picked.videoLine);
+            addDetailFact(slot, "音频", picked.audioLine);
+            addDetailFact(slot, "字幕", picked.subtitleLine);
+        }
+        final String report = DetailMediaText.fullReport(streams, iso6391, iso6392);
+        if (!report.isEmpty()) {
+            Button more = new Button(this);
+            more.setId(View.generateViewId());
+            LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(40));
+            moreLp.topMargin = dp(8);
+            moreLp.bottomMargin = dp(8);
+            more.setLayoutParams(moreLp);
+            more.setMinWidth(dp(120));
+            more.setPadding(dp(16), 0, dp(16), 0);
+            more.setBackgroundResource(R.drawable.bg_text_action);
+            more.setText("查看全部");
+            more.setAllCaps(false);
+            more.setTextColor(color(R.color.text_primary));
+            more.setTextSize(14);
+            more.setFocusable(true);
+            more.setOnClickListener(v -> showMediaInfoDialog(report));
+            slot.addView(more);
+            detailMediaBtn = more;
+        }
+        wireDetailNav();
+    }
+
+    private void addDetailFact(LinearLayout parent, String label, String value) {
+        if (value == null || value.trim().isEmpty()) return;
+        LinearLayout row = new LinearLayout(this);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(3), 0, dp(3));
+        TextView labelTv = new TextView(this);
+        labelTv.setLayoutParams(new LinearLayout.LayoutParams(dp(72), ViewGroup.LayoutParams.WRAP_CONTENT));
+        labelTv.setText(label);
+        labelTv.setTextColor(color(R.color.text_hint));
+        labelTv.setTextSize(13);
+        row.addView(labelTv);
+        TextView valueTv = new TextView(this);
+        valueTv.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        valueTv.setText(value);
+        valueTv.setTextColor(color(R.color.text_secondary));
+        valueTv.setTextSize(13);
+        row.addView(valueTv);
+        parent.addView(row);
+    }
+
+    private void showMediaInfoDialog(String report) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setFocusable(true);
+        scroll.setFocusableInTouchMode(true);
+        TextView body = new TextView(this);
+        body.setText(report);
+        body.setTextColor(color(R.color.text_secondary));
+        body.setTextSize(14);
+        body.setLineSpacing(dp(2), 1);
+        body.setPadding(dp(20), dp(8), dp(20), dp(12));
+        scroll.addView(body);
+        int scrollH = (int) (getResources().getDisplayMetrics().heightPixels * 0.58f);
+        scroll.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, scrollH));
+
+        Button close = new Button(this);
+        close.setText("关闭");
+        close.setAllCaps(false);
+        close.setTextColor(color(R.color.text_white));
+        close.setBackgroundResource(R.drawable.bg_btn_primary);
+        close.setFocusable(true);
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(44));
+        closeLp.gravity = Gravity.END;
+        closeLp.rightMargin = dp(16);
+        closeLp.bottomMargin = dp(12);
+        close.setLayoutParams(closeLp);
+
+        TextView title = new TextView(this);
+        title.setText("媒体信息");
+        title.setTextColor(color(R.color.text_white));
+        title.setTextSize(18);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setPadding(dp(20), dp(16), dp(20), dp(8));
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(color(R.color.bg_card));
+        root.addView(title);
+        root.addView(scroll);
+        root.addView(close);
+
+        android.app.Dialog dialog = new android.app.Dialog(this, R.style.DarkDialog);
+        dialog.setContentView(root);
+        dialog.setCancelable(true);
+        close.setOnClickListener(v -> dialog.dismiss());
+        dialog.setOnShowListener(d -> {
+            if (dialog.getWindow() != null) {
+                int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.86f);
+                int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.78f);
+                dialog.getWindow().setLayout(width, height);
+            }
+            scroll.requestFocus();
+        });
+        dialog.show();
+    }
+
     private void wireDetailNav() {
         if (moviesContainer == null) return;
         moviesContainer.post(() -> {
@@ -5822,6 +6239,9 @@ public class HomeActivity extends AppCompatActivity {
         if (showingOverview || showingEpisodes || currentTab != 0) return;
         List<View> play = detailPlayBtn != null ? TvFocus.listOf(detailPlayBtn) : Collections.emptyList();
         List<View> ov = detailOverview != null ? TvFocus.listOf(detailOverview) : Collections.emptyList();
+        List<View> cast = detailCastRow != null
+                ? TvFocus.collectVisibleFocusables(detailCastRow) : Collections.emptyList();
+        List<View> media = detailMediaBtn != null ? TvFocus.listOf(detailMediaBtn) : Collections.emptyList();
         List<View> seasons = detailSeasonRow != null
                 ? TvFocus.collectVisibleFocusables(detailSeasonRow) : Collections.emptyList();
         List<View> chips = detailChipRow != null
@@ -5834,6 +6254,8 @@ public class HomeActivity extends AppCompatActivity {
         List<List<View>> rows = new ArrayList<>();
         if (!play.isEmpty()) rows.add(play);
         if (!ov.isEmpty()) rows.add(ov);
+        if (!cast.isEmpty()) rows.add(cast);
+        if (!media.isEmpty()) rows.add(media);
         if (!seasons.isEmpty()) rows.add(seasons);
         if (!chips.isEmpty()) rows.add(chips);
         if (!ranges.isEmpty()) rows.add(ranges);

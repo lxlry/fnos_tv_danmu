@@ -61,7 +61,16 @@ public interface FnApiService {
     Call<ApiResponse<PlayLinkResponse>> getPlayLink(@Body Object req);
 
     @GET("api/v1/stream/list/{guid}")
-    Call<ApiResponse<Object>> getStreamList(@Path("guid") String guid);
+    Call<ApiResponse<MediaStreamList>> getStreamList(@Path("guid") String guid);
+
+    @POST("api/v1/person/list/{guid}")
+    Call<ApiResponse<PersonListData>> getPersonList(@Path("guid") String guid, @Body Map<String, String> body);
+
+    @GET("api/v1/tag/{tag}")
+    Call<ApiResponse<List<TagEntry>>> getTag(@Path("tag") String tag, @Query("lan") String lan);
+
+    @GET("api/v1/server/getAppAuthorizedDir")
+    Call<ApiResponse<AuthDirList>> getAuthorizedDirs();
 
     @POST("api/v1/stream")
     Call<ApiResponse<StreamResponse>> getStream(@Body Object req);
