@@ -66,6 +66,12 @@ public interface FnApiService {
     @POST("api/v1/person/list/{guid}")
     Call<ApiResponse<PersonListData>> getPersonList(@Path("guid") String guid, @Body Map<String, String> body);
 
+    @GET("api/v1/person/{guid}")
+    Call<ApiResponse<PersonProfile>> getPerson(@Path("guid") String guid);
+
+    @POST("api/v1/person/item/list")
+    Call<ApiResponse<PersonWorksData>> getPersonWorks(@Body Map<String, Object> body);
+
     @GET("api/v1/tag/{tag}")
     Call<ApiResponse<List<TagEntry>>> getTag(@Path("tag") String tag, @Query("lan") String lan);
 

@@ -85,6 +85,9 @@ public class PlayListItem {
     @SerializedName("air_date")
     public String airDate;
 
+    @SerializedName("release_date")
+    public String releaseDate;
+
     @SerializedName("number_of_seasons")
     public int numberOfSeasons;
 

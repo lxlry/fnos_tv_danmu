@@ -158,6 +158,8 @@ public class HomeActivity extends AppCompatActivity {
     private PlayListItem detailPlayTarget;
     /** 进详情前收起的那一页。返回时原样放回，焦点仍在点开的那一项。 */
     private ParkedPage detailReturn;
+    private boolean showingPerson;
+    private final List<PersonFrame> personStack = new ArrayList<>();
     private View pendingReturnFocus;
     private String pendingReturnGuid;
     private LinearLayout pendingReturnContainer;
@@ -184,7 +186,9 @@ public class HomeActivity extends AppCompatActivity {
 
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        if (savedDetailItem != null) {
+        if (showingPerson && !personStack.isEmpty()) {
+            renderPerson(personStack.get(personStack.size() - 1));
+        } else if (savedDetailItem != null) {
             restoreDetailPage();
         } else if (savedBrowseList != null) {
             if (browseFromLibrary) { renderBrowseGrid(savedBrowseList, savedBrowseTitle); } else { renderGridInContainer(savedBrowseList, savedBrowseTitle, moviesContainer); }
@@ -779,6 +783,8 @@ public class HomeActivity extends AppCompatActivity {
         detailMediaBtn = null;
         detailFileSlot = null;
         detailExtrasToken++;
+        showingPerson = false;
+        personStack.clear();
 
         LinearLayout continueWatchingBox = new LinearLayout(this);
         continueWatchingBox.setLayoutParams(new LinearLayout.LayoutParams(
@@ -1388,6 +1394,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private String itemYear(PlayListItem item) {
         String d = item.airDate;
+        if (d == null || d.isEmpty()) d = item.releaseDate;
         if (d != null && d.length() >= 4 && Character.isDigit(d.charAt(0))) return d.substring(0, 4);
         return "";
     }
@@ -1496,7 +1503,8 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void onItemClick(PlayListItem item) {
-        showDetail(item);  // 全部走 getPlayInfo
+        if (showingPerson) showingPerson = false;
+        showDetail(item);
     }
 
 
@@ -5344,6 +5352,8 @@ public class HomeActivity extends AppCompatActivity {
         savedDetailInfo = null;
         showingEpisodes = false;
         showingSeasonEpisodes = false;
+        showingPerson = false;
+        personStack.clear();
         detailOpenedSeason = null;
         detailPlayBtn = null;
         setDetailChrome(false);
@@ -6021,7 +6031,11 @@ public class HomeActivity extends AppCompatActivity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         card.setFocusable(true);
+        card.setClickable(true);
         card.setBackgroundResource(R.drawable.bg_poster_card);
+        if (person.personGuid != null && !person.personGuid.isEmpty()) {
+            card.setOnClickListener(v -> openPerson(person));
+        }
         card.setPadding(dp(4), dp(4), dp(4), dp(4));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.rightMargin = dp(8);
@@ -6079,6 +6093,312 @@ public class HomeActivity extends AppCompatActivity {
             card.addView(roleTv);
         }
         return card;
+    }
+
+    /** 从详情页点进人物时，记住当时的影视页，返回还能回去。 */
+    private static class PersonFrame {
+        String guid;
+        PersonCredit fallback;
+        PlayListItem detailItem;
+        PlayInfoResponse detailInfo;
+        boolean seasonEpisodes;
+        PlayListItem openedSeason;
+        List<PlayListItem> seasons;
+        PersonProfile profile;
+        List<PlayListItem> actors = new ArrayList<>();
+        List<PlayListItem> directors = new ArrayList<>();
+        List<PlayListItem> writers = new ArrayList<>();
+        boolean loaded;
+        boolean loading;
+    }
+
+    private void openPerson(PersonCredit person) {
+        if (person == null || person.personGuid == null || person.personGuid.isEmpty()) return;
+        PersonFrame frame = new PersonFrame();
+        frame.guid = person.personGuid;
+        frame.fallback = person;
+        frame.detailItem = savedDetailItem;
+        frame.detailInfo = savedDetailInfo;
+        frame.seasonEpisodes = showingSeasonEpisodes;
+        frame.openedSeason = detailOpenedSeason;
+        frame.seasons = detailSeasons;
+        personStack.add(frame);
+        showingPerson = true;
+        showingSeasonEpisodes = false;
+        renderPerson(frame);
+    }
+
+    private void closePersonPage() {
+        showingPerson = false;
+        if (personStack.isEmpty()) {
+            popDetailToPrevious();
+            return;
+        }
+        restorePersonOrigin(personStack.remove(personStack.size() - 1));
+    }
+
+    private void restorePersonOrigin(PersonFrame frame) {
+        if (frame == null || frame.detailItem == null || frame.detailInfo == null) {
+            popDetailToPrevious();
+            return;
+        }
+        savedDetailItem = frame.detailItem;
+        savedDetailInfo = frame.detailInfo;
+        detailOpenedSeason = frame.openedSeason;
+        detailSeasons = frame.seasons;
+        if (frame.seasonEpisodes && frame.openedSeason != null) {
+            showSeasonEpisodePage(frame.openedSeason, frame.seasons);
+        } else {
+            showingSeasonEpisodes = false;
+            buildDetailPage(frame.detailItem, frame.detailInfo);
+        }
+    }
+
+    private void renderPerson(PersonFrame frame) {
+        if (frame == null) return;
+        showingPerson = true;
+        showingOverview = false;
+        showingEpisodes = false;
+        showingSeasonEpisodes = false;
+        revealTab(0);
+        setDetailChrome(true);
+        detailPlayBtn = null;
+        detailOverview = null;
+        detailCastRow = null;
+        detailMediaBtn = null;
+        detailSeasonRow = null;
+        detailChipRow = null;
+        detailRangeRow = null;
+        detailEpisodeBox = null;
+        moviesContainer.removeAllViews();
+        ScrollView scroller = moviesScroller();
+        if (scroller != null) scroller.scrollTo(0, 0);
+        if (!frame.loaded) {
+            if (!frame.loading) {
+                frame.loading = true;
+                loadPerson(frame);
+            }
+            TextView loading = new TextView(this);
+            loading.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(140)));
+            loading.setGravity(Gravity.CENTER);
+            loading.setText("加载中...");
+            loading.setTextColor(color(R.color.text_hint));
+            loading.setTextSize(14);
+            moviesContainer.addView(loading);
+            return;
+        }
+        drawPerson(frame);
+    }
+
+    private void loadPerson(final PersonFrame frame) {
+        if (apiManager.getApi() == null) return;
+        final int[] left = {4};
+        Runnable step = () -> {
+            if (personStack.isEmpty() || personStack.get(personStack.size() - 1) != frame) return;
+            if (--left[0] > 0) return;
+            frame.loading = false;
+            frame.loaded = true;
+            if (showingPerson) drawPerson(frame);
+        };
+        apiManager.getApi().getPerson(frame.guid).enqueue(new Callback<ApiResponse<PersonProfile>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<PersonProfile>> call,
+                                   Response<ApiResponse<PersonProfile>> response) {
+                if (response.isSuccessful() && response.body() != null && response.body().code == 0) {
+                    frame.profile = response.body().data;
+                }
+                step.run();
+            }
+            @Override public void onFailure(Call<ApiResponse<PersonProfile>> call, Throwable t) { step.run(); }
+        });
+        loadPersonWorks(frame, "Actor", frame.actors, step);
+        loadPersonWorks(frame, "Director", frame.directors, step);
+        loadPersonWorks(frame, "Screenplay", frame.writers, step);
+    }
+
+    private void loadPersonWorks(PersonFrame frame, String job, List<PlayListItem> into, Runnable done) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("person_guid", frame.guid);
+        body.put("page", 1);
+        body.put("page_size", 100);
+        body.put("job", job);
+        body.put("sort_column", "update_time");
+        body.put("sort_type", "desc");
+        apiManager.getApi().getPersonWorks(body).enqueue(new Callback<ApiResponse<PersonWorksData>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<PersonWorksData>> call,
+                                   Response<ApiResponse<PersonWorksData>> response) {
+                into.clear();
+                if (response.isSuccessful() && response.body() != null && response.body().code == 0
+                        && response.body().data != null && response.body().data.list != null) {
+                    into.addAll(response.body().data.list);
+                }
+                done.run();
+            }
+            @Override public void onFailure(Call<ApiResponse<PersonWorksData>> call, Throwable t) { done.run(); }
+        });
+    }
+
+    private void drawPerson(PersonFrame frame) {
+        moviesContainer.removeAllViews();
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(16), dp(20), dp(16), dp(28));
+        page.setBackgroundColor(color(R.color.bg_dark));
+        page.addView(makePersonHeader(frame));
+
+        boolean any = addPersonWorks(page, "演员", frame.actors)
+                | addPersonWorks(page, "导演", frame.directors)
+                | addPersonWorks(page, "编剧", frame.writers);
+        if (!any) {
+            TextView empty = new TextView(this);
+            empty.setPadding(0, dp(20), 0, 0);
+            empty.setText("暂无相关影视");
+            empty.setTextColor(color(R.color.text_hint));
+            empty.setTextSize(14);
+            page.addView(empty);
+        }
+        moviesContainer.addView(page);
+        wirePersonNav(page);
+    }
+
+    private View makePersonHeader(PersonFrame frame) {
+        String name = frame.profile != null && frame.profile.name != null && !frame.profile.name.trim().isEmpty()
+                ? frame.profile.name.trim()
+                : (frame.fallback != null ? frame.fallback.displayName() : "");
+        String original = frame.profile != null ? frame.profile.originalName : null;
+        if ((original == null || original.trim().isEmpty()) && frame.fallback != null) {
+            original = frame.fallback.originalName;
+        }
+        String photo = frame.profile != null ? frame.profile.profile : null;
+        if ((photo == null || photo.isEmpty()) && frame.fallback != null) photo = frame.fallback.profilePath;
+        String bio = frame.profile != null ? frame.profile.biography : null;
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, 0, 0, dp(8));
+
+        FrameLayout avatar = new FrameLayout(this);
+        avatar.setLayoutParams(new LinearLayout.LayoutParams(dp(96), dp(144)));
+        RoundedImageView photoView = new RoundedImageView(this);
+        photoView.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        photoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        photoView.setBackgroundColor(color(R.color.bg_poster));
+        photoView.setCornerRadius(8);
+        String imageUrl = makeImageUrl(photo, 400);
+        if (imageUrl != null) {
+            photoView.setTag(imageUrl);
+            SimpleImageLoader.load(imageUrl, photoView, apiManager.getClient());
+        }
+        avatar.addView(photoView);
+        row.addView(avatar);
+
+        LinearLayout text = new LinearLayout(this);
+        LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        textLp.leftMargin = dp(16);
+        text.setLayoutParams(textLp);
+        text.setOrientation(LinearLayout.VERTICAL);
+
+        TextView nameTv = new TextView(this);
+        nameTv.setText(name.isEmpty() ? "未知人物" : name);
+        nameTv.setTextColor(color(R.color.text_white));
+        nameTv.setTextSize(22);
+        nameTv.setTypeface(Typeface.DEFAULT_BOLD);
+        nameTv.setMaxLines(2);
+        nameTv.setEllipsize(TextUtils.TruncateAt.END);
+        text.addView(nameTv);
+        if (original != null && !original.trim().isEmpty() && !original.trim().equals(name)) {
+            TextView orig = new TextView(this);
+            orig.setPadding(0, dp(4), 0, 0);
+            orig.setText(original.trim());
+            orig.setTextColor(color(R.color.text_hint));
+            orig.setTextSize(13);
+            orig.setSingleLine(true);
+            orig.setEllipsize(TextUtils.TruncateAt.END);
+            text.addView(orig);
+        }
+        if (bio != null && !bio.trim().isEmpty()) {
+            TextView bioTv = new TextView(this);
+            bioTv.setPadding(0, dp(10), 0, 0);
+            bioTv.setText(bio.trim());
+            bioTv.setTextColor(color(R.color.text_secondary));
+            bioTv.setTextSize(14);
+            bioTv.setLineSpacing(4, 1);
+            bioTv.setMaxLines(4);
+            bioTv.setEllipsize(TextUtils.TruncateAt.END);
+            bioTv.setFocusable(true);
+            bioTv.setOnClickListener(v -> {
+                boolean collapsed = bioTv.getMaxLines() == 4;
+                bioTv.setMaxLines(collapsed ? Integer.MAX_VALUE : 4);
+                bioTv.setEllipsize(collapsed ? null : TextUtils.TruncateAt.END);
+            });
+            bioTv.setTag("person_bio");
+            text.addView(bioTv);
+        }
+        row.addView(text);
+        return row;
+    }
+
+    private boolean addPersonWorks(LinearLayout page, String title, List<PlayListItem> works) {
+        if (works == null || works.isEmpty()) return false;
+        page.addView(makePlainLabel(title));
+        HorizontalScrollView hsv = makeHsv();
+        hsv.setPadding(0, 0, 0, dp(8));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setTag("person_row");
+        for (PlayListItem item : works) {
+            if (item == null || item.guid == null || item.guid.isEmpty()) continue;
+            View card = makeItemCard(item);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(124), ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = dp(12);
+            card.setLayoutParams(lp);
+            row.addView(card);
+        }
+        if (row.getChildCount() == 0) return false;
+        hsv.addView(row);
+        page.addView(hsv);
+        return true;
+    }
+
+    private void wirePersonNav(LinearLayout page) {
+        page.post(() -> {
+            List<View> bio = new ArrayList<>();
+            View bioView = page.findViewWithTag("person_bio");
+            if (bioView != null && bioView.isFocusable()) bio.add(bioView);
+            List<List<View>> rows = new ArrayList<>();
+            if (!bio.isEmpty()) rows.add(bio);
+            collectPersonRows(page, rows);
+            for (List<View> row : rows) {
+                TvFocus.bindRow(row);
+                TvFocus.sealAll(row);
+            }
+            for (int i = 0; i < rows.size() - 1; i++) {
+                TvFocus.bindVertical(rows.get(i), rows.get(i + 1));
+            }
+            if (!rows.isEmpty()) {
+                for (View v : rows.get(0)) TvFocus.point(v, View.FOCUS_UP, v);
+                bindTabBar(rows.get(0), rows.get(rows.size() - 1));
+                int focusRow = !bio.isEmpty() && rows.size() > 1 ? 1 : 0;
+                View first = rows.get(focusRow).get(0);
+                if (isUsableFocus(first)) first.requestFocus();
+            }
+        });
+    }
+
+    private void collectPersonRows(ViewGroup group, List<List<View>> rows) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if ("person_row".equals(child.getTag()) && child instanceof ViewGroup) {
+                List<View> cards = TvFocus.collectVisibleFocusables(child);
+                if (!cards.isEmpty()) rows.add(cards);
+            } else if (child instanceof ViewGroup) {
+                collectPersonRows((ViewGroup) child, rows);
+            }
+        }
     }
 
     private android.graphics.drawable.GradientDrawable circleDrawable(int fill) {
@@ -6504,6 +6824,10 @@ public class HomeActivity extends AppCompatActivity {
 
     /** 首页根层级再按一次退出应用，回到进入前的界面；登录态仍保留在本地。 */
     private boolean handleBack() {
+        if (showingPerson) {
+            closePersonPage();
+            return true;
+        }
         if (showingSeasonEpisodes && savedDetailItem != null && savedDetailInfo != null) {
             showingSeasonEpisodes = false;
             detailOpenedSeason = null;
@@ -6513,6 +6837,11 @@ public class HomeActivity extends AppCompatActivity {
         if (showingEpisodes && savedDetailItem != null && savedDetailInfo != null) {
             showingEpisodes = false;
             buildDetailPage(savedDetailItem, savedDetailInfo);
+            return true;
+        }
+        if (!personStack.isEmpty() && savedDetailItem != null) {
+            showingPerson = true;
+            renderPerson(personStack.get(personStack.size() - 1));
             return true;
         }
         if (savedDetailItem != null || detailReturn != null) {
