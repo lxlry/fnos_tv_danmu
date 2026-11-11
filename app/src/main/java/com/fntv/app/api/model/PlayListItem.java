@@ -14,6 +14,9 @@ public class PlayListItem {
     public String type;           // "Episode", "Video", "Folder" 等
 
     public String poster;
+    /** 在线线路卡把封面放在 posters / backdrops，不一定有 poster。可能是字符串或数组。 */
+    public Object posters;
+    public Object backdrops;
 
     @SerializedName("tv_title")
     public String tvTitle;
@@ -119,16 +122,40 @@ public class PlayListItem {
         return "Movie".equals(type) || "Video".equals(type) || "Episode".equals(type);
     }
 
+    /** 封面路径。本地片用 poster；在线线路卡只有 posters。 */
+    public String coverPath() {
+        if (poster != null && !poster.isEmpty()) return poster;
+        String fromPosters = firstImagePath(posters);
+        if (fromPosters != null) return fromPosters;
+        return firstImagePath(backdrops);
+    }
+
+    private static String firstImagePath(Object value) {
+        if (value instanceof String) {
+            String path = (String) value;
+            return path.isEmpty() ? null : path;
+        }
+        if (value instanceof List) {
+            for (Object one : (List<?>) value) {
+                if (one == null) continue;
+                String path = String.valueOf(one);
+                if (!path.isEmpty()) return path;
+            }
+        }
+        return null;
+    }
+
     /** 获取完整海报URL */
     public String getPosterUrl(String baseUrl) {
-        if (poster != null && !poster.isEmpty()) {
-            if (poster.startsWith("http://") || poster.startsWith("https://")) {
-                return poster;
+        String path = coverPath();
+        if (path != null && !path.isEmpty()) {
+            if (path.startsWith("http://") || path.startsWith("https://")) {
+                return path;
             }
-            if (poster.startsWith("/v/")) {
-                return baseUrl + poster + (poster.contains("?") ? "&" : "?") + "w=400";
+            if (path.startsWith("/v/")) {
+                return baseUrl + path + (path.contains("?") ? "&" : "?") + "w=400";
             }
-            return baseUrl + "/v/api/v1/sys/img" + poster + "?w=400";
+            return baseUrl + "/v/api/v1/sys/img" + path + "?w=400";
         }
         return null;
     }

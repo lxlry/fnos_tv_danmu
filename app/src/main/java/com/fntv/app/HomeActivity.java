@@ -1207,7 +1207,7 @@ public class HomeActivity extends AppCompatActivity {
         poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
         poster.setCornerRadius(10);
         poster.setBackgroundColor(color(R.color.bg_poster));
-        String imgUrl = makePosterUrl(item.poster);
+        String imgUrl = makePosterUrl(item.coverPath());
         if (imgUrl != null) poster.setTag(imgUrl);
         shot.addView(poster);
 
@@ -1468,7 +1468,7 @@ public class HomeActivity extends AppCompatActivity {
         iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
         iv.setBackgroundColor(color(R.color.bg_poster));
         iv.setCornerRadius(10);
-        String imgUrl = makePosterUrl(item.poster);
+        String imgUrl = makePosterUrl(item.coverPath());
         if (imgUrl != null) iv.setTag(imgUrl);
         posterBox.addView(iv);
 
@@ -1913,7 +1913,7 @@ public class HomeActivity extends AppCompatActivity {
         iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
         iv.setBackgroundColor(color(R.color.bg_poster));
         iv.setCornerRadius(12);
-        String imgUrl = makePosterUrl(item.poster);
+        String imgUrl = makePosterUrl(item.coverPath());
         if (imgUrl != null) iv.setTag(imgUrl);
         posterBox.addView(iv);
 
