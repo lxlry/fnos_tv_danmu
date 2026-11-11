@@ -170,6 +170,13 @@ public class CloudStreamManager {
     /** 最近一次 stream API 数据（服务端起播/seek 用） */
     public StreamResponse getLastStreamData() { return lastStreamData; }
 
+    /** 扩展注入的在线片。路径以「在线/」开头，不能按本地文件去播。 */
+    public boolean isOnlineFile() {
+        if (lastStreamData == null || lastStreamData.fileStream == null) return false;
+        String path = lastStreamData.fileStream.path;
+        return path != null && (path.startsWith("在线/") || path.startsWith("在线\\"));
+    }
+
     /** 获取用户最后选择的音轨标签（供信息面板展示） */
     public String getLastAudioTrackLabel() { return lastAudioTrackLabel; }
     /** 获取用户最后选择的字幕标签（供信息面板展示） */

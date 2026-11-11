@@ -89,6 +89,10 @@ public class PlayerActivity extends AppCompatActivity {
     private long backPressedTime = 0;
     private CloudStreamManager cloudStreamManager;
     private boolean useHls = false;
+    /** 当前这部是扩展注入的在线片。本地片保持 false，播放链路不走这里。 */
+    private boolean onlinePlayback = false;
+    private okhttp3.OkHttpClient onlineHttp;
+    private okhttp3.OkHttpClient onlineHttpBase;
     private int seekStep = 10000;
     private int bufferTimeMs = 30000;
     private int streamBitrate = 0; // bps 来自 stream API
@@ -1081,8 +1085,9 @@ public class PlayerActivity extends AppCompatActivity {
 
     /** 视频源。没有内嵌字幕时附上中文外部字幕。 */
     private com.google.android.exoplayer2.source.MediaSource buildMediaSource(String url, boolean hls) {
-        com.google.android.exoplayer2.upstream.DataSource.Factory f =
-                () -> new OkHttpExoDataSource(apiManager.getStreamClient());
+        com.google.android.exoplayer2.upstream.DataSource.Factory f = onlinePlayback
+                ? () -> new OkHttpExoDataSource(onlineClient(), true)
+                : () -> new OkHttpExoDataSource(apiManager.getStreamClient());
         CloudStreamManager.ExternalSubtitle side = cloudStreamManager != null
                 ? cloudStreamManager.defaultExternalSubtitle(baseUrl) : null;
         if (side != null) Log.d(TAG, "外挂中文字幕: " + side.label + " " + side.url);
@@ -1241,12 +1246,100 @@ public class PlayerActivity extends AppCompatActivity {
     /** 开始播放（加载到 ExoPlayer） */
     private void startPlayback() {
         if (mediaGuid == null) return;
+        if (cloudStreamManager != null && cloudStreamManager.isOnlineFile()) {
+            onlinePlayback = true;
+            resolveOnlineAndPlay();
+            return;
+        }
+        onlinePlayback = false;
         CloudStreamManager.PlaybackConfig cfg = cloudStreamManager.getPlaybackConfig(baseUrl, mediaGuid);
-        OkHttpExoDataSource.setChunkedMode(cfg.chunkedModeSize);
-        useHls = cfg.hls;
-        savedPlaybackUrl = cfg.url;
-        player.setMediaSource(buildMediaSource(cfg.url, useHls));
-        Log.d(TAG, useHls ? "播放器: HLS" : "播放器: 渐进式");
+        beginPlayback(cfg.url, cfg.hls, cfg.chunkedModeSize);
+    }
+
+    /** 在线片的 media/range 会 302 到 m3u8 或直链。只看跳转地址，不把片拉下来。 */
+    private void resolveOnlineAndPlay() {
+        final String rangeUrl = baseUrl + "/v/api/v1/media/range/" + mediaGuid;
+        OkHttpExoDataSource.setChunkedMode(0);
+        new Thread(() -> {
+            String playUrl = null;
+            boolean hls = false;
+            try {
+                okhttp3.Request req = new okhttp3.Request.Builder().url(rangeUrl).get()
+                        .header("Range", "bytes=0-0").build();
+                okhttp3.Response resp = onlineClient().newCall(req).execute();
+                try {
+                    int code = resp.code();
+                    String loc = resp.header("Location");
+                    String type = resp.header("Content-Type", "");
+                    if (loc != null && !loc.isEmpty() && code >= 300 && code < 400) {
+                        okhttp3.HttpUrl next = resp.request().url().resolve(loc);
+                        playUrl = next != null ? next.toString() : loc;
+                    } else if (code == 200 || code == 206) {
+                        playUrl = resp.request().url().toString();
+                        String low = type.toLowerCase();
+                        hls = low.contains("mpegurl") || low.contains("m3u8");
+                    }
+                } finally {
+                    resp.close();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "在线取链失败", e);
+            }
+            if (playUrl == null || playUrl.isEmpty()) {
+                runOnUiThread(() -> {
+                    if (!isFinishing()) AppToast.show(this, "在线片取链失败");
+                });
+                return;
+            }
+            if (playUrl.contains(".m3u8")) hls = true;
+            final String url = playUrl;
+            final boolean useHlsFinal = hls;
+            runOnUiThread(() -> {
+                if (isFinishing() || player == null) return;
+                beginPlayback(url, useHlsFinal, 0);
+            });
+        }, "online-play").start();
+    }
+
+    private okhttp3.OkHttpClient onlineClient() {
+        okhttp3.OkHttpClient base = apiManager.getStreamClient();
+        if (onlineHttp != null && onlineHttpBase == base) return onlineHttp;
+        onlineHttpBase = base;
+        final String nasHost = hostOf(baseUrl);
+        onlineHttp = base.newBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .addInterceptor(chain -> {
+                    okhttp3.Request req = chain.request();
+                    if (nasHost != null && req.url().host().equalsIgnoreCase(nasHost)) {
+                        return chain.proceed(req);
+                    }
+                    return chain.proceed(req.newBuilder()
+                            .removeHeader("Authorization")
+                            .removeHeader("Authx")
+                            .removeHeader("Cookie")
+                            .removeHeader("Content-Type")
+                            .build());
+                })
+                .build();
+        return onlineHttp;
+    }
+
+    private static String hostOf(String url) {
+        try {
+            String host = new java.net.URL(url).getHost();
+            return host == null || host.isEmpty() ? null : host;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void beginPlayback(String url, boolean hls, int chunked) {
+        OkHttpExoDataSource.setChunkedMode(chunked);
+        useHls = hls;
+        savedPlaybackUrl = url;
+        player.setMediaSource(buildMediaSource(url, useHls));
+        Log.d(TAG, (onlinePlayback ? "在线" : "本地") + (useHls ? "播放器: HLS " : "播放器: 渐进式 ") + url);
         player.prepare(); player.setPlayWhenReady(true);
         Log.d(TAG, "startPlayback: parentGuid=" + parentGuid + " episodeLoaded=" + (episodeManager != null && episodeManager.isLoaded()) + " loadingEp=" + (episodeManager != null && episodeManager.isLoading()));
         if (parentGuid != null && !parentGuid.isEmpty() && episodeManager != null && !episodeManager.isLoaded() && !episodeManager.isLoading())

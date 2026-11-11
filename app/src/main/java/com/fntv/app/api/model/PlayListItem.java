@@ -122,6 +122,12 @@ public class PlayListItem {
     /** 获取完整海报URL */
     public String getPosterUrl(String baseUrl) {
         if (poster != null && !poster.isEmpty()) {
+            if (poster.startsWith("http://") || poster.startsWith("https://")) {
+                return poster;
+            }
+            if (poster.startsWith("/v/")) {
+                return baseUrl + poster + (poster.contains("?") ? "&" : "?") + "w=400";
+            }
             return baseUrl + "/v/api/v1/sys/img" + poster + "?w=400";
         }
         return null;

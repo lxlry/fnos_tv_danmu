@@ -707,10 +707,7 @@ public class HomeActivity extends AppCompatActivity {
                         }
                         return;
                     }
-                    List<MediaDbItem> next = new ArrayList<>();
-                    for (MediaDbItem lib : response.body().data) {
-                        if (!lib.refreshDisabled) next.add(lib);
-                    }
+                    List<MediaDbItem> next = new ArrayList<>(response.body().data);
                     String stamp = libsStamp(next);
                     boolean same = quiet && stamp.equals(shownOverviewLibsKey);
                     mediaLibraries.clear();
@@ -1095,10 +1092,22 @@ public class HomeActivity extends AppCompatActivity {
             Log.d("PosterUrl", "path is null/empty");
             return null;
         }
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            return appendWidth(path, width);
+        }
+        // 在线库海报已经是 /v/api/v1/sys/img/online/...，再加前缀会裂图
+        if (path.startsWith("/v/")) {
+            return appendWidth(baseUrl + path, width);
+        }
         String p = path.startsWith("/") ? path : "/" + path;
         String fullUrl = baseUrl + "/v/api/v1/sys/img" + p + "?w=" + width;
         Log.d("PosterUrl", "poster=" + path + " -> " + fullUrl);
         return fullUrl;
+    }
+
+    private static String appendWidth(String url, int width) {
+        if (url.contains("w=")) return url;
+        return url + (url.contains("?") ? "&" : "?") + "w=" + width;
     }
 
     private void setDetailChrome(boolean detail) {
@@ -3723,10 +3732,7 @@ public class HomeActivity extends AppCompatActivity {
                 }
                 if (response.isSuccessful() && response.body() != null && response.body().code == 0
                         && response.body().data != null && !response.body().data.isEmpty()) {
-                    List<MediaDbItem> filteredLibs = new ArrayList<>();
-                    for (MediaDbItem lib : response.body().data) {
-                        if (!lib.refreshDisabled) filteredLibs.add(lib);
-                    }
+                    List<MediaDbItem> filteredLibs = new ArrayList<>(response.body().data);
                     String stamp = libsStamp(filteredLibs);
                     mediaLibraries.clear();
                     mediaLibraries.addAll(filteredLibs);

@@ -1321,6 +1321,21 @@ public class DanmuManager {
 
     // ========== 自动匹配 ==========
 
+    /** 片名里的引号不能把 match 请求弄断。普通片名转义后和原文一致。 */
+    private static String jsonEscape(String s) {
+        if (s == null || s.isEmpty()) return "";
+        StringBuilder out = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\\' || c == '"') out.append('\\').append(c);
+            else if (c == '\n') out.append("\\n");
+            else if (c == '\r') out.append("\\r");
+            else if (c == '\t') out.append("\\t");
+            else out.append(c);
+        }
+        return out.toString();
+    }
+
     private void startAutoMatch(String title, int targetEp) {
         showDanmuStatus("弹幕: 正在匹配 \"" + title + "\"...");
         new Thread(() -> {
@@ -1338,7 +1353,7 @@ public class DanmuManager {
                     conn.setRequestMethod("POST");
                     conn.setRequestProperty("Content-Type", "application/json");
                     conn.setDoOutput(true);
-                    String body = "{\"fileName\":\"" + title + "\"}";
+                    String body = "{\"fileName\":\"" + jsonEscape(title) + "\"}";
                     conn.getOutputStream().write(body.getBytes("UTF-8"));
                     conn.connect();
                     if (conn.getResponseCode() == 200) {
@@ -1383,7 +1398,7 @@ public class DanmuManager {
                         conn.setRequestMethod("POST");
                         conn.setRequestProperty("Content-Type", "application/json");
                         conn.setDoOutput(true);
-                        String body = "{\"fileName\":\"" + title + "\"}";
+                        String body = "{\"fileName\":\"" + jsonEscape(title) + "\"}";
                         conn.getOutputStream().write(body.getBytes("UTF-8"));
                         conn.connect();
                         if (conn.getResponseCode() == 200) {

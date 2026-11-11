@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -34,6 +35,8 @@ public class OkHttpExoDataSource extends BaseDataSource {
     public static String lastContentType = "";
 
     private final OkHttpClient client;
+    /** 在线片自己跟 302，避免把飞牛登录头带到外站。本地播放保持关闭。 */
+    private final boolean manualRedirect;
     private DataSpec dataSpec;
     private Response response;
     private InputStream inputStream;
@@ -47,8 +50,36 @@ public class OkHttpExoDataSource extends BaseDataSource {
     public static void setChunkedMode(int bytes) { chunkSize = bytes; }
 
     public OkHttpExoDataSource(OkHttpClient client) {
+        this(client, false);
+    }
+
+    public OkHttpExoDataSource(OkHttpClient client, boolean manualRedirect) {
         super(/* isNetwork= */ true);
         this.client = client;
+        this.manualRedirect = manualRedirect;
+    }
+
+    /** 本地片一次请求。在线片最多跟 5 次跳转，跳到 m3u8 时去掉 Range。 */
+    private Response execute(Request request) throws IOException {
+        if (!manualRedirect) return client.newCall(request).execute();
+        for (int hop = 0; hop < 5; hop++) {
+            Response resp = client.newCall(request).execute();
+            int code = resp.code();
+            if (code != 301 && code != 302 && code != 303 && code != 307 && code != 308) {
+                return resp;
+            }
+            String loc = resp.header("Location");
+            resp.close();
+            if (loc == null || loc.isEmpty()) {
+                throw new IOException("HTTP " + code + " missing Location");
+            }
+            HttpUrl next = request.url().resolve(loc);
+            if (next == null) throw new IOException("HTTP " + code + " bad Location");
+            Request.Builder nextReq = request.newBuilder().url(next);
+            if (next.toString().contains(".m3u8")) nextReq.removeHeader("Range");
+            request = nextReq.build();
+        }
+        throw new IOException("too many redirects");
     }
 
     @Override
@@ -78,7 +109,9 @@ public class OkHttpExoDataSource extends BaseDataSource {
         String range = rangeEnd >= 0
                 ? "bytes=" + position + "-" + rangeEnd
                 : "bytes=" + position + "-";
-        builder.header("Range", range);
+        // 播放列表不是媒体文件。带 Range 时有的源会回 206 半截 m3u8。
+        boolean playlist = manualRedirect && dataSpec.uri.toString().contains(".m3u8");
+        if (!playlist) builder.header("Range", range);
         builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
         if (!cloudCookie.isEmpty()) {
@@ -90,7 +123,7 @@ public class OkHttpExoDataSource extends BaseDataSource {
             }
         }
 
-        response = client.newCall(builder.build()).execute();
+        response = execute(builder.build());
         int code = response.code();
         lastResponseCode = code;
         lastContentType = response.header("Content-Type", "");
