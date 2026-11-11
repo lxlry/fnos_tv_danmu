@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527057,
-    "versionName": "9527.057",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.057/FNTV_release_v9527.057.apk",
-    "changelog": "支持在线片库播放，并按剧名和集数自动匹配弹幕",
+    "versionCode": 9527058,
+    "versionName": "9527.058",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.058/FNTV_release_v9527.058.apk",
+    "changelog": "在线片先进入线路选择，选定线路后再进入详情",
     "forceUpdate": false
 }

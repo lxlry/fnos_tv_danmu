@@ -111,6 +111,8 @@ public class HomeActivity extends AppCompatActivity {
 
     // 横竖屏切换时保存的页面状态
     private String savedBrowseGuid, savedBrowseTitle;
+    /** 从某个片库点进在线线路墙时，返回要回到的那一层。 */
+    private String onlineLineParentGuid, onlineLineParentTitle;
     private List<PlayListItem> savedBrowseList;
     private PlayListItem savedDetailItem;
     private PlayInfoResponse savedDetailInfo;
@@ -1513,7 +1515,34 @@ public class HomeActivity extends AppCompatActivity {
 
     private void onItemClick(PlayListItem item) {
         if (showingPerson) showingPerson = false;
+        if (isOnlineLineFolder(item)) {
+            openOnlineLines(item);
+            return;
+        }
         showDetail(item);
+    }
+
+    /** 扩展把在线片收成线路文件夹，guid 以这个前缀开头。本地目录不是这种 guid。 */
+    private boolean isOnlineLineFolder(PlayListItem item) {
+        return item != null && item.guid != null
+                && item.guid.startsWith("fnmedia-line-folder:");
+    }
+
+    /** 在线片先出线路海报墙。点某一条线路后再走原来的详情页。 */
+    private void openOnlineLines(PlayListItem item) {
+        if (savedBrowseGuid != null && !savedBrowseGuid.startsWith("fnmedia-line-folder:")) {
+            onlineLineParentGuid = savedBrowseGuid;
+            onlineLineParentTitle = savedBrowseTitle;
+        } else if (savedBrowseGuid == null) {
+            onlineLineParentGuid = null;
+            onlineLineParentTitle = null;
+        }
+        String title = item.title != null && !item.title.isEmpty() ? item.title : "选择线路";
+        if (currentTab == 1 && libraryContainer != null) {
+            browseItemsInContainer(item.guid, title, libraryContainer, tvLibraryLoading);
+        } else {
+            browseItems(item.guid, title);
+        }
     }
 
 
@@ -2213,6 +2242,10 @@ public class HomeActivity extends AppCompatActivity {
         }
 
         String mainTitle = !series.isEmpty() ? series : (epTitle != null ? epTitle : "");
+        if (item.guid != null && item.guid.startsWith("fnmedia-line-item:")
+                && item.title != null && !item.title.isEmpty()) {
+            mainTitle = item.title;
+        }
         String subTitle = "";
         if (isSeries) {
             StringBuilder sub = new StringBuilder();
@@ -2554,6 +2587,10 @@ public class HomeActivity extends AppCompatActivity {
         if (series.isEmpty() && item.tvTitle != null) series = item.tvTitle;
         String epTitle = info.item != null && info.item.title != null ? info.item.title : item.title;
         String mainTitle = !series.isEmpty() ? series : (epTitle != null ? epTitle : "");
+        if (item.guid != null && item.guid.startsWith("fnmedia-line-item:")
+                && item.title != null && !item.title.isEmpty()) {
+            mainTitle = item.title;
+        }
         int epNum = info.item != null ? info.item.episodeNumber : item.episodeNumber;
         int seasonNum = info.item != null ? info.item.seasonNumber : item.seasonNumber;
 
@@ -6862,6 +6899,20 @@ public class HomeActivity extends AppCompatActivity {
         if ((etSearch != null && etSearch.isFocused()) || isSearching) {
             leaveSearch();
             return true;
+        }
+        if (savedBrowseGuid != null && savedBrowseGuid.startsWith("fnmedia-line-folder:")) {
+            String parent = onlineLineParentGuid;
+            String parentTitle = onlineLineParentTitle;
+            onlineLineParentGuid = null;
+            onlineLineParentTitle = null;
+            if (parent != null && !parent.isEmpty()) {
+                LinearLayout container = browseFromLibrary && libraryContainer != null
+                        ? libraryContainer : moviesContainer;
+                TextView loading = container == libraryContainer ? tvLibraryLoading : tvMoviesLoading;
+                browseItemsInContainer(parent, parentTitle != null ? parentTitle : "",
+                        container, loading);
+                return true;
+            }
         }
         if (currentTab == 1 && savedBrowseGuid != null) {
             savedBrowseGuid = null; savedBrowseList = null;
