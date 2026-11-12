@@ -13,9 +13,19 @@ import java.nio.charset.Charset;
 public class AuthInterceptor implements Interceptor {
     private String token;
     private String referer;
+    private String accessCode = "";
+    private String nasHost = "";
 
     public void setToken(String token) {
         this.token = token;
+    }
+
+    public void setAccessCode(String code) {
+        accessCode = code == null ? "" : code.trim();
+    }
+
+    public void setNasHost(String host) {
+        nasHost = host == null ? "" : host;
     }
 
     public String getToken() {
@@ -54,6 +64,11 @@ public class AuthInterceptor implements Interceptor {
 
         if (token != null) {
             requestBuilder.header("Authorization", token);
+        }
+        if (!accessCode.isEmpty() && !nasHost.isEmpty()
+                && nasHost.equalsIgnoreCase(original.url().host())) {
+            requestBuilder.header(AccessCodes.HEADER, AccessCodes.encode(accessCode));
+            requestBuilder.header(AccessCodes.SOURCE_HEADER, AccessCodes.SOURCE_APP);
         }
 
         if (referer != null && !referer.isEmpty() && urlPath.contains("play/record")) {

@@ -34,6 +34,7 @@ public class FnIdLoginHelper {
     private final String fnId;
     private final String username;
     private final String password;
+    private final String accessCode;
     private final FnIdCallback callback;
     private WebView webView;
     private android.app.Dialog dialog;
@@ -49,11 +50,13 @@ public class FnIdLoginHelper {
         void onError(String message);
     }
 
-    public FnIdLoginHelper(Activity activity, String fnId, String username, String password, FnIdCallback callback) {
+    public FnIdLoginHelper(Activity activity, String fnId, String username, String password,
+                           String accessCode, FnIdCallback callback) {
         this.activity = activity;
         this.fnId = fnId;
         this.username = username;
         this.password = password;
+        this.accessCode = accessCode == null ? "" : accessCode.trim();
         this.callback = callback;
         this.handler = new Handler(Looper.getMainLooper());
     }
@@ -156,8 +159,24 @@ public class FnIdLoginHelper {
 
     private void loadFnConnectUrl() {
         String url = "https://" + FN_CONNECT_HOST + "/" + fnId.trim();
-        Log.d(TAG, "加载 FN Connect URL: " + url);
-        webView.loadUrl(url);
+        if (!accessCode.isEmpty()) {
+            url = url + "/c/" + android.net.Uri.encode(accessCode);
+        }
+        Log.d(TAG, "加载 FN Connect: " + FN_CONNECT_HOST + "/" + fnId.trim());
+        openPage(url);
+    }
+
+    /** 页面跳转带上访问码头。跨域跳转时以 /c/访问码 这条入口为准。 */
+    private void openPage(String url) {
+        if (webView == null) return;
+        if (accessCode.isEmpty()) {
+            webView.loadUrl(url);
+            return;
+        }
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
+        headers.put(com.fntv.app.api.AccessCodes.HEADER, com.fntv.app.api.AccessCodes.encode(accessCode));
+        headers.put(com.fntv.app.api.AccessCodes.SOURCE_HEADER, com.fntv.app.api.AccessCodes.SOURCE_APP);
+        webView.loadUrl(url, headers);
     }
 
     /** 注入 JS 拦截脚本（同桌面版逻辑） */
@@ -358,6 +377,7 @@ public class FnIdLoginHelper {
 
         Log.d(TAG, "换取 token: " + baseUrl + "/v/api/v1/auth");
 
+        FnApiManager.getInstance().setAccessCode(accessCode);
         FnApiManager.getInstance().updateBaseUrl(baseUrl);
         FnApiManager.getInstance().getApi().auth(body).enqueue(new Callback<ApiResponse<FnAuthResponse>>() {
             @Override
@@ -373,7 +393,8 @@ public class FnIdLoginHelper {
                         callback.onSuccess(token, baseUrl);
                     });
                 } else {
-                    String msg = response.body() != null ? response.body().msg : "未知错误";
+                    String msg = accessFailure(response.code(),
+                            response.body() != null ? response.body().msg : "未知错误");
                     Log.e(TAG, "换取 token 失败: " + msg);
                     handler.post(() -> {
                         dismissDialog();
@@ -421,7 +442,7 @@ public class FnIdLoginHelper {
                     + "&redirect_uri=" + android.net.Uri.encode(redirectUri);
 
             Log.d(TAG, "跳转到 OAuth 授权页: " + targetUrl);
-            webView.loadUrl(targetUrl);
+            openPage(targetUrl);
 
         } catch (Exception e) {
             Log.e(TAG, "处理 SysConfig 失败", e);
@@ -492,7 +513,7 @@ public class FnIdLoginHelper {
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) cm.flush();
                             }
 
-                            webView.loadUrl(targetUrl);
+                            openPage(targetUrl);
                         } catch (Exception e) {
                             Log.e(TAG, "API SysConfig 解析失败", e);
                         }
@@ -565,6 +586,7 @@ public class FnIdLoginHelper {
 
     /** 获取到 NAS 地址后，调标准 login API */
     private void doApiLogin(final String nasBase) {
+        FnApiManager.getInstance().setAccessCode(accessCode);
         FnApiManager.getInstance().updateBaseUrl(nasBase);
         FnApiManager.getInstance().getApi().login(new LoginRequest(username, password))
                 .enqueue(new Callback<ApiResponse<LoginResponseData>>() {
@@ -577,7 +599,8 @@ public class FnIdLoginHelper {
                             Log.d(TAG, "API 登录成功！");
                             handler.post(() -> callback.onSuccess(token, nasBase));
                         } else {
-                            String msg = response.body() != null ? response.body().msg : "未知错误";
+                            String msg = accessFailure(response.code(),
+                                    response.body() != null ? response.body().msg : "未知错误");
                             Log.e(TAG, "API 登录失败: " + msg);
                             handler.post(() -> callback.onError("登录失败: " + msg));
                         }
@@ -588,6 +611,13 @@ public class FnIdLoginHelper {
                         handler.post(() -> callback.onError("网络错误: " + t.getMessage()));
                     }
                 });
+    }
+
+    private String accessFailure(int http, String fallback) {
+        if (http == 401 || http == 403) {
+            return accessCode.isEmpty() ? "这台设备开启了访问码" : "访问码错误";
+        }
+        return fallback == null || fallback.isEmpty() ? "未知错误" : fallback;
     }
 
     /** 超时处理 */

@@ -86,6 +86,9 @@ public class FnApiManager {
             effectiveBaseUrl = effectiveBaseUrl.substring(0, vIndex);
         }
 
+        okhttp3.HttpUrl parsed = okhttp3.HttpUrl.parse(effectiveBaseUrl);
+        authInterceptor.setNasHost(parsed == null ? "" : parsed.host());
+
         okHttpClient = buildClient(false);
         streamClient = buildClient(true);
 
@@ -98,6 +101,7 @@ public class FnApiManager {
     }
 
     public void setToken(String token) { authInterceptor.setToken(token); }
+    public void setAccessCode(String code) { authInterceptor.setAccessCode(code); }
     public String getToken() { return authInterceptor.getToken(); }
     public void setReferer(String referer) { authInterceptor.setReferer(referer); }
     public FnApiService getApi() { return apiService; }

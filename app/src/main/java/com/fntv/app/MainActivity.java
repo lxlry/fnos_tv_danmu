@@ -14,6 +14,7 @@ import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.core.content.ContextCompat;
+import com.fntv.app.api.AccessCodes;
 import com.fntv.app.api.FnApiManager;
 import com.fntv.app.api.model.ApiResponse;
 import com.fntv.app.api.model.LoginRequest;
@@ -57,6 +58,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean sessionReplaced;
     private String sessionHost = "";
     private String sessionToken = "";
+    private String pendingAccessCode = "";
+    private boolean accessRetried;
     private final Bundle sessionSnapshot = new Bundle();
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -227,7 +230,7 @@ public class MainActivity extends AppCompatActivity {
                     String p = prefs.getString("pass", "");
                     if (!h.isEmpty() && !u.isEmpty() && !p.isEmpty() && prefs.getBoolean("remember", false)) {
                         btnLogin.setText("自动登录中...");
-                        doLoginHttp(h, u, p);
+                        doLogin();
                     }
                 }
             }, 300);
@@ -538,6 +541,7 @@ public class MainActivity extends AppCompatActivity {
         sessionSnapshot.putBoolean("fnid_remember", prefs.getBoolean("fnid_remember", false));
         sessionSnapshot.putBoolean("has_fnid_pass", prefs.contains("fnid_pass"));
         sessionSnapshot.putBoolean("_was_fnid", prefs.getBoolean("_was_fnid", false));
+        sessionSnapshot.putString("access_code", prefs.getString(AccessCodes.PREF, ""));
     }
 
     private void restoreSessionSnapshot() {
@@ -562,6 +566,7 @@ public class MainActivity extends AppCompatActivity {
             editor.remove("fnid_pass");
         }
         editor.putBoolean("_was_fnid", sessionSnapshot.getBoolean("_was_fnid"));
+        editor.putString(AccessCodes.PREF, sessionSnapshot.getString("access_code", ""));
         editor.apply();
         restoreLiveSession();
     }
@@ -577,6 +582,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             FnApiManager.getInstance().setToken(sessionToken);
         }
+        FnApiManager.getInstance().setAccessCode(sessionSnapshot.getString("access_code", ""));
     }
 
     private void openHome() {
@@ -637,13 +643,23 @@ public class MainActivity extends AppCompatActivity {
     private void doLogin() {
         if (isLoggingIn) return;
 
-        String host, user, pass;
+        String host, user, pass, access;
         if (isFnIdMode) {
-            host = fnidHostEt.getText().toString().trim();
+            AccessCodes.Pasted pasted = AccessCodes.parseFnId(fnidHostEt.getText().toString());
+            host = pasted.base;
+            access = pasted.code;
+            if (access.isEmpty() && fnidRememberCb.isChecked()) {
+                access = prefs.getString("fnid_access_code", "");
+            }
             user = fnidUserEt.getText().toString().trim();
             pass = fnidPassEt.getText().toString().trim();
         } else {
-            host = httpHostEt.getText().toString().trim();
+            AccessCodes.Pasted pasted = AccessCodes.peel(httpHostEt.getText().toString());
+            host = pasted.base;
+            access = pasted.code;
+            if (access.isEmpty() && httpRememberCb.isChecked()) {
+                access = prefs.getString("http_access_code", "");
+            }
             user = httpUserEt.getText().toString().trim();
             pass = httpPassEt.getText().toString().trim();
         }
@@ -654,50 +670,99 @@ public class MainActivity extends AppCompatActivity {
         }
 
         isLoggingIn = true;
+        accessRetried = false;
         btnLogin.setEnabled(false);
-        btnLogin.setText("登录中...");
+        if (!"自动登录中...".contentEquals(btnLogin.getText())) btnLogin.setText("登录中...");
 
-        if (isFnIdMode) {
-            if (!FnIdLoginHelper.isFnId(host)) {
-                AppToast.show(this, "FN ID 格式不正确（6-30 位字符，不含点号和斜杠）", true);
-                resetLoginState();
-                return;
-            }
-            if (!switching) saveCardInput();
-            new FnIdLoginHelper(this, host, user, pass, new FnIdLoginHelper.FnIdCallback() {
-                @Override
-                public void onSuccess(String token, String domain) {
-                    runOnUiThread(() -> {
-                        if (isFinishing()) {
-                            restoreLiveSession();
-                            return;
-                        }
-                        onFnIdLoginSuccess(token, domain, user, pass);
-                    });
-                }
-                @Override
-                public void onError(String message) {
-                    runOnUiThread(() -> {
-                        if (isFinishing()) {
-                            restoreLiveSession();
-                            return;
-                        }
-                        AppToast.show(MainActivity.this, "FN ID 登录失败: " + message, true);
-                        resetLoginState();
-                    });
-                }
-            }).start();
-        } else {
-            btnLogin.post(() -> doLoginHttp(host, user, pass));
+        final String loginHost = host;
+        final String loginUser = user;
+        final String loginPass = pass;
+        final String typed = access;
+        String gateBase = isFnIdMode
+                ? "https://5ddd.com/" + android.net.Uri.encode(host)
+                : AccountStore.normalizeHttp(host);
+        if (isFnIdMode && !FnIdLoginHelper.isFnId(host)) {
+            AppToast.show(this, "FN ID 格式不正确（6-30 位字符，不含点号和斜杠）", true);
+            resetLoginState();
+            return;
         }
+        AccessGate.prepare(this, gateBase, typed, new AccessGate.Callback() {
+            @Override public void onReady(String code) {
+                if (isFinishing()) {
+                    restoreLiveSession();
+                    return;
+                }
+                pendingAccessCode = code == null ? "" : code;
+                FnApiManager.getInstance().setAccessCode(pendingAccessCode);
+                if (isFnIdMode) startFnIdLogin(loginHost, loginUser, loginPass);
+                else doLoginHttp(loginHost, loginUser, loginPass);
+            }
+            @Override public void onCancel() {
+                if (isFinishing()) restoreLiveSession();
+                else resetLoginState();
+            }
+        });
+    }
+
+    private void startFnIdLogin(String host, String user, String pass) {
+        fnidHostEt.setText(host);
+        if (!switching) saveCardInput();
+        FnApiManager.getInstance().setToken(null);
+        new FnIdLoginHelper(this, host, user, pass, pendingAccessCode, new FnIdLoginHelper.FnIdCallback() {
+            @Override
+            public void onSuccess(String token, String domain) {
+                runOnUiThread(() -> {
+                    if (isFinishing()) {
+                        restoreLiveSession();
+                        return;
+                    }
+                    onFnIdLoginSuccess(token, domain, user, pass);
+                });
+            }
+            @Override
+            public void onError(String message) {
+                runOnUiThread(() -> {
+                    if (isFinishing()) {
+                        restoreLiveSession();
+                        return;
+                    }
+                    if (message != null && message.contains("访问码") && !accessRetried) {
+                        accessRetried = true;
+                        AccessCodePrompt.show(MainActivity.this,
+                                "https://5ddd.com/" + android.net.Uri.encode(host),
+                                new AccessCodePrompt.Listener() {
+                                    @Override public void onCode(String code) {
+                                        if (isFinishing()) {
+                                            restoreLiveSession();
+                                            return;
+                                        }
+                                        pendingAccessCode = code;
+                                        FnApiManager.getInstance().setAccessCode(code);
+                                        startFnIdLogin(host, user, pass);
+                                    }
+                                    @Override public void onCancel() {
+                                        if (isFinishing()) restoreLiveSession();
+                                        else resetLoginState();
+                                    }
+                                });
+                        return;
+                    }
+                    AppToast.show(MainActivity.this, "FN ID 登录失败: " + message, true);
+                    resetLoginState();
+                });
+            }
+        }).start();
     }
 
     private void onFnIdLoginSuccess(String token, String domain, String user, String pass) {
         sessionReplaced = true;
+        FnApiManager.getInstance().updateBaseUrl(domain);
+        FnApiManager.getInstance().setAccessCode(pendingAccessCode);
         FnApiManager.getInstance().setToken(token);
         SessionGuard.onLogin();
-        // 保存 FN ID（用户输入的原值）到 fnid_host，domain 真实地址只存 host
         String rawFnId = fnidHostEt.getText().toString().trim();
+        AccessCodes.Pasted pasted = AccessCodes.parseFnId(rawFnId);
+        if (!pasted.base.isEmpty()) rawFnId = pasted.base;
         SharedPreferences.Editor e = prefs.edit();
         e.putString("fnid_host", rawFnId);
         e.putString("fnid_user", user);
@@ -710,8 +775,10 @@ public class MainActivity extends AppCompatActivity {
         e.putString("login_mode", "fnid");
         e.putBoolean("_was_fnid", true);
         e.putString("auth_token", token);
+        putSessionAccess(e);
+        putFormAccess(e, true, rem, pendingAccessCode);
         e.commit();
-        AccountStore.get(prefs).remember("fnid", rawFnId, domain, user, pass, rem);
+        AccountStore.get(prefs).remember("fnid", rawFnId, domain, user, pass, pendingAccessCode, rem);
         Log.i(TAG, "FN ID 登录成功！fnId=" + rawFnId + " domain=" + domain);
         AppToast.show(this, "FN ID 登录成功！");
         openHome();
@@ -723,6 +790,8 @@ public class MainActivity extends AppCompatActivity {
         if (!switching) persistHttp(server, user, pass, null, false);
 
         FnApiManager.getInstance().updateBaseUrl(server);
+        FnApiManager.getInstance().setAccessCode(pendingAccessCode);
+        FnApiManager.getInstance().setToken(null);
         Log.d(TAG, "尝试登录到: " + server + ", 用户: " + user);
 
         FnApiManager.getInstance().getApi().login(new LoginRequest(user, pass)).enqueue(new Callback<ApiResponse<LoginResponseData>>() {
@@ -740,7 +809,7 @@ public class MainActivity extends AppCompatActivity {
                         SessionGuard.onLogin();
                         persistHttp(server, user, pass, token, true);
                         boolean keep = httpRememberCb != null && httpRememberCb.isChecked();
-                        AccountStore.get(prefs).remember("http", server, server, user, pass, keep);
+                        AccountStore.get(prefs).remember("http", server, server, user, pass, pendingAccessCode, keep);
                         Log.i(TAG, "HTTP 登录成功！耗时 " + (System.currentTimeMillis() - loginStartTime) + "ms");
                         AppToast.show(MainActivity.this, "登录成功！");
                         openHome();
@@ -748,6 +817,11 @@ public class MainActivity extends AppCompatActivity {
                     } else {
                         AppToast.show(MainActivity.this, "登录失败: " + response.body().msg, true);
                     }
+                } else if (needsAccessPrompt(response.code())) {
+                    promptAccessThenRetry(server, user, pass);
+                    return;
+                } else if (response.code() == 401 || response.code() == 403) {
+                    AppToast.show(MainActivity.this, "访问码错误", true);
                 } else {
                     AppToast.show(MainActivity.this, "服务器响应异常，请重试", true);
                 }
@@ -766,6 +840,31 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private boolean needsAccessPrompt(int http) {
+        return (http == 401 || http == 403)
+                && !accessRetried
+                && (pendingAccessCode == null || pendingAccessCode.isEmpty());
+    }
+
+    private void promptAccessThenRetry(final String server, final String user, final String pass) {
+        accessRetried = true;
+        AccessCodePrompt.show(this, server, new AccessCodePrompt.Listener() {
+            @Override public void onCode(String code) {
+                if (isFinishing()) {
+                    restoreLiveSession();
+                    return;
+                }
+                pendingAccessCode = code;
+                FnApiManager.getInstance().setAccessCode(code);
+                doLoginHttp(server, user, pass);
+            }
+            @Override public void onCancel() {
+                if (isFinishing()) restoreLiveSession();
+                else resetLoginState();
+            }
+        });
+    }
+
     private void persistHttp(String host, String user, String pass, String token, boolean sync) {
         SharedPreferences.Editor e = prefs.edit();
         e.putString("host", host);
@@ -776,9 +875,25 @@ public class MainActivity extends AppCompatActivity {
         else e.remove("pass");
         e.putString("login_mode", "http");
         e.putBoolean("_was_fnid", false);
-        if (token != null) e.putString("auth_token", token);
+        if (token != null) {
+            e.putString("auth_token", token);
+            putSessionAccess(e);
+            putFormAccess(e, false, rem, pendingAccessCode);
+        }
         if (sync) e.commit();
         else e.apply();
+    }
+
+    private void putSessionAccess(SharedPreferences.Editor editor) {
+        if (pendingAccessCode == null || pendingAccessCode.isEmpty()) editor.remove(AccessCodes.PREF);
+        else editor.putString(AccessCodes.PREF, pendingAccessCode);
+    }
+
+    private static void putFormAccess(android.content.SharedPreferences.Editor editor, boolean fnid,
+                                      boolean remember, String code) {
+        String key = fnid ? "fnid_access_code" : "http_access_code";
+        if (remember && code != null && !code.isEmpty()) editor.putString(key, code);
+        else editor.remove(key);
     }
 
     /** 进程被系统回收后，用上次的登录态直接进主页，不再停在登录页。 */
@@ -787,6 +902,7 @@ public class MainActivity extends AppCompatActivity {
         String host = prefs.getString("host", "");
         if (token.isEmpty() || host.isEmpty()) return false;
         FnApiManager.getInstance().updateBaseUrl(host);
+        FnApiManager.getInstance().setAccessCode(prefs.getString(AccessCodes.PREF, ""));
         FnApiManager.getInstance().setToken(token);
         SessionGuard.onLogin();
         return true;

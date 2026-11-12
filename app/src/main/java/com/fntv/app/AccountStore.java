@@ -38,6 +38,7 @@ final class AccountStore {
         String server;
         String user;
         String password;
+        String accessCode;
         long usedAt;
     }
 
@@ -51,17 +52,18 @@ final class AccountStore {
     }
 
     /** 勾选记住密码时写入列表；取消勾选时从列表里去掉，避免继续留着密码。 */
-    void remember(String mode, String endpoint, String server, String user, String password, boolean keep) {
+    void remember(String mode, String endpoint, String server, String user, String password,
+                   String accessCode, boolean keep) {
         if (keep && password != null && !password.isEmpty()) {
-            upsert(mode, endpoint, server, user, password);
+            upsert(mode, endpoint, server, user, password, accessCode);
         } else {
-            delete(build(mode, endpoint, server, user, password, 0L).id);
+            delete(build(mode, endpoint, server, user, password, accessCode, 0L).id);
         }
     }
 
-    void upsert(String mode, String endpoint, String server, String user, String password) {
+    void upsert(String mode, String endpoint, String server, String user, String password, String accessCode) {
         migrateIfNeeded();
-        SavedAccount account = build(mode, endpoint, server, user, password, System.currentTimeMillis());
+        SavedAccount account = build(mode, endpoint, server, user, password, accessCode, System.currentTimeMillis());
         if (account.endpoint.isEmpty() || account.user.isEmpty()) return;
 
         List<SavedAccount> all = read();
@@ -123,14 +125,14 @@ final class AccountStore {
             String fnUser = safe(prefs.getString("fnid_user", ""));
             String fnPass = prefs.getString("fnid_pass", "");
             if (!fnId.isEmpty() && !fnUser.isEmpty() && fnPass != null && !fnPass.isEmpty()) {
-                all.add(build("fnid", fnId, prefs.getString("host", ""), fnUser, fnPass, 1L));
+                all.add(build("fnid", fnId, prefs.getString("host", ""), fnUser, fnPass, "", 1L));
             }
             String host = safe(prefs.getString("host", ""));
             String user = safe(prefs.getString("user", ""));
             String pass = prefs.getString("pass", "");
             if (!host.isEmpty() && !user.isEmpty() && pass != null && !pass.isEmpty()
                     && (host.startsWith("http://") || host.startsWith("https://"))) {
-                all.add(build("http", host, host, user, pass, 2L));
+                all.add(build("http", host, host, user, pass, "", 2L));
             }
             String mode = prefs.getString("login_mode", "http");
             List<SavedAccount> ordered = new ArrayList<>();
@@ -150,7 +152,7 @@ final class AccountStore {
     }
 
     private static SavedAccount build(String mode, String endpoint, String server,
-                                      String user, String password, long usedAt) {
+                                      String user, String password, String accessCode, long usedAt) {
         SavedAccount account = new SavedAccount();
         account.mode = "fnid".equals(mode) ? "fnid" : "http";
         account.endpoint = "fnid".equals(account.mode) ? safe(endpoint) : normalizeHttp(endpoint);
@@ -159,6 +161,7 @@ final class AccountStore {
         if (!"fnid".equals(account.mode)) account.server = normalizeHttp(account.server);
         account.user = safe(user);
         account.password = password == null ? "" : password;
+        account.accessCode = safe(accessCode);
         account.usedAt = usedAt;
         account.id = account.mode + "\u0001" + account.endpoint + "\u0001" + account.user;
         return account;
@@ -178,6 +181,7 @@ final class AccountStore {
                     item.id = item.mode + "\u0001" + item.endpoint + "\u0001" + item.user;
                 }
                 if (item.password == null) item.password = "";
+                if (item.accessCode == null) item.accessCode = "";
                 if (item.server == null || item.server.isEmpty()) item.server = item.endpoint;
                 clean.add(item);
             }

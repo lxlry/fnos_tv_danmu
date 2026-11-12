@@ -24,6 +24,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.core.content.ContextCompat;
 
+import com.fntv.app.api.AccessCodes;
 import com.fntv.app.api.FnApiManager;
 import com.fntv.app.api.model.ApiResponse;
 import com.fntv.app.api.model.LoginRequest;
@@ -63,6 +64,8 @@ public class SwitchAccountActivity extends AppCompatActivity {
     private boolean sessionReplaced;
     private String sessionHost = "";
     private String sessionToken = "";
+    private String pendingAccessCode = "";
+    private boolean accessPrompted;
     private final Bundle sessionSnapshot = new Bundle();
     private final List<View> cards = new ArrayList<>();
     private final List<View> menus = new ArrayList<>();
@@ -265,14 +268,34 @@ public class SwitchAccountActivity extends AppCompatActivity {
         }
         if (protectSession && !sessionCaptured) captureSession();
         loggingIn = true;
+        accessPrompted = false;
         AppToast.show(this, "正在登录 " + account.user);
-        if ("fnid".equals(account.mode)) loginFnId(account);
-        else loginHttp(account);
+        String typed = account.accessCode == null ? "" : account.accessCode;
+        String gateBase = "fnid".equals(account.mode)
+                ? "https://5ddd.com/" + android.net.Uri.encode(account.endpoint)
+                : AccountStore.normalizeHttp(account.endpoint);
+        AccessGate.prepare(this, gateBase, typed, new AccessGate.Callback() {
+            @Override public void onReady(String code) {
+                if (isFinishing()) {
+                    restoreLiveSession();
+                    return;
+                }
+                pendingAccessCode = code == null ? "" : code;
+                if ("fnid".equals(account.mode)) loginFnId(account);
+                else loginHttp(account);
+            }
+            @Override public void onCancel() {
+                if (isFinishing()) restoreLiveSession();
+                else cancelLogin();
+            }
+        });
     }
 
     private void loginHttp(final AccountStore.SavedAccount account) {
         final String server = AccountStore.normalizeHttp(account.endpoint);
         FnApiManager.getInstance().updateBaseUrl(server);
+        FnApiManager.getInstance().setAccessCode(pendingAccessCode);
+        FnApiManager.getInstance().setToken(null);
         FnApiManager.getInstance().getApi().login(new LoginRequest(account.user, account.password))
                 .enqueue(new Callback<ApiResponse<LoginResponseData>>() {
                     @Override
@@ -289,7 +312,28 @@ public class SwitchAccountActivity extends AppCompatActivity {
                                     account.password, response.body().data.token);
                             return;
                         }
+                        if (!response.isSuccessful() && (response.code() == 401 || response.code() == 403)
+                                && (pendingAccessCode == null || pendingAccessCode.isEmpty())) {
+                            AccessCodePrompt.show(SwitchAccountActivity.this, server, new AccessCodePrompt.Listener() {
+                                @Override public void onCode(String code) {
+                                    if (isFinishing()) {
+                                        restoreLiveSession();
+                                        return;
+                                    }
+                                    pendingAccessCode = code;
+                                    loginHttp(account);
+                                }
+                                @Override public void onCancel() {
+                                    if (isFinishing()) restoreLiveSession();
+                                    else cancelLogin();
+                                }
+                            });
+                            return;
+                        }
                         String msg = response.body() != null ? response.body().msg : "服务器响应异常";
+                        if (!response.isSuccessful() && (response.code() == 401 || response.code() == 403)) {
+                            msg = "访问码错误";
+                        }
                         failLogin(msg == null || msg.isEmpty() ? "登录失败" : msg);
                     }
 
@@ -306,7 +350,9 @@ public class SwitchAccountActivity extends AppCompatActivity {
     }
 
     private void loginFnId(final AccountStore.SavedAccount account) {
-        new FnIdLoginHelper(this, account.endpoint, account.user, account.password,
+        FnApiManager.getInstance().setAccessCode(pendingAccessCode);
+        FnApiManager.getInstance().setToken(null);
+        new FnIdLoginHelper(this, account.endpoint, account.user, account.password, pendingAccessCode,
                 new FnIdLoginHelper.FnIdCallback() {
                     @Override
                     public void onSuccess(String token, String domain) {
@@ -326,6 +372,26 @@ public class SwitchAccountActivity extends AppCompatActivity {
                                 restoreLiveSession();
                                 return;
                             }
+                            if (message != null && message.contains("访问码") && !accessPrompted) {
+                                accessPrompted = true;
+                                AccessCodePrompt.show(SwitchAccountActivity.this,
+                                        "https://5ddd.com/" + android.net.Uri.encode(account.endpoint),
+                                        new AccessCodePrompt.Listener() {
+                                            @Override public void onCode(String code) {
+                                                if (isFinishing()) {
+                                                    restoreLiveSession();
+                                                    return;
+                                                }
+                                                pendingAccessCode = code;
+                                                loginFnId(account);
+                                            }
+                                            @Override public void onCancel() {
+                                                if (isFinishing()) restoreLiveSession();
+                                                else cancelLogin();
+                                            }
+                                        });
+                                return;
+                            }
                             failLogin(message == null ? "FN ID 登录失败" : message);
                         });
                     }
@@ -339,6 +405,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
         if (!host.isEmpty()) {
             FnApiManager.getInstance().updateBaseUrl(host);
         }
+        FnApiManager.getInstance().setAccessCode(pendingAccessCode);
         FnApiManager.getInstance().setToken(token);
         SessionGuard.onLogin();
         SharedPreferences.Editor editor = prefs.edit();
@@ -362,11 +429,21 @@ public class SwitchAccountActivity extends AppCompatActivity {
             editor.remove("fnid_pass");
             editor.putBoolean("fnid_remember", false);
         }
+        if (pendingAccessCode == null || pendingAccessCode.isEmpty()) editor.remove(AccessCodes.PREF);
+        else editor.putString(AccessCodes.PREF, pendingAccessCode);
+        String formKey = "fnid".equals(mode) ? "fnid_access_code" : "http_access_code";
+        if (pendingAccessCode == null || pendingAccessCode.isEmpty()) editor.remove(formKey);
+        else editor.putString(formKey, pendingAccessCode);
         // 同步写入，避免立刻打开首页时还读到上一个账号
         editor.commit();
-        AccountStore.get(prefs).remember(mode, endpoint, server, user, pass, true);
+        AccountStore.get(prefs).remember(mode, endpoint, server, user, pass, pendingAccessCode, true);
         AppToast.show(this, "登录成功");
         openHome();
+    }
+
+    private void cancelLogin() {
+        loggingIn = false;
+        restoreSessionSnapshot();
     }
 
     private void failLogin(String message) {
@@ -442,6 +519,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
             intent.putExtra("prefill_mode", prefill.mode);
             intent.putExtra("prefill_host", prefill.endpoint);
             intent.putExtra("prefill_user", prefill.user);
+            intent.putExtra("prefill_access", prefill.accessCode == null ? "" : prefill.accessCode);
         }
         startActivity(intent);
     }
@@ -507,6 +585,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
         sessionSnapshot.putBoolean("fnid_remember", prefs.getBoolean("fnid_remember", false));
         sessionSnapshot.putBoolean("has_fnid_pass", prefs.contains("fnid_pass"));
         sessionSnapshot.putBoolean("_was_fnid", prefs.getBoolean("_was_fnid", false));
+        sessionSnapshot.putString("access_code", prefs.getString(AccessCodes.PREF, ""));
     }
 
     private void restoreSessionSnapshot() {
@@ -528,6 +607,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
             editor.remove("fnid_pass");
         }
         editor.putBoolean("_was_fnid", sessionSnapshot.getBoolean("_was_fnid"));
+        editor.putString(AccessCodes.PREF, sessionSnapshot.getString("access_code", ""));
         editor.apply();
         restoreLiveSession();
     }
@@ -538,6 +618,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
             FnApiManager.getInstance().updateBaseUrl(sessionHost);
         }
         FnApiManager.getInstance().setToken(sessionToken == null || sessionToken.isEmpty() ? null : sessionToken);
+        FnApiManager.getInstance().setAccessCode(sessionSnapshot.getString("access_code", ""));
     }
 
     private static String groupKey(AccountStore.SavedAccount account) {

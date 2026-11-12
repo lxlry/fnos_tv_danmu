@@ -18,6 +18,7 @@ import android.view.WindowManager;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import android.content.pm.ActivityInfo;
+import com.fntv.app.api.AccessCodes;
 import com.fntv.app.api.FnApiManager;
 import com.fntv.app.api.model.*;
 import com.google.android.exoplayer2.*;
@@ -1319,6 +1320,8 @@ public class PlayerActivity extends AppCompatActivity {
                             .removeHeader("Authx")
                             .removeHeader("Cookie")
                             .removeHeader("Content-Type")
+                            .removeHeader(AccessCodes.HEADER)
+                            .removeHeader(AccessCodes.SOURCE_HEADER)
                             .build());
                 })
                 .build();

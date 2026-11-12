@@ -227,6 +227,7 @@ public class HomeActivity extends AppCompatActivity {
         if (!baseUrl.isEmpty()) {
             apiManager.updateBaseUrl(baseUrl);
         }
+        apiManager.setAccessCode(prefs.getString("access_code", ""));
         String token = prefs.getString("auth_token", "");
         if (token.isEmpty()) apiManager.setToken(null);
         else {
@@ -4534,7 +4535,8 @@ public class HomeActivity extends AppCompatActivity {
 
     private void logout() {
         apiManager.setToken(null);
-        prefs.edit().remove("auth_token").apply();
+        apiManager.setAccessCode("");
+        prefs.edit().remove("auth_token").remove("access_code").apply();
         AppToast.show(this, "已退出");
         Intent intent = new Intent(this, MainActivity.class);
         intent.putExtra("skip_auto_login", true);
