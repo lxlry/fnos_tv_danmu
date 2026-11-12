@@ -64,7 +64,7 @@ final class AccessCodePrompt {
         input.setBackgroundResource(R.drawable.bg_input);
         input.setHint("访问码");
         input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         input.setPadding(Math.round(12 * density), 0, Math.round(12 * density), 0);
         input.setTextColor(color(activity, R.color.text_primary));
         input.setHintTextColor(color(activity, R.color.text_hint));

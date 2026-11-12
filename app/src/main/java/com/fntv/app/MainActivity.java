@@ -360,8 +360,8 @@ public class MainActivity extends AppCompatActivity {
         field.setLayoutParams(fieldLp);
         field.setBackgroundResource(R.drawable.bg_input);
         field.setHint(hint);
-        field.setInputType(inputType);
         field.setSingleLine(true);
+        field.setInputType(inputType);
         field.setPadding(dp(12), 0, dp(12), 0);
         field.setTextColor(color(R.color.text_primary));
         field.setHintTextColor(color(R.color.text_hint));
