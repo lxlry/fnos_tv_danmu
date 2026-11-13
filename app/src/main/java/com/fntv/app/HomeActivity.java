@@ -3821,20 +3821,25 @@ public class HomeActivity extends AppCompatActivity {
             }
             return false;
         });
-        etSearch.setOnClickListener(v -> submitLibrarySearch());
+        // 点搜索框是去改字。框里已经有上次的关键词时，不能再当成一次新搜索把键盘收掉。
+        etSearch.setOnClickListener(v -> focusLibrarySearch());
         etSearch.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus && searchEntryTab < 0) searchEntryTab = currentTab;
             if (hasFocus && !isTelevision()) v.post(this::showLibraryKeyboard);
         });
         etSearch.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-                    || keyCode == KeyEvent.KEYCODE_ENTER
-                    || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+            boolean center = keyCode == KeyEvent.KEYCODE_DPAD_CENTER;
+            boolean enter = keyCode == KeyEvent.KEYCODE_ENTER
+                    || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
+            if (!center && !enter) return false;
+            // 键盘已经开着时，回车才是提交；否则这次是在点搜索框，把键盘叫出来改字。
+            if (enter && isSearchImeOpen()) {
                 submitLibrarySearch();
                 return true;
             }
-            return false;
+            focusLibrarySearch();
+            return true;
         });
         if (btnSearchQr != null) {
             btnSearchQr.setOnClickListener(v -> QrInput.show(this, etSearch, "搜索"));
@@ -3851,6 +3856,7 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private long lastSearchImeAt;
+    private boolean searchImeVisible;
 
     private void focusLibrarySearch() {
         if (etSearch == null || etSearch.getVisibility() != View.VISIBLE) return;
@@ -3859,14 +3865,26 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void showLibraryKeyboard() {
+        if (etSearch == null) return;
         long now = android.os.SystemClock.uptimeMillis();
         if (now - lastSearchImeAt < 800) return;
         lastSearchImeAt = now;
+        searchImeVisible = true;
         android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-        if (imm != null) {
-            imm.showSoftInput(etSearch, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        if (imm == null) return;
+        // 搜索提交时是显式关掉输入法。SHOW_IMPLICIT 在这之后会被系统丢掉，要点一下必须显式再打开。
+        imm.showSoftInput(etSearch, 0);
+    }
+
+    private boolean isSearchImeOpen() {
+        if (etSearch != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.WindowInsets insets = etSearch.getRootWindowInsets();
+            if (insets != null) {
+                return insets.isVisible(android.view.WindowInsets.Type.ime());
+            }
         }
+        return searchImeVisible;
     }
 
     private void submitLibrarySearch() {
@@ -3881,6 +3899,8 @@ public class HomeActivity extends AppCompatActivity {
 
     private void hideKeyboard() {
         if (etSearch == null) return;
+        searchImeVisible = false;
+        lastSearchImeAt = 0;
         android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);

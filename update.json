@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527061,
-    "versionName": "9527.061",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.061/FNTV_release_v9527.061.apk",
-    "changelog": "登录密码和访问码改为密码框",
+    "versionCode": 9527062,
+    "versionName": "9527.062",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.062/FNTV_release_v9527.062.apk",
+    "changelog": "搜索出结果后再点搜索框可以重新唤起键盘",
     "forceUpdate": false
 }
