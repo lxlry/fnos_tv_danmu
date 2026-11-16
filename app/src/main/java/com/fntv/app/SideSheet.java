@@ -652,6 +652,7 @@ final class SideSheet {
     private static void bindSheet(View body, boolean retry) {
             java.util.ArrayList<View> items = new java.util.ArrayList<>();
             collectFocusables(body, items);
+            dropAncestorFocusables(items);
             if (items.isEmpty()) return;
             boolean tv = television(body.getContext());
             for (View item : items) {
@@ -692,7 +693,8 @@ final class SideSheet {
                     }
                     int[] rowLoc = new int[2];
                     row.get(0).getLocationOnScreen(rowLoc);
-                    int threshold = Math.max(1, Math.max(item.getHeight(), row.get(0).getHeight()) / 2);
+                    int threshold = Math.max(1, Math.min(
+                            Math.max(item.getHeight(), 1), Math.max(row.get(0).getHeight(), 1)) / 2);
                     if (Math.abs(loc[1] - rowLoc[1]) > threshold) {
                         row = new java.util.ArrayList<>();
                         rows.add(row);
@@ -748,6 +750,8 @@ final class SideSheet {
     /** 片头尾这类全宽竖排选项：还没量出不同 Y 时，不要当成横排。 */
     private static boolean looksLikeWideVerticalStack(java.util.List<View> items) {
         if (items == null || items.size() < 2) return false;
+        // 同一个竖向容器里的选项永远上下排。没布局完时 Y 都是 0，按坐标会误合成一行。
+        if (sameVerticalParent(items)) return true;
         int wide = 0;
         for (View item : items) {
             ViewParent parent = item.getParent();
@@ -768,11 +772,46 @@ final class SideSheet {
         return true;
     }
 
+    /** 这些焦点项是同一个竖向 LinearLayout 的直接子项，视觉上就是上下排布。 */
+    private static boolean sameVerticalParent(java.util.List<View> items) {
+        ViewParent parent = items.get(0).getParent();
+        if (!(parent instanceof LinearLayout)) return false;
+        if (((LinearLayout) parent).getOrientation() != LinearLayout.VERTICAL) return false;
+        for (int i = 1; i < items.size(); i++) {
+            if (items.get(i).getParent() != parent) return false;
+        }
+        return true;
+    }
+
     private static boolean television(Context context) {
         if (context == null) return false;
         return (context.getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_TYPE_MASK)
                 == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+    }
+
+    /** 包住其他选项的容器不参与分行，否则整页高的滚动区会把上下两行合成一行。 */
+    private static void dropAncestorFocusables(java.util.List<View> items) {
+        if (items.size() < 2) return;
+        java.util.ArrayList<View> drop = new java.util.ArrayList<>();
+        for (View item : items) {
+            for (View other : items) {
+                if (item != other && isAncestor(item, other)) {
+                    drop.add(item);
+                    break;
+                }
+            }
+        }
+        items.removeAll(drop);
+    }
+
+    private static boolean isAncestor(View ancestor, View child) {
+        ViewParent parent = child.getParent();
+        while (parent instanceof View) {
+            if (parent == ancestor) return true;
+            parent = parent.getParent();
+        }
+        return false;
     }
 
     private static void collectFocusables(View view, java.util.List<View> out) {

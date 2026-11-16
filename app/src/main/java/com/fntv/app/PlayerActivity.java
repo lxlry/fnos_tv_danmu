@@ -2089,6 +2089,9 @@ public class PlayerActivity extends AppCompatActivity {
         final android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(0xFF1A1A1A);
+        scroll.setFocusable(false);
+        scroll.setFocusableInTouchMode(false);
+        scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         scroll.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         skipSheetBody = new LinearLayout(this);
@@ -2308,9 +2311,28 @@ public class PlayerActivity extends AppCompatActivity {
         View gap = new View(this);
         gap.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpPx(10)));
         root.addView(gap);
-        root.addView(skipLinkRow("片尾时长", formatSkipClock(readSkipSec(false)),
-                () -> showSkipEditor(dialog, false)));
+        View outro = skipLinkRow("片尾时长", formatSkipClock(readSkipSec(false)),
+                () -> showSkipEditor(dialog, false));
+        root.addView(outro);
         focusSkipPage(dialog);
+        // 侧边栏会按坐标再绑一次。晚一拍盖住，避免两行还没量出 Y 时被当成左右。
+        skipSheetBody.post(() -> skipSheetBody.post(() -> wireSkipMenuFocus(intro, outro)));
+    }
+
+    /** 片头时长、片尾时长上下排布，焦点也上下移动，左右停在当前行。 */
+    private void wireSkipMenuFocus(View intro, View outro) {
+        if (intro == null || outro == null || !intro.isAttachedToWindow()) return;
+        java.util.List<View> rows = java.util.Arrays.asList(intro, outro);
+        TvFocus.bindChain(rows);
+        TvFocus.bindVertical(java.util.Collections.singletonList(intro),
+                java.util.Collections.singletonList(outro));
+        TvFocus.point(intro, View.FOCUS_LEFT, intro);
+        TvFocus.point(intro, View.FOCUS_RIGHT, intro);
+        TvFocus.point(intro, View.FOCUS_UP, intro);
+        TvFocus.point(outro, View.FOCUS_LEFT, outro);
+        TvFocus.point(outro, View.FOCUS_RIGHT, outro);
+        TvFocus.point(outro, View.FOCUS_DOWN, outro);
+        TvFocus.sealAll(rows);
     }
 
     private void showSkipEditor(android.app.Dialog dialog, boolean intro) {
