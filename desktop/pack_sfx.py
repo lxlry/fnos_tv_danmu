@@ -31,7 +31,7 @@ set "DEST=%LocalAppData%\FNTV"
 taskkill /IM FNTV.exe /F >nul 2>&1
 mkdir "%DEST%" 2>nul
 robocopy "%~dp0." "%DEST%" /E /NFL /NDL /NJH /NJS /nc /ns /np >nul
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut((Join-Path $w.SpecialFolders('Desktop') '飞牛TV.lnk')); $s.TargetPath=(Join-Path $env:LocalAppData 'FNTV\FNTV.exe'); $s.WorkingDirectory=(Join-Path $env:LocalAppData 'FNTV'); $s.Save()"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $name=-join ([char]0x98DE,[char]0x725B,'TV.lnk'); $s=$w.CreateShortcut((Join-Path $w.SpecialFolders('Desktop') $name)); $s.TargetPath=(Join-Path $env:LocalAppData 'FNTV\FNTV.exe'); $s.WorkingDirectory=(Join-Path $env:LocalAppData 'FNTV'); $s.Save()"
 start "" "%DEST%\FNTV.exe"
 exit /b 0
 """
