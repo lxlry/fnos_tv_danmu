@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>飞牛TV</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <button id="back" type="button" hidden>返回</button>
+    <div class="brand">飞牛TV</div>
+    <form id="search-form" hidden>
+      <input id="search" type="search" placeholder="搜索影片" autocomplete="off">
+    </form>
+    <button id="settings" type="button" hidden>设置</button>
+  </header>
+  <main id="view"></main>
+  <footer id="now" hidden></footer>
+  <div id="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,4 +1,5 @@
-# 推送到 main/master 或手动运行后打包，并上传到对应版本的 Release
+# 推送到 main/master 且 Android 工程有改动时打包，并上传到对应版本的 Release
+# 只改 desktop 时不跑这条。Actions 页仍可手动打包
 # 安装包文件名固定为 FNTV_release_v版本号.apk
 name: Build APK
 
@@ -6,6 +7,16 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
+      - "update.json"
+      - ".github/workflows/build-apk.yml"
 
 jobs:
   build:

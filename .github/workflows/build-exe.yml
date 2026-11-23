@@ -1,0 +1,70 @@
+# 推送到 main/master 或手动运行后打包 Windows 自解压程序
+# 版本号来自 desktop/version.json，发布页标签为 desktop-版本号，和 APK 分开
+# 文件名固定为 FNTV_windows_v版本号.exe
+name: Build EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: desktop/requirements.txt
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: python -m pip install -r requirements.txt
+
+      - name: Build exe
+        working-directory: desktop
+        run: python -m PyInstaller --noconfirm FNTV.spec
+
+      - name: Bundle mpv
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          python fetch_mpv.py
+          if (Test-Path dist\FNTV\mpv) { Remove-Item -Recurse -Force dist\FNTV\mpv }
+          Copy-Item -Recurse vendor\mpv dist\FNTV\mpv
+          if (-not (Test-Path dist\FNTV\mpv\mpv.exe)) { throw "mpv.exe was not bundled" }
+
+      - name: Pack self-extracting exe
+        id: exe
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          python pack_sfx.py
+          Get-Content dist\release-info.txt | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8NoBOM -Append
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FNTV-windows
+          path: ${{ steps.exe.outputs.file }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.exe.outputs.tag }}
+          name: 电脑版 ${{ steps.exe.outputs.version }}
+          files: ${{ steps.exe.outputs.file }}
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          make_latest: false
