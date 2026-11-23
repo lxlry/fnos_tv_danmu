@@ -371,7 +371,7 @@ function showUpdateDialog(info) {
   const later = info.force ? "" : `<button type="button" id="update-later">以后再说</button>`;
   node.innerHTML = `<div class="sheet">
     <h2>${esc(info.title || "发现新版本")}</h2>
-    <p class="overview">${esc(info.changelog || "暂无更新说明")}</p>
+    <p class="overview update-log">${esc(info.changelog || "暂无更新说明")}</p>
     <p class="muted" id="update-progress"></p>
     <div class="actions">
       <button class="primary" id="update-now" type="button">立即更新</button>

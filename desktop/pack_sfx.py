@@ -101,6 +101,11 @@ def main():
         "version=%s\ntag=desktop-%s\nfile=desktop/dist/%s\n" % (version, version, out.name),
         encoding="utf-8",
     )
+    changelog = ""
+    update_path = ROOT / "update.json"
+    if update_path.is_file():
+        changelog = json.loads(update_path.read_text(encoding="utf-8")).get("changelog") or ""
+    (ROOT / "dist" / "changelog.txt").write_text(changelog, encoding="utf-8")
     print("已生成 %s" % out)
 
 

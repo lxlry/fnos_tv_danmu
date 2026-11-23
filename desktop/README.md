@@ -24,7 +24,7 @@ py -3 -m pip install -r desktop\requirements.txt
 
 ## 打成 exe
 
-推送到 `main` 或 `master` 后，GitHub Actions 的 Build EXE 会在 Windows 上打安装程序。版本号写在 `desktop/version.json`，当前是 `1.0.0`。发布文件是 `FNTV_windows_v1.0.0.exe`，发布页标签是 `desktop-1.0.0`，和 APK 不是同一个发布页。双击后可以选择安装目录，桌面会有「飞牛TV」快捷方式，里面已带 mpv。卸载从 Windows 的“设置 → 应用”里找到飞牛TV。卸载向导第一页底部有“同时删除已保存的账号信息”，默认不勾选；只有勾上才会删除登录记录。
+推送到 `main` 或 `master` 后，GitHub Actions 的 Build EXE 会在 Windows 上打安装程序。版本号写在 `desktop/version.json`，当前是 `1.0.1`。发布文件是 `FNTV_windows_v1.0.1.exe`，发布页标签是 `desktop-1.0.1`，和 APK 不是同一个发布页。双击后可以选择安装目录，桌面会有「飞牛TV」快捷方式，里面已带 mpv。卸载从 Windows 的“设置 → 应用”里找到飞牛TV。卸载向导第一页底部有“同时删除已保存的账号信息”，默认不勾选；只有勾上才会删除登录记录。
 
 更新说明在 `desktop/update.json`。程序启动时会按 Android 端同样的方式检查：比对版本号，确认发布页里已经有这个 exe，再提示下载。只改电脑版时不会重新打 APK。也可以在 Actions 页单独手动运行。
 

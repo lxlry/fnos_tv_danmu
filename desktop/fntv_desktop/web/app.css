@@ -151,6 +151,7 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 }
 .hero .poster { aspect-ratio: 2 / 3; }
 .overview { color: #d5dde6; max-width: 760px; }
+.update-log { white-space: pre-line; }
 .actions { display: flex; gap: 10px; margin: 14px 0; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chips button.active { background: var(--accent); color: var(--accent-ink); }

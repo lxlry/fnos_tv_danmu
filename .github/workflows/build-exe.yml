@@ -71,6 +71,7 @@ jobs:
         with:
           tag_name: ${{ steps.exe.outputs.tag }}
           name: 电脑版 ${{ steps.exe.outputs.version }}
+          body_path: desktop/dist/changelog.txt
           files: ${{ steps.exe.outputs.file }}
           overwrite_files: true
           fail_on_unmatched_files: true
