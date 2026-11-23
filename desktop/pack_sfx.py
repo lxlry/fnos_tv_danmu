@@ -14,6 +14,10 @@ for _stream in (sys.stdout, sys.stderr):
 
 ROOT = Path(__file__).resolve().parent
 INNO_URL = "https://jrsoftware.org/download.php/is.exe"
+ISL_URLS = [
+    "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl",
+    "https://cdn.jsdelivr.net/gh/jrsoftware/issrc@main/Files/Languages/ChineseSimplified.isl",
+]
 ISS = r"""
 #define AppVersion "{version}"
 [Setup]
@@ -41,7 +45,7 @@ UninstallDisplayName=飞牛TV
 UninstallDisplayIcon={{app}}\FNTV.exe
 
 [Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
 
 [Files]
 Source: "FNTV\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -86,6 +90,7 @@ def main():
     if not version:
         raise SystemExit("desktop/version.json 里没有 versionName")
     script = ROOT / "dist" / "installer.iss"
+    ensure_language(script.parent / "ChineseSimplified.isl")
     script.write_text(ISS.format(version=version), encoding="utf-8-sig")
     subprocess.run([iscc(), str(script)], cwd=ROOT, check=True)
     out = ROOT / "dist" / ("FNTV_windows_v%s.exe" % version)
@@ -97,6 +102,26 @@ def main():
         encoding="utf-8",
     )
     print("已生成 %s" % out)
+
+
+def ensure_language(dest):
+    if dest.is_file() and dest.stat().st_size > 1000:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    last = "未知错误"
+    for url in ISL_URLS:
+        try:
+            print("下载简体中文语言包")
+            request = urllib.request.Request(url, headers={"User-Agent": "FNTV"})
+            with urllib.request.urlopen(request, timeout=60) as response:
+                data = response.read()
+            if len(data) > 1000 and b"[LangOptions]" in data:
+                dest.write_bytes(data)
+                return
+            last = "内容不完整"
+        except Exception as exc:
+            last = str(exc)
+    raise SystemExit("下载简体中文语言包失败: %s" % last)
 
 
 def iscc():
