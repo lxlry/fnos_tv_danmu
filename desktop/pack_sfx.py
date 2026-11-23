@@ -3,9 +3,14 @@
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from fetch_mpv import seven_zip
 

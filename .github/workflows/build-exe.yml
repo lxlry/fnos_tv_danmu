@@ -14,6 +14,9 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: write
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
 
     steps:
       - name: Checkout
@@ -39,6 +42,7 @@ jobs:
         shell: pwsh
         run: |
           python fetch_mpv.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Test-Path dist\FNTV\mpv) { Remove-Item -Recurse -Force dist\FNTV\mpv }
           Copy-Item -Recurse vendor\mpv dist\FNTV\mpv
           if (-not (Test-Path dist\FNTV\mpv\mpv.exe)) { throw "mpv.exe was not bundled" }
@@ -49,6 +53,7 @@ jobs:
         shell: pwsh
         run: |
           python pack_sfx.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-Content dist\release-info.txt | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8NoBOM -Append
 
       - name: Upload EXE

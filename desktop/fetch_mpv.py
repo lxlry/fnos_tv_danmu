@@ -4,9 +4,14 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 API = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
 ASSET = re.compile(r"^mpv-x86_64-\d{8}-git-[0-9a-f]+\.7z$")
