@@ -60,9 +60,10 @@ function progress(item) {
   return `<div class="progress"><span style="width:${width}%"></span></div>`;
 }
 
-function card(item) {
+function card(item, options) {
   const image = poster(item.poster);
-  return `<button class="card" data-guid="${esc(item.guid)}" data-type="${esc(item.type)}">
+  const play = options && options.play ? "1" : "";
+  return `<button class="card" data-guid="${esc(item.guid)}" data-type="${esc(item.type)}" data-play="${play}">
     <div class="poster">${image ? `<img src="${image}" alt="">` : ""}${progress(item)}</div>
     <b>${esc(item.title)}</b>
     <span>${esc(item.subtitle || item.type || "")}</span>
@@ -74,6 +75,10 @@ function bindCards(root) {
     node.addEventListener("click", () => {
       const type = node.dataset.type;
       const guid = node.dataset.guid;
+      if (node.dataset.play === "1") {
+        startPlay(guid, "");
+        return;
+      }
       if (type === "Library" || type === "Directory") open("library", { guid, title: node.dataset.title || "媒体库", page: 1 });
       else open("detail", guid);
     });
@@ -81,6 +86,39 @@ function bindCards(root) {
   root.querySelectorAll("img").forEach((img) => {
     img.addEventListener("error", () => { img.remove(); });
   });
+  bindRows(root);
+}
+
+function bindRows(root) {
+  root.querySelectorAll(".row").forEach((row) => {
+    if (row.parentElement && row.parentElement.classList.contains("scroller")) return;
+    const wrap = document.createElement("div");
+    wrap.className = "scroller";
+    row.parentNode.insertBefore(wrap, row);
+    wrap.appendChild(row);
+    const left = arrowButton("left", "向左");
+    const right = arrowButton("right", "向右");
+    wrap.append(left, right);
+    const distance = () => Math.max(row.clientWidth - 40, 160);
+    left.addEventListener("click", () => row.scrollBy({ left: -distance(), behavior: "smooth" }));
+    right.addEventListener("click", () => row.scrollBy({ left: distance(), behavior: "smooth" }));
+    const update = () => {
+      const max = row.scrollWidth - row.clientWidth;
+      left.hidden = row.scrollLeft <= 2;
+      right.hidden = max <= 2 || row.scrollLeft >= max - 2;
+    };
+    row.addEventListener("scroll", update);
+    update();
+  });
+}
+
+function arrowButton(side, label) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "scroll-arrow " + side;
+  button.setAttribute("aria-label", label);
+  button.textContent = side === "left" ? "‹" : "›";
+  return button;
 }
 
 function chrome(show) {
@@ -177,7 +215,7 @@ async function renderHome() {
       <div class="row">${cards}</div>
     </section>`;
   }).join("");
-  const resume = (data.continue || []).map(card).join("");
+  const resume = (data.continue || []).map((item) => card(item, { play: true })).join("");
   view.innerHTML = `<h1>你好，${esc(state.username || state.account || "")}</h1>
     <p class="muted">${esc(state.server || "")}${state.mpv_ready ? "" : " · 没有找到随程序提供的 mpv"}</p>
     ${resume ? `<h2>继续观看</h2><div class="row">${resume}</div>` : ""}

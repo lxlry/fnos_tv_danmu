@@ -12,6 +12,8 @@
 }
 
 * { box-sizing: border-box; }
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -68,7 +70,30 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   overflow-x: auto;
   padding-bottom: 8px;
   align-items: flex-start;
+  scroll-behavior: smooth;
 }
+.scroller { position: relative; }
+.scroll-arrow {
+  position: absolute;
+  top: 79px;
+  z-index: 2;
+  width: 42px;
+  height: 64px;
+  padding: 0;
+  border-radius: 8px;
+  background: rgba(28, 34, 44, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+}
+.scroll-arrow[hidden] { display: none; }
+.scroller:hover .scroll-arrow { opacity: 1; pointer-events: auto; }
+.scroll-arrow.left { left: 0; }
+.scroll-arrow.right { right: 0; }
 .row .card { flex: 0 0 148px; width: 148px; }
 .grid {
   display: grid;
