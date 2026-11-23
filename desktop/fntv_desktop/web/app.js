@@ -63,8 +63,9 @@ function progress(item) {
 function card(item, options) {
   const image = poster(item.poster);
   const play = options && options.play ? "1" : "";
+  const bar = play ? progress(item) : "";
   return `<button class="card" data-guid="${esc(item.guid)}" data-type="${esc(item.type)}" data-play="${play}">
-    <div class="poster">${image ? `<img src="${image}" alt="">` : ""}${progress(item)}</div>
+    <div class="poster">${image ? `<img src="${image}" alt="">` : ""}${bar}</div>
     <b>${esc(item.title)}</b>
     <span>${esc(item.subtitle || item.type || "")}</span>
   </button>`;
@@ -218,7 +219,7 @@ async function renderHome() {
   const resume = (data.continue || []).map((item) => card(item, { play: true })).join("");
   view.innerHTML = `<h1>你好，${esc(state.username || state.account || "")}</h1>
     <p class="muted">${esc(state.server || "")}${state.mpv_ready ? "" : " · 没有找到随程序提供的 mpv"}</p>
-    ${resume ? `<h2>继续观看</h2><div class="row">${resume}</div>` : ""}
+    ${resume ? `<h2>继续观看</h2><div class="row landscape">${resume}</div>` : ""}
     <h2>媒体库</h2>
     <div class="grid">${libraries || `<p class="muted">没有媒体库</p>`}</div>
     ${sections}`;

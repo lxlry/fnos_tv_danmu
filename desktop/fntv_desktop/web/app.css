@@ -95,6 +95,9 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .scroll-arrow.left { left: 0; }
 .scroll-arrow.right { right: 0; }
 .row .card { flex: 0 0 148px; width: 148px; }
+.row.landscape .card { flex-basis: 220px; width: 220px; }
+.row.landscape .poster { aspect-ratio: 16 / 9; }
+.scroller:has(.landscape) .scroll-arrow { top: 30px; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

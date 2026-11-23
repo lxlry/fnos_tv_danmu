@@ -123,15 +123,17 @@ class FnClient:
             for key, value in query.items():
                 if value is None:
                     continue
-                pairs.append((key, value))
+                pairs.append((str(key), str(value)))
         query_text = urllib.parse.urlencode(pairs, quote_via=urllib.parse.quote) if pairs else ""
+        # 签名用原始查询串。中文如果按百分号编码计算，服务器会返回 invalid sign。
+        sign_query = "&".join("%s=%s" % pair for pair in pairs)
         payload = None
         data = None
         if body is not None:
             payload = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
             data = payload.encode("utf-8")
-        elif query_text:
-            payload = query_text
+        elif sign_query:
+            payload = sign_query
         headers = {
             "Content-Type": "application/json",
             "Authx": gen_authx(path, payload),

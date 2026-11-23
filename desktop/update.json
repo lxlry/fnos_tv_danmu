@@ -1,7 +1,7 @@
 {
-  "versionCode": 10001,
-  "versionName": "1.0.1",
-  "exeUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/desktop-1.0.1/FNTV_windows_v1.0.1.exe",
-  "changelog": "首页列出每个媒体库里的影片\n继续观看改为横向海报\n影片显示年份，详情显示评分和清晰度\n安装程序使用和手机版一样的图标\n卸载时可以勾选是否删除已保存的账号",
+  "versionCode": 10002,
+  "versionName": "1.0.2",
+  "exeUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/desktop-1.0.2/FNTV_windows_v1.0.2.exe",
+  "changelog": "继续观看改为横图，点击直接播放\n媒体库封面不再显示进度条\n鼠标移到海报行时，左右箭头点击滚动\n隐藏上下滚动条\n修复搜索中文影片提示 invalid sign",
   "forceUpdate": false
 }
