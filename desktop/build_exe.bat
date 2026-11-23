@@ -1,6 +1,8 @@
 @echo off
 cd /d "%~dp0"
-py -3 -m pip install -r requirements.txt
+py -3 -m pip install -r requirements.txt pillow
+if errorlevel 1 exit /b 1
+py -3 make_icon.py
 if errorlevel 1 exit /b 1
 py -3 fetch_mpv.py
 if errorlevel 1 exit /b 1
@@ -15,5 +17,5 @@ if not exist dist\FNTV\mpv\mpv.exe (
 py -3 pack_sfx.py
 if errorlevel 1 exit /b 1
 echo.
-echo 已生成自解压包，文件名见 dist\FNTV_windows_v*.exe
-echo 双击后会解压到本地目录并启动，不用单独安装 mpv
+echo 已生成安装程序，文件名见 dist\FNTV_windows_v*.exe
+echo 安装时可选择目录，并可在系统“应用”里卸载

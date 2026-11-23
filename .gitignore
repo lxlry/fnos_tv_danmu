@@ -89,5 +89,6 @@ Desktop.ini
 
 desktop/dist/
 desktop/vendor/
+desktop/fntv.ico
 __pycache__/
 *.pyc
