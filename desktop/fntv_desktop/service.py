@@ -4,6 +4,7 @@ import json
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .api import FnClient, FnError, display_title, normalize_server
@@ -172,10 +173,26 @@ class Desktop:
 
     def home(self):
         self._need_login()
-        return {
-            "libraries": self.client.libraries(),
-            "continue": self.client.continue_watching(),
-        }
+        libraries = self.client.libraries()
+
+        def preview(library):
+            guid = library.get("guid") or ""
+            if not guid:
+                library["items"] = []
+                return
+            try:
+                found = self.client.browse(guid, page=1, page_size=14)
+                library["items"] = found.get("items") or []
+            except FnError:
+                library["items"] = []
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            watching = pool.submit(self.client.continue_watching)
+            jobs = [pool.submit(preview, library) for library in libraries]
+            for job in jobs:
+                job.result()
+            continue_items = watching.result()
+        return {"libraries": libraries, "continue": continue_items}
 
     def library(self, guid, page=1):
         self._need_login()
@@ -445,6 +462,13 @@ class Desktop:
             meta.append("%s 集" % item.get("number_of_episodes"))
         if duration:
             meta.append("%s 分钟" % max(1, int(duration) // 60))
+        vote = item.get("vote_average")
+        if vote and str(vote) not in ("0", "0.0"):
+            meta.append(str(vote))
+        stream = item.get("media_stream") if isinstance(item.get("media_stream"), dict) else {}
+        resolutions = stream.get("resolutions") or []
+        if resolutions:
+            meta.append(str(resolutions[0]))
         return {
             "guid": info.get("guid") or item.get("guid") or "",
             "title": display_title(item) if item else "未命名",

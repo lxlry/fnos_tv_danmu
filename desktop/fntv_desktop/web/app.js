@@ -70,7 +70,7 @@ function card(item) {
 }
 
 function bindCards(root) {
-  root.querySelectorAll(".card, .lib").forEach((node) => {
+  root.querySelectorAll(".card, .lib, .lib-head").forEach((node) => {
     node.addEventListener("click", () => {
       const type = node.dataset.type;
       const guid = node.dataset.guid;
@@ -164,14 +164,26 @@ async function renderHome() {
   const libraries = (data.libraries || []).map((item) => `<button class="lib" data-guid="${esc(item.guid)}" data-type="Library" data-title="${esc(item.title)}">
       <div class="poster">${item.poster ? `<img src="${poster(item.poster)}" alt="">` : ""}</div>
       <b>${esc(item.title)}</b>
-      <span>${item.count ? esc(item.count) + " 项" : "媒体库"}</span>
+      <span>${item.count ? esc(item.count) + " 项" : esc(item.category || "媒体库")}</span>
     </button>`).join("");
+  const sections = (data.libraries || []).map((item) => {
+    const cards = (item.items || []).map(card).join("");
+    if (!cards) return "";
+    const count = item.count ? item.count + " 项" : "";
+    return `<section class="lib-block">
+      <button class="lib-head" type="button" data-guid="${esc(item.guid)}" data-type="Library" data-title="${esc(item.title)}">
+        <b>${esc(item.title)}</b><span>${esc(count)}</span>
+      </button>
+      <div class="row">${cards}</div>
+    </section>`;
+  }).join("");
   const resume = (data.continue || []).map(card).join("");
   view.innerHTML = `<h1>你好，${esc(state.username || state.account || "")}</h1>
     <p class="muted">${esc(state.server || "")}${state.mpv_ready ? "" : " · 没有找到随程序提供的 mpv"}</p>
     ${resume ? `<h2>继续观看</h2><div class="row">${resume}</div>` : ""}
     <h2>媒体库</h2>
-    <div class="grid">${libraries || `<p class="muted">没有媒体库</p>`}</div>`;
+    <div class="grid">${libraries || `<p class="muted">没有媒体库</p>`}</div>
+    ${sections}`;
   bindCards(view);
 }
 

@@ -62,7 +62,14 @@ main { padding: 22px; min-height: calc(100vh - 120px); }
 h1 { font-size: 28px; margin: 0 0 6px; }
 h2 { font-size: 18px; margin: 22px 0 12px; }
 .muted { color: var(--muted); }
-.row { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
+.row {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  align-items: flex-start;
+}
+.row .card { flex: 0 0 148px; width: 148px; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -91,9 +98,35 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   background: rgba(0, 0, 0, 0.45);
 }
 .poster .progress span { display: block; height: 100%; background: var(--accent); }
-.card b, .lib b { display: block; margin-top: 8px; font-weight: 650; }
-.card span, .lib span { color: var(--muted); font-size: 12px; }
+.card b, .lib b {
+  display: block;
+  margin-top: 8px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card span, .lib span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .lib .poster { aspect-ratio: 16 / 10; }
+.lib-block { margin-top: 6px; }
+.lib-head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 18px 0 10px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+.lib-head b { font-size: 18px; font-weight: 700; }
+.lib-head span { color: var(--muted); font-size: 13px; }
 
 .login {
   max-width: 440px;

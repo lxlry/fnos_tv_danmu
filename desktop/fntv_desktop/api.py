@@ -224,6 +224,7 @@ class FnClient:
                 "title": row.get("title") or "未命名",
                 "poster": poster or "",
                 "count": sums.get(guid) or 0,
+                "category": row.get("category") or "",
                 "type": "Library",
             })
         return items
@@ -380,6 +381,14 @@ def _first_path(value):
     return ""
 
 
+def _year(row):
+    for key in ("release_date", "air_date"):
+        raw = str(row.get(key) or "")
+        if len(raw) >= 4 and raw[0].isdigit():
+            return raw[:4]
+    return ""
+
+
 def display_title(row):
     tv = row.get("tv_title") or ""
     episode = row.get("episode_number") or 0
@@ -403,6 +412,9 @@ def card_from_item(row):
     duration = row.get("duration") or 0
     if not duration and row.get("runtime"):
         duration = int(row.get("runtime") or 0) * 60
+    year = _year(row)
+    if year:
+        subtitle = "%s · %s" % (year, subtitle) if subtitle else year
     return {
         "guid": row.get("guid") or "",
         "title": display_title(row),
