@@ -113,19 +113,434 @@ mp.observe_property("user-data/fntv/danmaku", "string", function(_, value)
   danmu_on = on
   apply_danmu()
 end)
-local request_panel
-request_panel = function(kind)
-  local file = io.open(status_path .. ".settings", "w")
+local state_path = status_path .. ".panel.json"
+local action_path = status_path .. ".action"
+local panel = {danmaku = {}, skip = {title = "", opening = 0, ending = 0}, ready = false}
+local open_kind = ""
+local live_timer = nil
+local last_live = ""
+
+local function defaults()
+  return {
+    on = true, area = 35, speed = 1, opacity = 0.85, fontsize = 22,
+    scroll = true, top = true, bottom = true, time_scale = false, outline = true,
+    density = 100, max_active = 40, row_spacing = 1.8, offset = 0, max_comments = 50000,
+  }
+end
+
+local function same_num(a, b)
+  return math.abs((tonumber(a) or 0) - (tonumber(b) or 0)) < 0.001
+end
+
+local function clock(sec)
+  sec = math.max(0, math.floor(tonumber(sec) or 0))
+  return math.floor(sec / 60) .. "分" .. (sec % 60) .. "秒"
+end
+
+local function trim_num(value)
+  local text = string.format("%.2f", tonumber(value) or 0)
+  text = text:gsub("0+$", ""):gsub("%.$", "")
+  return text
+end
+
+local function load_panel()
+  panel.danmaku = defaults()
+  panel.skip = {title = "", opening = 0, ending = 0}
+  panel.ready = false
+  panel.episodes = {}
+  panel.episodes_ready = false
+  panel.current = ""
+  panel.series = ""
+  panel.season = 0
+  local file = io.open(state_path, "r")
+  if not file then return end
+  local raw = file:read("*a")
+  file:close()
+  local ok, data = pcall(utils.parse_json, raw)
+  if not ok or type(data) ~= "table" then return end
+  if type(data.danmaku) == "table" then
+    for key, value in pairs(data.danmaku) do panel.danmaku[key] = value end
+  end
+  if type(data.skip) == "table" then
+    panel.skip.title = data.skip.title or ""
+    panel.skip.opening = tonumber(data.skip.opening) or 0
+    panel.skip.ending = tonumber(data.skip.ending) or 0
+  end
+  panel.ready = data.ready and true or false
+  panel.episodes_ready = data.episodes_ready and true or false
+  panel.current = data.current or ""
+  panel.series = data.series or ""
+  panel.season = tonumber(data.season) or 0
+  if type(data.episodes) == "table" then
+    for _, ep in ipairs(data.episodes) do
+      if type(ep) == "table" and ep.guid and ep.guid ~= "" then
+        panel.episodes[#panel.episodes + 1] = ep
+      end
+    end
+  end
+end
+
+local function write_state(play_guid)
+  local body = {
+    danmaku = panel.danmaku,
+    skip = {opening = panel.skip.opening or 0, ending = panel.skip.ending or 0},
+  }
+  if play_guid and play_guid ~= "" then body.play = play_guid end
+  local payload = utils.format_json(body)
+  local file = io.open(action_path, "w")
   if file then
-    file:write(kind, "\n", tostring(mp.get_time()))
+    file:write(payload, "\n", tostring(mp.get_time()))
     file:close()
   end
 end
+
+local function leaf(title, hint, value, active)
+  local row = {title = title, hint = hint or "", value = value, keep_open = true}
+  if active then row.active = true end
+  return row
+end
+
+local function choices(title, hint, key, current, rows)
+  local items = {}
+  local found = false
+  for _, row in ipairs(rows) do
+    if same_num(row[1], current) then found = true end
+  end
+  if not found then
+    table.insert(rows, 1, {current, hint})
+  end
+  for _, row in ipairs(rows) do
+    items[#items + 1] = leaf(row[2], "", "set:" .. key .. ":" .. trim_num(row[1]), same_num(row[1], current))
+  end
+  return {title = title, hint = hint, keep_open = true, items = items}
+end
+
+local function danmaku_menu()
+  local opt = panel.danmaku
+  local function flag(key, title)
+    local on = opt[key] and true or false
+    return leaf(title, on and "开" or "关", "toggle:" .. key, on)
+  end
+  local items = {
+    flag("on", "弹幕开关"),
+    choices("显示区域", tostring(opt.area) .. "%", "area", opt.area, {{10, "10%"}, {20, "20%"}, {35, "35%"}, {50, "50%"}, {65, "65%"}, {80, "80%"}}),
+    choices("滚动速度", trim_num(opt.speed) .. "x", "speed", opt.speed, {{0.5, "0.5x"}, {0.75, "0.75x"}, {1, "1x"}, {1.25, "1.25x"}, {1.5, "1.5x"}, {2, "2x"}, {3, "3x"}}),
+    choices("不透明度", tostring(math.floor((tonumber(opt.opacity) or 0) * 100 + 0.5)) .. "%", "opacity", opt.opacity, {{0.3, "30%"}, {0.5, "50%"}, {0.7, "70%"}, {0.85, "85%"}, {1, "100%"}}),
+    choices("字体大小", tostring(math.floor(tonumber(opt.fontsize) or 22)), "fontsize", opt.fontsize, {{14, "14"}, {18, "18"}, {22, "22"}, {26, "26"}, {32, "32"}, {40, "40"}}),
+    flag("scroll", "滚动弹幕"),
+    flag("top", "顶部弹幕"),
+    flag("bottom", "底部弹幕"),
+    flag("time_scale", "时间比例缩放"),
+    flag("outline", "文字描边"),
+    choices("密度", tostring(math.floor(tonumber(opt.density) or 100)) .. "%", "density", opt.density, {{50, "50%"}, {70, "70%"}, {85, "85%"}, {100, "100%"}}),
+    choices("同屏最大", tostring(math.floor(tonumber(opt.max_active) or 40)), "max_active", opt.max_active, {{10, "10"}, {20, "20"}, {30, "30"}, {40, "40"}, {60, "60"}, {80, "80"}}),
+    choices("行间距", trim_num(opt.row_spacing) .. "x", "row_spacing", opt.row_spacing, {{1.2, "1.2x"}, {1.5, "1.5x"}, {1.8, "1.8x"}, {2.2, "2.2x"}, {2.6, "2.6x"}, {3, "3x"}}),
+    choices("时间偏移", tostring(math.floor(tonumber(opt.offset) or 0)) .. "s", "offset", opt.offset, {{-120, "-120s"}, {-60, "-60s"}, {-30, "-30s"}, {-10, "-10s"}, {0, "0s"}, {10, "10s"}, {30, "30s"}, {60, "60s"}, {120, "120s"}}),
+    choices("加载上限", tostring(math.floor(tonumber(opt.max_comments) or 50000)), "max_comments", opt.max_comments, {{500, "500"}, {2000, "2000"}, {5000, "5000"}, {10000, "10000"}, {20000, "20000"}, {50000, "50000"}}),
+  }
+  local reset = leaf("重置", "", "reset", false)
+  reset.separator = true
+  items[#items + 1] = reset
+  return {
+    type = "fntv-danmaku",
+    title = "弹幕设置",
+    search_style = "disabled",
+    callback = {"progress", "panel-event"},
+    footnote = panel.ready and "" or "这一集还没有匹配到弹幕，设置会在匹配到之后生效。",
+    items = items,
+  }
+end
+
+local function second_menu(which, minute, current)
+  local items = {}
+  for sec = 0, 59 do
+    local total = minute * 60 + sec
+    items[#items + 1] = leaf(sec .. "秒", "", "skip:" .. which .. ":" .. tostring(total), current == total)
+  end
+  return {title = minute .. "分", hint = "", keep_open = true, items = items}
+end
+
+local function custom_menu(which, current)
+  local items = {}
+  for minute = 0, 20 do
+    local hint = ""
+    if math.floor(current / 60) == minute then hint = (current % 60) .. "秒" end
+    items[#items + 1] = second_menu(which, minute, current)
+    items[#items].hint = hint
+  end
+  return {title = "自定义", hint = clock(current), keep_open = true, items = items}
+end
+
+local function skip_side(which)
+  local saved = math.floor(tonumber(panel.skip[which]) or 0)
+  local pos = mp.get_property_number("time-pos") or 0
+  local dur = mp.get_property_number("duration") or 0
+  local live = which == "opening" and pos or (dur > 0 and math.max(0, dur - pos) or -1)
+  local use = leaf(which == "opening" and "设为片头" or "设为片尾", live < 0 and "片长未知" or clock(live), "skip:" .. which .. ":live", false)
+  local reset = leaf("重置", "0分0秒", "skip:" .. which .. ":0", saved == 0)
+  return {
+    title = which == "opening" and "片头时长" or "片尾时长",
+    hint = clock(saved),
+    keep_open = true,
+    items = {use, reset, custom_menu(which, saved)},
+  }
+end
+
+local function episode_hint(ep)
+  if ep.guid == panel.current then return "播放中" end
+  local dur = tonumber(ep.duration) or 0
+  local ts = tonumber(ep.ts) or 0
+  local watched = tonumber(ep.watched) or 0
+  if dur > 0 and ts > 0 then
+    local pct = math.floor(ts * 100 / dur + 0.5)
+    if pct <= 0 then
+      if watched == 1 then return "已观看99%" end
+    else
+      return "已观看" .. math.max(1, math.min(99, pct)) .. "%"
+    end
+  elseif watched == 1 then
+    return "已观看99%"
+  end
+  return "未观看"
+end
+
+local function episode_label(ep, index)
+  local num = tonumber(ep.number) or index
+  local text = num < 100 and string.format("%02d", num) or tostring(num)
+  local title = ep.title or ""
+  if title == "" then return text end
+  return text .. ". " .. title
+end
+
+local function episode_menu()
+  panel.episode_page = ""
+  local episodes = panel.episodes or {}
+  local heading = panel.series or ""
+  if heading == "" then heading = "选集" end
+  if (tonumber(panel.season) or 0) > 0 then
+    heading = heading .. " · 第" .. tostring(panel.season) .. "季"
+  end
+  local function note(text)
+    local row = leaf(text, "", "ignore", false)
+    row.selectable = false
+    row.muted = true
+    return {
+      type = "fntv-episodes",
+      title = heading,
+      search_style = "disabled",
+      callback = {"progress", "panel-event"},
+      items = {row},
+    }
+  end
+  if not panel.episodes_ready then return note("正在读取选集") end
+  if #episodes == 0 then return note("这部没有分集") end
+  local maxn = #episodes
+  for index, ep in ipairs(episodes) do
+    maxn = math.max(maxn, tonumber(ep.number) or index)
+  end
+  local function page_of(number)
+    return math.floor((math.max(1, number) - 1) / 30)
+  end
+  local function page_items(page)
+    local items = {}
+    for index, ep in ipairs(episodes) do
+      local number = tonumber(ep.number) or index
+      if page_of(number) == page then
+        local row = leaf(episode_label(ep, index), episode_hint(ep), "play:" .. ep.guid, ep.guid == panel.current)
+        row.keep_open = false
+        items[#items + 1] = row
+      end
+    end
+    if #items == 0 then
+      local row = leaf("这一段没有集", "", "ignore", false)
+      row.selectable = false
+      row.muted = true
+      items[1] = row
+    end
+    return items
+  end
+  local pages = math.max(1, math.ceil(maxn / 30))
+  if pages == 1 then
+    return {
+      type = "fntv-episodes",
+      title = heading,
+      search_style = "disabled",
+      callback = {"progress", "panel-event"},
+      items = page_items(0),
+    }
+  end
+  local current_number = 1
+  for index, ep in ipairs(episodes) do
+    if ep.guid == panel.current then current_number = tonumber(ep.number) or index end
+  end
+  local items = {}
+  for page = 0, pages - 1 do
+    local start_number = page * 30 + 1
+    local end_number = math.min((page + 1) * 30, maxn)
+    local label = tostring(start_number) .. "-" .. tostring(end_number)
+    if page_of(current_number) == page then panel.episode_page = label end
+    items[#items + 1] = {title = label, hint = "", keep_open = true, items = page_items(page)}
+  end
+  return {
+    type = "fntv-episodes",
+    title = heading,
+    search_style = "disabled",
+    callback = {"progress", "panel-event"},
+    items = items,
+  }
+end
+
+local function skip_menu()
+  local title = panel.skip.title or ""
+  if title == "" then title = "当前视频" end
+  return {
+    type = "fntv-skip",
+    title = "片头片尾",
+    search_style = "disabled",
+    callback = {"progress", "panel-event"},
+    footnote = "生效范围：" .. title,
+    items = {skip_side("opening"), skip_side("ending")},
+  }
+end
+
+local function menu_data(kind)
+  if kind == "skip" then return skip_menu() end
+  if kind == "episodes" then return episode_menu() end
+  return danmaku_menu()
+end
+
+local function show_menu(kind)
+  local data = menu_data(kind)
+  local submenu = kind == "episodes" and panel.episode_page or ""
+  if submenu and submenu ~= "" then
+    mp.commandv("script-message-to", "uosc", "open-menu", utils.format_json(data), submenu)
+  else
+    mp.commandv("script-message-to", "uosc", "open-menu", utils.format_json(data))
+  end
+end
+
+local function refresh_menu()
+  if open_kind ~= "danmaku" and open_kind ~= "skip" and open_kind ~= "episodes" then return end
+  mp.commandv("script-message-to", "uosc", "update-menu", utils.format_json(menu_data(open_kind)))
+end
+
+local function watch_live()
+  if live_timer then return end
+  live_timer = mp.add_periodic_timer(0.5, function()
+    if open_kind ~= "skip" then
+      live_timer:kill()
+      live_timer = nil
+      last_live = ""
+      return
+    end
+    local pos = math.floor(mp.get_property_number("time-pos") or 0)
+    local dur = mp.get_property_number("duration") or 0
+    local text = tostring(pos) .. ":" .. tostring(math.floor(dur))
+    if text == last_live then return end
+    last_live = text
+    refresh_menu()
+  end)
+end
+
+local function resolve(value)
+  if value == "skip:opening:live" then
+    return "skip:opening:" .. tostring(math.max(0, math.floor(mp.get_property_number("time-pos") or 0)))
+  end
+  if value == "skip:ending:live" then
+    local dur = mp.get_property_number("duration") or 0
+    if dur <= 0 then
+      mp.osd_message("还不知道片长，稍后再设片尾", 2)
+      return nil
+    end
+    local pos = mp.get_property_number("time-pos") or 0
+    return "skip:ending:" .. tostring(math.max(0, math.floor(dur - pos)))
+  end
+  return value
+end
+
+local function apply_local(value)
+  if value == "reset" then
+    panel.danmaku = defaults()
+    return true
+  end
+  local kind, key, raw = value:match("^([^:]+):([^:]+):(.*)$")
+  if not kind then
+    kind, key = value:match("^([^:]+):([^:]+)$")
+    raw = ""
+  end
+  if kind == "toggle" then
+    if panel.danmaku[key] == nil then return false end
+    panel.danmaku[key] = not panel.danmaku[key]
+    return true
+  end
+  if kind == "set" then
+    local number = tonumber(raw)
+    if not number or panel.danmaku[key] == nil then return false end
+    panel.danmaku[key] = number
+    return true
+  end
+  if kind == "skip" and (key == "opening" or key == "ending") then
+    local number = tonumber(raw)
+    if not number then return false end
+    panel.skip[key] = math.max(0, math.min(20 * 60, math.floor(number)))
+    return true
+  end
+  return false
+end
+
+local episode_timer = nil
+local function watch_episodes()
+  if episode_timer then return end
+  episode_timer = mp.add_periodic_timer(0.4, function()
+    if open_kind ~= "episodes" or panel.episodes_ready then
+      episode_timer:kill()
+      episode_timer = nil
+      return
+    end
+    load_panel()
+    if panel.episodes_ready then refresh_menu() end
+  end)
+end
+
+local function open_overlay(kind)
+  load_panel()
+  open_kind = kind
+  last_live = ""
+  show_menu(kind)
+  if kind == "skip" then watch_live() end
+  if kind == "episodes" then watch_episodes() end
+end
+
+mp.register_script_message("panel-event", function(raw)
+  local ok, event = pcall(utils.parse_json, raw or "")
+  if not ok or type(event) ~= "table" then return end
+  if event.type == "close" then
+    open_kind = ""
+    return
+  end
+  if event.type ~= "activate" then return end
+  local raw_value = tostring(event.value or "")
+  if raw_value:sub(1, 5) == "play:" then
+    local guid = raw_value:sub(6)
+    if guid ~= "" and guid ~= (panel.current or "") then write_state(guid) end
+    mp.commandv("script-message-to", "uosc", "close-menu", "fntv-episodes")
+    open_kind = ""
+    return
+  end
+  local value = resolve(raw_value)
+  if not value or value == "" or value == "ignore" then return end
+  if not apply_local(value) then return end
+  write_state()
+  refresh_menu()
+end)
+mp.register_script_message("episode-list", function()
+  open_overlay("episodes")
+end)
 mp.register_script_message("danmaku-settings", function()
-  request_panel("danmaku")
+  open_overlay("danmaku")
 end)
 mp.register_script_message("skip-settings", function()
-  request_panel("skip")
+  open_overlay("skip")
 end)
 mp.register_script_message("speed", function(value)
   play_speed = tonumber(value) or 1

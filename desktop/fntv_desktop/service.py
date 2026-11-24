@@ -8,7 +8,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .api import FnClient, FnError, display_title, normalize_server
+from .api import FnClient, FnError, cover_path, display_title, normalize_server
 from .danmu import comments_to_ass, danmaku_options, danmaku_options_from_config, load_comments
 from .player import MpvPlayer, find_mpv
 from .update import Updater, local_version
@@ -47,8 +47,11 @@ class Desktop:
         self._danmaku_request = ""
         self._window = None
         self._panel = None
+        self._panel_action = ""
         self._restore_client()
         self._ignore_old_panel_request()
+        self._ignore_old_action()
+        threading.Thread(target=self._panel_action_loop, daemon=True).start()
 
     def _load_config(self):
         defaults = {
@@ -62,6 +65,7 @@ class Desktop:
             "danmu_on": True,
             "auto_next": True,
             "mpv_path": "",
+            "theme": "default",
         }
         try:
             saved = json.loads(self.config_path.read_text(encoding="utf-8"))
@@ -107,6 +111,7 @@ class Desktop:
             "danmu_url": self.config.get("danmu_url") or "",
             "danmu_on": bool(self.config.get("danmu_on", True)),
             "auto_next": bool(self.config.get("auto_next", True)),
+            "theme": "glass" if self.config.get("theme") == "glass" else "default",
             "mpv_path": self.config.get("mpv_path") or "",
             "mpv_ready": bool(mpv_path),
             "version": version["versionName"],
@@ -176,6 +181,8 @@ class Desktop:
             self.config["danmu_on"] = bool(values.get("danmu_on"))
         if "auto_next" in values:
             self.config["auto_next"] = bool(values.get("auto_next"))
+        if "theme" in values:
+            self.config["theme"] = "glass" if values.get("theme") == "glass" else "default"
         if "mpv_path" in values:
             self.config["mpv_path"] = (values.get("mpv_path") or "").strip()
         self._save_config()
@@ -227,17 +234,62 @@ class Desktop:
             view["file"] = self._optional(lambda: self.client.file_info(view["guid"], info), {})
         elif item_type == "TV":
             view["seasons"] = self.client.seasons(view["guid"])
-            if view["seasons"]:
-                view["episodes"] = self.client.episodes(view["seasons"][0]["guid"])
-            else:
-                view["episodes"] = self.client.episodes(view["guid"])
-        elif item_type == "Episode" and view.get("parent_guid"):
-            view["episodes"] = self.client.episodes(view["parent_guid"])
+        elif item_type == "Episode":
+            view = self._episode_series(view, info)
         return view
 
     def episodes(self, guid):
         self._need_login()
         return self.client.episodes(guid)
+
+    def _episode_series(self, view, info):
+        episode_guid = view.get("guid") or ""
+        season_guid = view.get("parent_guid") or ""
+        season_info = {}
+        series_guid = ""
+        if season_guid:
+            season_info = self._optional(lambda: self.client.play_info(season_guid), {}) or {}
+            if isinstance(season_info, dict):
+                series_guid = season_info.get("parent_guid") or ""
+                season_item = season_info.get("item") if isinstance(season_info.get("item"), dict) else {}
+                if not series_guid:
+                    series_guid = season_item.get("parent_guid") or ""
+        seasons = self._optional(lambda: self.client.seasons(series_guid), []) if series_guid else []
+        if series_guid and seasons:
+            series_info = self._optional(lambda: self.client.play_info(series_guid), None)
+            if isinstance(series_info, dict):
+                series = self._detail_view(series_info)
+                series["seasons"] = seasons
+                series["play_guid"] = episode_guid
+                series["episode_number"] = view.get("episode_number") or 0
+                series["season_number"] = view.get("season_number") or 0
+                if view.get("ts"):
+                    series["ts"] = view.get("ts")
+                return series
+        if season_guid and isinstance(season_info, dict):
+            season_item = season_info.get("item") if isinstance(season_info.get("item"), dict) else {}
+            try:
+                number = int(season_item.get("season_number") or view.get("season_number") or 0)
+            except (TypeError, ValueError):
+                number = 0
+            title = season_item.get("title") or ""
+            if number == 0 or str(title).strip() in ("特别篇", "Specials"):
+                title = "特别篇"
+            elif not title:
+                title = "第%s季" % number if number else "本季"
+            aired = str(season_item.get("air_date") or "")
+            view["seasons"] = [{
+                "guid": season_guid,
+                "title": title,
+                "number": number,
+                "poster": cover_path(season_item) if season_item else "",
+                "count": season_item.get("local_number_of_episodes") or season_item.get("number_of_episodes") or 0,
+                "year": aired[:4] if len(aired) >= 4 else "",
+                "overview": season_item.get("overview") or "",
+            }]
+        view["play_guid"] = episode_guid
+        view["episodes"] = []
+        return view
 
     def play(self, guid, next_guid=""):
         self._need_login()
@@ -264,10 +316,12 @@ class Desktop:
         if episode_number:
             match_name = "%s S%02dE%02d" % (match_name, season_number or 0, episode_number)
         self._save_job_progress_later()
-        pool = ThreadPoolExecutor(max_workers=2)
+        pool = ThreadPoolExecutor(max_workers=3)
         handed = False
         try:
             next_future = None if next_guid else pool.submit(self._find_next, info)
+            parent_guid = info.get("parent_guid") or ""
+            episode_future = pool.submit(self._load_episode_list, parent_guid) if parent_guid else None
             danmaku_on = bool(self.config.get("danmu_on", True)) and bool(self.config.get("danmu_url"))
             danmu_future = pool.submit(self._write_danmu, match_name, episode_number) if danmaku_on else None
             stream = self.client.stream(media_guid)
@@ -300,6 +354,10 @@ class Desktop:
                 "skip_opening": opening,
                 "skip_ending": ending,
                 "outro_done": False,
+                "series": item.get("tv_title") or item.get("ancestor_name") or title,
+                "season": int(season_number or 0),
+                "episodes": [],
+                "episodes_ready": not bool(info.get("parent_guid")),
             }
             with self.job_lock:
                 self.job = job
@@ -314,9 +372,10 @@ class Desktop:
                 danmaku_on,
                 self.config.get("danmu_scale") or 1,
             )
+            self._write_panel_state()
             threading.Thread(
                 target=self._finish_playback,
-                args=(session_id, next_future, danmu_future, pool),
+                args=(session_id, next_future, danmu_future, episode_future, pool),
                 daemon=True,
             ).start()
             handed = True
@@ -404,10 +463,13 @@ class Desktop:
             path = self._write_danmu(self._danmu_match[0], self._danmu_match[1])
         else:
             path = self._rewrite_danmu()
-        if self.player.running():
-            if path:
-                self._player_call(lambda: self.player.set_danmaku_file(path))
-            self._player_call(lambda: self.player.set_danmaku(options["on"]))
+        try:
+            if self.player.running():
+                if path:
+                    self._player_call(lambda: self.player.set_danmaku_file(path))
+                self._player_call(lambda: self.player.set_danmaku(options["on"]))
+        finally:
+            self._write_panel_state()
         return options
 
     def _ignore_old_panel_request(self):
@@ -416,6 +478,87 @@ class Desktop:
             self._danmaku_request = path.read_text(encoding="utf-8").strip()
         except Exception:
             self._danmaku_request = ""
+
+    def _ignore_old_action(self):
+        path = self.player.status_path.with_name("status.txt.action")
+        try:
+            self._panel_action = path.read_text(encoding="utf-8").strip()
+        except Exception:
+            self._panel_action = ""
+
+    def _panel_action_loop(self):
+        while True:
+            time.sleep(0.15)
+            try:
+                self._take_panel_action()
+            except Exception:
+                continue
+
+    def _take_panel_action(self):
+        path = self.player.status_path.with_name("status.txt.action")
+        try:
+            token = path.read_text(encoding="utf-8").strip()
+        except Exception:
+            return
+        if not token or token == self._panel_action:
+            return
+        self._panel_action = token
+        self._apply_panel_action(token.splitlines()[0].strip())
+
+    def _apply_panel_action(self, line):
+        try:
+            data = json.loads(line)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
+        play_guid = str(data.get("play") or "").strip()
+        if play_guid:
+            current = (self.job or {}).get("guid") or ""
+            if play_guid != current:
+                self.play(play_guid)
+            return
+        incoming = data.get("danmaku")
+        if isinstance(incoming, dict):
+            current = danmaku_options_from_config(self.config)
+            updated = danmaku_options(incoming)
+            if updated != current:
+                self.update_danmaku_settings(updated)
+        skip = data.get("skip")
+        job = self.job
+        if isinstance(skip, dict) and job:
+            try:
+                opening = int(float(skip.get("opening") or 0))
+                ending = int(float(skip.get("ending") or 0))
+            except (TypeError, ValueError):
+                return
+            if opening != int(job.get("skip_opening") or 0) or ending != int(job.get("skip_ending") or 0):
+                self.set_skip(opening, ending)
+
+    def _write_panel_state(self):
+        options = danmaku_options_from_config(self.config)
+        job = self.job or {}
+        with self._danmu_lock:
+            ready = bool(self._danmu_comments)
+        payload = {
+            "danmaku": options,
+            "ready": ready,
+            "skip": {
+                "title": job.get("title") or "",
+                "opening": int(job.get("skip_opening") or 0),
+                "ending": int(job.get("skip_ending") or 0),
+            },
+            "current": job.get("guid") or "",
+            "series": job.get("series") or job.get("title") or "",
+            "season": int(job.get("season") or 0),
+            "episodes_ready": bool(job.get("episodes_ready")),
+            "episodes": job.get("episodes") if isinstance(job.get("episodes"), list) else [],
+        }
+        path = self.player.status_path.with_name("status.txt.panel.json")
+        try:
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            return
 
     def take_danmaku_request(self):
         path = self.player.status_path.with_name("status.txt.settings")
@@ -426,12 +569,7 @@ class Desktop:
         if not token or token == self._danmaku_request:
             return {"open": False}
         self._danmaku_request = token
-        kind = token.splitlines()[0].strip()
-        if kind not in ("danmaku", "skip"):
-            kind = "danmaku"
-        if self.open_panel(kind):
-            return {"open": False, "kind": kind}
-        return {"open": True, "kind": kind}
+        return {"open": False}
 
     def open_panel(self, kind):
         url = "http://127.0.0.1:%s/?panel=%s" % (self.port, kind)
@@ -538,6 +676,7 @@ class Desktop:
         job["skip_opening"] = opening
         job["skip_ending"] = ending
         job["outro_done"] = False
+        self._write_panel_state()
         if opening > int(self.player.position or 0):
             self._player_call(lambda: self.player.seek(opening))
 
@@ -613,7 +752,7 @@ class Desktop:
             if self.job is job:
                 self.job = None
 
-    def _finish_playback(self, session_id, next_future, danmu_future, pool):
+    def _finish_playback(self, session_id, next_future, danmu_future, episode_future, pool):
         try:
             if next_future is not None:
                 try:
@@ -624,6 +763,17 @@ class Desktop:
                     job = self.job
                     if job and job.get("session_id") == session_id and found:
                         job["next_guid"] = found
+            if episode_future is not None:
+                try:
+                    episodes = episode_future.result() or []
+                except Exception:
+                    episodes = []
+                with self.job_lock:
+                    job = self.job
+                    if job and job.get("session_id") == session_id:
+                        job["episodes"] = episodes
+                        job["episodes_ready"] = True
+                        self._write_panel_state()
             if danmu_future is None:
                 return
             try:
@@ -778,19 +928,60 @@ class Desktop:
                 return episodes[index + 1].get("guid") or ""
         return ""
 
+    def _load_episode_list(self, parent_guid):
+        if not parent_guid:
+            return []
+        try:
+            rows = self.client.episodes(parent_guid)
+        except FnError:
+            return []
+        found = []
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            guid = row.get("guid") or ""
+            if not guid:
+                continue
+            try:
+                number = int(row.get("episode_number") or 0)
+            except (TypeError, ValueError):
+                number = 0
+            if number <= 0:
+                number = index + 1
+            try:
+                duration = int(row.get("duration") or 0)
+            except (TypeError, ValueError):
+                duration = 0
+            try:
+                watched_at = int(row.get("ts") or 0)
+            except (TypeError, ValueError):
+                watched_at = 0
+            found.append({
+                "guid": guid,
+                "number": number,
+                "title": row.get("raw_title") or row.get("title") or "",
+                "duration": duration,
+                "ts": watched_at,
+                "watched": 1 if row.get("watched") else 0,
+            })
+        return found
+
     def _write_danmu(self, file_name, episode_number):
         self._danmu_match = (file_name, episode_number)
         limit = danmaku_options_from_config(self.config)["max_comments"]
+        path = ""
         try:
             comments = load_comments(self.config.get("danmu_url") or "", file_name, episode_number, limit)
         except Exception:
-            return ""
-        self._danmu_loaded_limit = limit
-        with self._danmu_lock:
-            self._danmu_comments = comments
-        if not comments:
-            return ""
-        return self._save_danmu_ass(comments)
+            comments = None
+        if comments is not None:
+            self._danmu_loaded_limit = limit
+            with self._danmu_lock:
+                self._danmu_comments = comments
+            if comments:
+                path = self._save_danmu_ass(comments)
+        self._write_panel_state()
+        return path
 
     def _rewrite_danmu(self):
         with self._danmu_lock:
@@ -855,6 +1046,10 @@ class Desktop:
             "duration": duration or 0,
             "parent_guid": info.get("parent_guid") or "",
             "media_guid": info.get("media_guid") or "",
+            "series_title": item.get("tv_title") or item.get("title") or "",
+            "episode_number": item.get("episode_number") or 0,
+            "season_number": item.get("season_number") or 0,
+            "play_guid": info.get("guid") or item.get("guid") or "",
             "seasons": [],
             "episodes": [],
             "people": [],

@@ -113,6 +113,11 @@ function bindRows(root) {
     };
     row.addEventListener("scroll", update);
     update();
+    requestAnimationFrame(update);
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(update);
+      observer.observe(row);
+    }
   });
 }
 
@@ -226,6 +231,7 @@ async function renderCurrent() {
     if (current.name === "library") return await renderLibrary(current.arg);
     if (current.name === "search") return await renderSearch(current.arg);
     if (current.name === "detail") return await renderDetail(current.arg);
+    if (current.name === "season") return await renderSeason(current.arg);
   } catch (error) {
     if (error.kind === "auth") {
       forgetHome();
@@ -345,7 +351,9 @@ async function renderDetail(guid) {
 }
 
 function drawDetail(data, episodes) {
-  const playable = data.type === "Movie" || data.type === "Video" || data.type === "Episode" || data.media_guid;
+  const playGuid = data.play_guid || data.guid;
+  const playable = data.type === "Movie" || data.type === "Video" || data.type === "Episode" || data.media_guid || (data.play_guid && data.play_guid !== data.guid);
+  const seriesTitle = data.series_title || data.title;
   const seasons = (data.seasons || []).map((season) => {
     const meta = [season.count ? "共" + season.count + "集" : "", season.year || ""].filter(Boolean).join(" · ");
     return `<button class="card season-card" type="button" data-guid="${esc(season.guid)}">
@@ -373,14 +381,15 @@ function drawDetail(data, episodes) {
     ["音频", file.audio],
     ["字幕", file.subtitle],
   ].filter((item) => item[1]).map((item) => `<div class="fact"><span>${item[0]}</span><b>${esc(item[1])}</b></div>`).join("");
+  const showEpisodes = !seasons;
   view.innerHTML = `<article class="hero">
       <div class="poster">${data.poster ? `<img src="${poster(data.poster)}" alt="">` : ""}</div>
       <div>
-        <h1>${esc(data.title)}</h1>
+        <h1>${esc(data.type === "TV" || data.type === "Episode" ? seriesTitle : data.title)}</h1>
         <p class="muted">${esc(data.meta || data.type || "")}</p>
         <p class="overview">${esc(data.overview || "暂无简介")}</p>
         <div class="actions">
-          ${playable ? `<button class="primary" id="play" type="button">${Number(data.ts) > 30 ? "继续播放" : "播放"}</button>` : ""}
+          ${playable ? `<button class="primary" id="play" type="button">${playLabel(data)}</button>` : ""}
         </div>
       </div>
     </article>
@@ -390,20 +399,79 @@ function drawDetail(data, episodes) {
     ${facts ? `<h2>文件信息</h2><div class="facts">${facts}</div>${file.report ? `<button type="button" id="file-more">查看全部</button>` : ""}` : ""}`;
   view.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove()));
   const play = view.querySelector("#play");
-  if (play) play.addEventListener("click", () => startPlay(data.guid, nextAfter(episodes, data.guid)));
+  if (play) play.addEventListener("click", () => startPlay(playGuid, nextAfter(showEpisodes ? episodes : [], playGuid)));
   const more = view.querySelector("#file-more");
   if (more) more.addEventListener("click", () => showFileReport(file.report));
-  paintEpisodes(episodes, data.guid);
+  if (showEpisodes) paintEpisodes(episodes, playGuid);
   bindRows(view);
-  view.querySelectorAll(".season-card").forEach((button, index) => {
-    if (index === 0) button.classList.add("active");
-    button.addEventListener("click", async () => {
-      view.querySelectorAll(".season-card").forEach((one) => one.classList.remove("active"));
-      button.classList.add("active");
-      const list = await api("/api/episodes?guid=" + encodeURIComponent(button.dataset.guid));
-      paintEpisodes(list.items || [], "");
+  view.querySelectorAll(".season-card").forEach((button) => {
+    button.addEventListener("click", () => {
+      const season = (data.seasons || []).find((item) => item.guid === button.dataset.guid);
+      if (season) open("season", { series: data, season });
     });
   });
+}
+
+function playLabel(data) {
+  const season = Number(data.season_number) || 0;
+  const episode = Number(data.episode_number) || 0;
+  if (data.type === "TV" || data.type === "Episode") {
+    if (season === 0 && episode > 0) return "特别篇 集 " + episode;
+    if (season > 0 && episode > 0) return "季 " + season + " 集 " + episode;
+    if (episode > 0) return "第" + episode + "集";
+  }
+  return Number(data.ts) > 30 ? "继续播放" : "播放";
+}
+
+async function renderSeason(arg) {
+  const series = arg.series || {};
+  const season = arg.season || {};
+  const data = await api("/api/episodes?guid=" + encodeURIComponent(season.guid || ""));
+  drawSeason(series, season, data.items || []);
+}
+
+function drawSeason(series, season, episodes) {
+  const seasons = series.seasons || [];
+  const resumeGuid = series.play_guid || "";
+  const current = episodes.find((episode) => episode.guid === resumeGuid) || episodes[0] || null;
+  const number = current ? episodeNumber(current, Math.max(0, episodes.indexOf(current))) : 0;
+  const chips = seasons.length > 1 ? `<div class="chips" id="season-tabs">${seasons.map((item) => `<button type="button" class="${item.guid === season.guid ? "active" : ""}" data-guid="${esc(item.guid)}">${esc(item.title)}</button>`).join("")}</div>` : "";
+  const meta = [seasonLabel(season), season.count ? "共" + season.count + "集" : "", season.year || ""].filter(Boolean).join(" · ");
+  view.innerHTML = `<article class="hero">
+      <div class="poster">${season.poster ? `<img src="${poster(season.poster)}" alt="">` : ""}</div>
+      <div>
+        <h1>${esc(series.series_title || series.title || "")}</h1>
+        <p class="muted">${esc(meta)}</p>
+        <p class="overview">${esc(season.overview || series.overview || "暂无简介")}</p>
+        <div class="actions">
+          ${current ? `<button class="primary" id="play" type="button">第${number}集</button>` : ""}
+        </div>
+      </div>
+    </article>
+    ${chips}
+    <div id="episode-section"></div>`;
+  view.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove()));
+  const play = view.querySelector("#play");
+  if (play && current) play.addEventListener("click", () => startPlay(current.guid, nextAfter(episodes, current.guid)));
+  paintEpisodes(episodes, current ? current.guid : "");
+  bindRows(view);
+  view.querySelectorAll("#season-tabs button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = seasons.find((item) => item.guid === button.dataset.guid);
+      const page = stack[stack.length - 1];
+      if (!next || !page || page.name !== "season") return;
+      page.arg = { series, season: next };
+      renderCurrent();
+    });
+  });
+}
+
+function seasonLabel(season) {
+  const title = String(season.title || "").trim();
+  const lower = title.toLowerCase();
+  if (Number(season.number) === 0 || title.includes("特别") || title.includes("特典") || title.includes("番外") || lower.includes("special") || lower === "sp" || lower.includes("ova") || lower.includes("oad")) return "特别篇";
+  if (Number(season.number) > 0) return "第" + season.number + "季";
+  return title || "本季";
 }
 
 const EPISODE_PAGE = 30;
@@ -490,13 +558,24 @@ async function startPlay(guid, nextGuid) {
   }
 }
 
+function applyTheme(theme) {
+  document.body.classList.toggle("theme-glass", theme === "glass");
+}
+
 function settingsDialog() {
   const node = document.createElement("div");
+  const savedTheme = state.theme === "glass" ? "glass" : "default";
+  let theme = savedTheme;
   node.className = "dialog";
   node.innerHTML = `<form class="sheet" id="settings-form">
     <h2>设置</h2>
     <label><span class="muted">弹幕服务器</span><input name="danmu_url" value="${esc(state.danmu_url || "")}" placeholder="http://IP:9321"></label>
     <label><span class="muted">mpv.exe 路径（留空则自动查找）</span><input name="mpv_path" value="${esc(state.mpv_path || "")}"></label>
+    <div class="muted">背景</div>
+    <div class="chips" id="theme-choices">
+      <button type="button" data-theme="default">默认</button>
+      <button type="button" data-theme="glass">深色毛玻璃</button>
+    </div>
     <label class="check"><span>播放时加载弹幕</span><input name="danmu_on" type="checkbox" ${state.danmu_on ? "checked" : ""}></label>
     <label class="check"><span>剧集播完自动下一集</span><input name="auto_next" type="checkbox" ${state.auto_next ? "checked" : ""}></label>
     <p class="muted">当前版本 ${esc(state.version || "")}。mpv 里空格暂停，左右方向键快进，上下方向键调音量。</p>
@@ -508,13 +587,30 @@ function settingsDialog() {
     </div>
   </form>`;
   document.body.appendChild(node);
-  node.querySelector("#close-settings").addEventListener("click", () => node.remove());
+  const choices = node.querySelectorAll("#theme-choices button");
+  const markTheme = () => {
+    choices.forEach((button) => button.classList.toggle("active", button.dataset.theme === theme));
+    applyTheme(theme);
+  };
+  markTheme();
+  choices.forEach((button) => {
+    button.addEventListener("click", () => {
+      theme = button.dataset.theme;
+      markTheme();
+    });
+  });
+  const close = () => {
+    applyTheme(savedTheme);
+    node.remove();
+  };
+  node.querySelector("#close-settings").addEventListener("click", close);
   node.querySelector("#check-update").addEventListener("click", () => checkUpdate(false));
-  node.addEventListener("click", (event) => { if (event.target === node) node.remove(); });
+  node.addEventListener("click", (event) => { if (event.target === node) close(); });
   node.querySelector("#logout").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });
     node.remove();
     state = await api("/api/status");
+    applyTheme(state.theme);
     forgetHome();
     stack.length = 0;
     open("login");
@@ -530,8 +626,10 @@ function settingsDialog() {
         mpv_path: form.get("mpv_path"),
         danmu_on: form.get("danmu_on") === "on",
         auto_next: form.get("auto_next") === "on",
+        theme,
       }),
     });
+    applyTheme(state.theme);
     node.remove();
     showToast("已保存");
   });
@@ -1029,6 +1127,7 @@ async function boot() {
       state = {};
     }
     chrome(false);
+    applyTheme(state.theme);
     if (panel === "skip") skipDialog();
     else danmakuDialog();
     return;
@@ -1040,6 +1139,7 @@ async function boot() {
     return;
   }
   open(state.logged_in ? "home" : "login");
+  applyTheme(state.theme);
   checkUpdate(true);
   watchDanmakuSettings();
 }

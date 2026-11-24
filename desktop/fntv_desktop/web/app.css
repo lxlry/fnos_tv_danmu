@@ -17,6 +17,7 @@
 html, body { height: 100%; }
 body {
   margin: 0;
+  overflow-x: hidden;
   background:
     radial-gradient(1000px 420px at 10% -10%, rgba(61, 222, 200, 0.16), transparent 55%),
     var(--bg);
@@ -67,12 +68,15 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .row {
   display: flex;
   gap: 14px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   padding: 8px 0;
   align-items: flex-start;
   scroll-behavior: auto;
 }
-.scroller { position: relative; }
+.scroller { position: relative; max-width: 100%; min-width: 0; }
 .scroll-arrow {
   position: absolute;
   top: 87px;
@@ -98,7 +102,7 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .row.landscape .card { flex-basis: 220px; width: 220px; }
 .row.landscape .poster { aspect-ratio: 16 / 9; }
 .scroller:has(.landscape) .scroll-arrow { top: 38px; }
-.scroller:has(.libraries) .scroll-arrow { top: 41px; }
+.scroller:has(.libraries) .scroll-arrow { top: 41px; opacity: 1; pointer-events: auto; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -186,7 +190,7 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lib .poster { aspect-ratio: 16 / 9; }
+.lib .poster { aspect-ratio: 16 / 9; background: #121820; }
 .lib .poster img { object-fit: contain; }
 .lib:hover .poster img { transform: none; }
 .row.libraries { gap: 16px; }
@@ -319,6 +323,22 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .fact b { font-weight: 500; }
 body.panel header, body.panel #view, body.panel #now { display: none; }
 body.panel { background: var(--bg-2); }
+body.theme-glass {
+  background:
+    radial-gradient(880px 520px at -10% -20%, rgba(120, 168, 196, 0.28), transparent 58%),
+    radial-gradient(720px 460px at 110% 110%, rgba(36, 64, 84, 0.42), transparent 60%),
+    #07090d;
+}
+body.theme-glass header,
+body.theme-glass #now,
+body.theme-glass .sheet,
+body.theme-glass .login {
+  background: rgba(14, 18, 24, 0.46);
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+}
+body.theme-glass .poster { background: rgba(18, 24, 32, 0.72); }
 body.panel .dialog { background: transparent; padding: 12px; align-items: stretch; }
 body.panel .sheet { width: 100%; max-height: calc(100vh - 24px); }
 .pager { margin: 18px 0; }
