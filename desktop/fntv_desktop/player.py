@@ -29,6 +29,7 @@ INVALID_HANDLE = wintypes.HANDLE(-1).value
 _IPC_LOCK = threading.Lock()
 
 LUA = r"""
+local utils = require("mp.utils")
 local status_path = [[__STATUS__]]
 local danmu_path = [[__DANMU__]]
 local danmu_on = __DANMU_ON__
@@ -512,6 +513,7 @@ local function open_overlay(kind)
     if kind == "episodes" then watch_episodes() end
   end)
   if not ok then
+    mp.msg.error("menu failed: " .. tostring(err))
     mp.osd_message("菜单没有打开：" .. tostring(err), 3)
   end
 end
@@ -547,9 +549,9 @@ end)
 mp.register_script_message("skip-settings", function()
   open_overlay("skip")
 end)
-mp.add_key_binding("", "episode-list", function() open_overlay("episodes") end)
-mp.add_key_binding("", "danmaku-settings", function() open_overlay("danmaku") end)
-mp.add_key_binding("", "skip-settings", function() open_overlay("skip") end)
+mp.add_key_binding(nil, "episode-list", function() open_overlay("episodes") end)
+mp.add_key_binding(nil, "danmaku-settings", function() open_overlay("danmaku") end)
+mp.add_key_binding(nil, "skip-settings", function() open_overlay("skip") end)
 mp.register_script_message("speed", function(value)
   play_speed = tonumber(value) or 1
   mp.set_property("speed", play_speed)
@@ -642,18 +644,60 @@ def main_window_bounds():
     return width, height, x, y
 
 
-def player_window_bounds():
-    width, height, _, _ = main_window_bounds()
+def _native_hwnd(window):
+    native = getattr(window, "native", None)
+    if isinstance(native, int) and native:
+        return native
+    handle = getattr(native, "Handle", None) or getattr(native, "hwnd", None)
+    if hasattr(handle, "ToInt64"):
+        return int(handle.ToInt64())
+    if isinstance(handle, int):
+        return handle
+    return 0
+
+
+def _window_rect(window):
+    hwnd = _native_hwnd(window)
+    if not hwnd:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        rect = wintypes.RECT()
+        if not ctypes.windll.user32.GetWindowRect(int(hwnd), ctypes.byref(rect)):
+            return None
+        left, top = int(rect.left), int(rect.top)
+        width, height = int(rect.right - left), int(rect.bottom - top)
+        if width < 400 or height < 300 or left < -1000 or top < -1000:
+            return None
+        return left, top, width, height
+    except Exception:
+        return None
+
+
+def player_window_bounds(window=None):
+    placed = _window_rect(window)
+    if placed:
+        left, top, width, height = placed
+    else:
+        width, height, left, top = main_window_bounds()
+        if left is None:
+            return max(640, width - 32), max(420, height - 24), None, None
+    player_w = max(640, width - 32)
+    player_h = max(420, height - 24)
     area = screen_work_area()
-    player_w = max(720, width - 80)
-    player_h = max(460, height - 56)
     if not area:
-        return player_w, player_h, None, None
-    left, top, area_w, area_h = area
-    player_w = min(player_w, max(640, area_w - 64))
-    player_h = min(player_h, max(420, area_h - 64))
-    x = left + max(0, (area_w - player_w) // 2)
-    y = top + max(0, (area_h - player_h) // 2)
+        x = left + max(0, (width - player_w) // 2)
+        y = top + max(0, (height - player_h) // 2)
+        return player_w, player_h, x, y
+    area_x, area_y, area_w, area_h = area
+    player_w = min(player_w, max(640, area_w - 16))
+    player_h = min(player_h, max(420, area_h - 16))
+    x = left + max(0, (width - player_w) // 2)
+    y = top + max(0, (height - player_h) // 2)
+    x = min(max(area_x, x), area_x + max(0, area_w - player_w))
+    y = min(max(area_y, y), area_y + max(0, area_h - player_h))
     return player_w, player_h, x, y
 
 
@@ -671,6 +715,7 @@ class MpvPlayer:
         self.title = ""
         self.guid = ""
         self.on_exit = None
+        self.main_window = None
         self._lock = threading.Lock()
         self._generation = 0
 
@@ -708,9 +753,10 @@ class MpvPlayer:
                 "--script=%s" % self.script_path,
                 "--title=%s" % (title or "飞牛TV"),
             ])
-            player_w, player_h, player_x, player_y = player_window_bounds()
+            player_w, player_h, player_x, player_y = player_window_bounds(self.main_window)
             if player_x is not None:
                 command.append("--geometry=%dx%d+%d+%d" % (player_w, player_h, player_x, player_y))
+            command.append("--autofit-smaller=%dx%d" % (player_w, player_h))
             command.append("--autofit-larger=%dx%d" % (player_w, player_h))
             command.append(url)
             if start_sec and start_sec > 1:

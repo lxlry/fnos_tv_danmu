@@ -430,6 +430,7 @@ class Desktop:
 
     def attach_window(self, window):
         self._window = window
+        self.player.main_window = window
 
     def focus_window(self, enabled=True):
         window = self._window
