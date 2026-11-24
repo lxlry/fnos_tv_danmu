@@ -23,7 +23,7 @@ timeline_line_width=2
 timeline_size=40
 progress=windowed
 progress_size=2
-controls=menu,gap,subtitles,<has_many_audio>audio,<has_many_video>video,<has_many_edition>editions,gap,cycle:toggle_on:user-data/fntv/danmaku:on=toggle_on/off=toggle_off?弹幕,gap,space,speed,space,gap,fullscreen
+controls=menu,gap,subtitles,<has_many_audio>audio,<has_many_video>video,<has_many_edition>editions,gap,command:toggle_on:script-message danmaku-settings?弹幕设置,gap,space,speed,space,gap,fullscreen
 controls_size=32
 controls_margin=8
 controls_spacing=2
@@ -71,6 +71,7 @@ c script-binding uosc/chapters #! 章节
 # script-binding uosc/audio-device #! 音频设备
 ctrl+s async screenshot #! 截图
 f cycle fullscreen #! 全屏
+d script-message danmaku-settings #! 弹幕设置
 esc quit #! 退出
 """
 

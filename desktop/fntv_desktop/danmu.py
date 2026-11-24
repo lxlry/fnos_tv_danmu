@@ -7,32 +7,112 @@ import urllib.request
 from .api import SSL_CTX
 
 
-def comments_to_ass(comments, scale=1):
-    events = []
-    lanes = [0.0] * 14
-    scale = float(scale or 1)
-    if scale <= 0:
-        scale = 1
-    size = max(18, int(round(46 * scale)))
-    lane_step = max(36, int(round(58 * scale)))
-    for item in comments:
+def danmaku_options(raw=None):
+    src = raw if isinstance(raw, dict) else {}
+
+    def number(key, default, low, high):
+        try:
+            value = float(src.get(key, default))
+        except (TypeError, ValueError):
+            value = float(default)
+        return max(low, min(high, value))
+
+    def flag(key, default):
+        if key not in src:
+            return default
+        value = src.get(key)
+        if isinstance(value, str):
+            return value.strip().lower() not in ("0", "false", "off", "no", "")
+        return bool(value)
+
+    return {
+        "on": flag("on", True),
+        "area": int(number("area", 35, 10, 80)),
+        "speed": number("speed", 1, 0.3, 3),
+        "opacity": number("opacity", 0.85, 0, 1),
+        "fontsize": int(number("fontsize", 22, 12, 40)),
+        "scroll": flag("scroll", True),
+        "top": flag("top", True),
+        "bottom": flag("bottom", True),
+        "time_scale": flag("time_scale", False),
+        "outline": flag("outline", True),
+        "density": int(number("density", 100, 50, 100)),
+        "max_active": int(number("max_active", 40, 10, 80)),
+        "row_spacing": number("row_spacing", 1.8, 1.2, 3),
+        "offset": int(number("offset", 0, -120, 120)),
+        "max_comments": int(number("max_comments", 50000, 100, 50000)),
+    }
+
+
+def danmaku_options_from_config(config):
+    saved = {}
+    if isinstance(config, dict):
+        raw = config.get("danmaku")
+        if isinstance(raw, dict):
+            saved.update(raw)
+        if "fontsize" not in saved and config.get("danmu_scale"):
+            try:
+                saved["fontsize"] = int(round(22 * float(config.get("danmu_scale") or 1)))
+            except (TypeError, ValueError):
+                pass
+        if "on" not in saved:
+            saved["on"] = bool(config.get("danmu_on", True))
+    return danmaku_options(saved)
+
+
+def comments_to_ass(comments, options=None, duration=0):
+    opt = danmaku_options(options)
+    size = max(16, int(round(opt["fontsize"] * 46 / 22.0)))
+    lane_step = max(size, int(round(size * opt["row_spacing"] * 0.70)))
+    max_y = int(1080 * opt["area"] / 100)
+    lane_count = max(1, int((max_y - 40) / lane_step))
+    lanes = [0.0] * lane_count
+    scroll_for = 8.0 / opt["speed"]
+    alpha = int(round((1 - opt["opacity"]) * 255))
+    alpha = max(0, min(255, alpha))
+    prepared = []
+    for item in _keep_density(comments, opt["density"]):
         text, at, mode, color = _parse_comment(item)
-        if not text:
+        if text:
+            prepared.append((text, at, mode, color))
+    if opt["time_scale"] and duration and prepared:
+        last = max(item[1] for item in prepared)
+        if last > 0:
+            ratio = float(duration) / float(last)
+            prepared = [(text, at * ratio, mode, color) for text, at, mode, color in prepared]
+    if opt["offset"]:
+        prepared = [(text, at + opt["offset"], mode, color) for text, at, mode, color in prepared]
+    prepared = [item for item in prepared if item[1] >= 0]
+    prepared.sort(key=lambda item: item[1])
+    events = []
+    active = []
+    for text, at, mode, color in prepared:
+        style = "Scroll"
+        if mode == 5:
+            style = "Top"
+        elif mode == 4:
+            style = "Bottom"
+        if style == "Scroll" and not opt["scroll"]:
             continue
-        if mode in (4, 5):
-            end = at + 4
-            style = "Top" if mode == 5 else "Bottom"
-            events.append((at, end, style, 0, color, text))
+        if style == "Top" and not opt["top"]:
             continue
-        lane = min(range(len(lanes)), key=lambda index: lanes[index])
-        if lanes[lane] > at:
+        if style == "Bottom" and not opt["bottom"]:
+            continue
+        active = [end for end in active if end > at]
+        if len(active) >= opt["max_active"]:
+            continue
+        if style == "Scroll":
             lane = min(range(len(lanes)), key=lambda index: lanes[index])
-        lanes[lane] = at + 8
-        events.append((at, at + 8, "Scroll", lane, color, text))
-    events.sort(key=lambda item: item[0])
+            lanes[lane] = at + scroll_for
+            events.append((at, at + scroll_for, style, lane, color, text))
+            active.append(at + scroll_for)
+        else:
+            events.append((at, at + 4, style, 0, color, text))
+            active.append(at + 4)
+    outline = 2 if opt["outline"] else 0
     style_row = (
         "Style: %s,Microsoft YaHei,%d,&H00FFFFFF,&H00FFFFFF,&H00202020,&H64000000,"
-        "0,0,0,0,100,100,0,0,1,2,0,%s,40,40,%d,1"
+        "0,0,0,0,100,100,0,0,1,%d,0,%s,40,40,%d,1"
     )
     lines = [
         "[Script Info]",
@@ -46,22 +126,39 @@ def comments_to_ass(comments, scale=1):
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding",
-        style_row % ("Scroll", size, 8, 30),
-        style_row % ("Top", size, 8, 40),
-        style_row % ("Bottom", size, 2, 40),
+        style_row % ("Scroll", size, outline, 8, 30),
+        style_row % ("Top", size, outline, 8, 40),
+        style_row % ("Bottom", size, outline, 2, 40),
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
     for at, end, style, lane, color, text in events:
         colour = _ass_colour(color)
+        fade = "\\alpha&H%02X&" % alpha
         if style == "Scroll":
             y = 40 + lane * lane_step
-            body = "{\\an8\\move(1920,%d,-400,%d)\\c%s}%s" % (y, y, colour, _escape(text))
+            body = "{\\an8\\move(1920,%d,-400,%d)%s\\c%s}%s" % (y, y, fade, colour, _escape(text))
+        elif style == "Top":
+            body = "{\\an8%s\\c%s}%s" % (fade, colour, _escape(text))
         else:
-            body = "{\\an8\\c%s}%s" % (colour, _escape(text)) if style == "Top" else "{\\an2\\c%s}%s" % (colour, _escape(text))
+            body = "{\\an2%s\\c%s}%s" % (fade, colour, _escape(text))
         lines.append("Dialogue: 0,%s,%s,%s,,0,0,0,,%s" % (_ts(at), _ts(end), style, body))
     return "\n".join(lines) + "\n"
+
+
+def _keep_density(comments, density):
+    rows = list(comments or [])
+    if density >= 100:
+        return rows
+    kept = []
+    previous = 0
+    for index, item in enumerate(rows, start=1):
+        current = index * density // 100
+        if current > previous:
+            kept.append(item)
+        previous = current
+    return kept
 
 
 def load_comments(base_url, file_name, episode_number=0, limit=3000):

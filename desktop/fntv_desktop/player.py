@@ -113,6 +113,13 @@ mp.observe_property("user-data/fntv/danmaku", "string", function(_, value)
   danmu_on = on
   apply_danmu()
 end)
+mp.register_script_message("danmaku-settings", function()
+  local file = io.open(status_path .. ".settings", "w")
+  if file then
+    file:write(tostring(mp.get_time()))
+    file:close()
+  end
+end)
 mp.register_script_message("speed", function(value)
   play_speed = tonumber(value) or 1
   mp.set_property("speed", play_speed)

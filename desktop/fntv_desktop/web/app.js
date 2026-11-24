@@ -672,6 +672,128 @@ async function downloadUpdate(exeUrl, node) {
   }
 }
 
+const DANMAKU_FIELDS = [
+  { key: "area", label: "显示区域", min: 10, max: 80, from: (value) => value, to: (value) => value, text: (value) => value + "%" },
+  { key: "speed", label: "速度", min: 30, max: 300, from: (value) => Math.round(value * 100), to: (value) => value / 100, text: (value) => (value / 100).toFixed(1) + "x" },
+  { key: "opacity", label: "不透明度", min: 0, max: 100, from: (value) => Math.round(value * 100), to: (value) => value / 100, text: (value) => value + "%" },
+  { key: "fontsize", label: "字号", min: 12, max: 40, from: (value) => value, to: (value) => value, text: (value) => String(value) },
+  { key: "density", label: "密度", min: 50, max: 100, from: (value) => value, to: (value) => value, text: (value) => value + "%" },
+  { key: "max_active", label: "同屏最大", min: 10, max: 80, from: (value) => value, to: (value) => value, text: (value) => String(value) },
+  { key: "row_spacing", label: "行间距", min: 120, max: 300, from: (value) => Math.round(value * 100), to: (value) => value / 100, text: (value) => (value / 100).toFixed(1) + "x" },
+  { key: "offset", label: "时间偏移", min: 0, max: 240, from: (value) => value + 120, to: (value) => value - 120, text: (value) => (value - 120) + "s" },
+  { key: "max_comments", label: "加载上限", min: 100, max: 50000, from: (value) => value, to: (value) => value, text: (value) => String(value) },
+];
+const DANMAKU_CHECKS = [
+  ["on", "弹幕开关"],
+  ["scroll", "滚动弹幕"],
+  ["top", "顶部弹幕"],
+  ["bottom", "底部弹幕"],
+  ["time_scale", "时间比例缩放"],
+  ["outline", "文字描边"],
+];
+const DANMAKU_DEFAULTS = {
+  on: true, area: 35, speed: 1, opacity: 0.85, fontsize: 22,
+  scroll: true, top: true, bottom: true, time_scale: false, outline: true,
+  density: 100, max_active: 40, row_spacing: 1.8, offset: 0, max_comments: 50000,
+};
+let danmakuOpen = false;
+let danmakuTimer = 0;
+
+function sliderRow(field, settings) {
+  const value = field.from(Number(settings[field.key]));
+  return `<label class="slider-row"><span>${field.label}</span><input type="range" data-key="${field.key}" min="${field.min}" max="${field.max}" step="1" value="${value}"><b>${field.text(value)}</b></label>`;
+}
+
+async function danmakuDialog() {
+  if (danmakuOpen) return;
+  let info;
+  try {
+    info = await api("/api/danmaku/settings");
+  } catch (error) {
+    showToast(error.message);
+    return;
+  }
+  danmakuOpen = true;
+  const node = document.createElement("div");
+  node.className = "dialog";
+  node.innerHTML = `<form class="sheet player-sheet" id="danmaku-form"></form>`;
+  document.body.appendChild(node);
+  const form = node.querySelector("#danmaku-form");
+  const close = () => {
+    danmakuOpen = false;
+    clearTimeout(danmakuTimer);
+    node.remove();
+    api("/api/window/focus", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ on: false }),
+    }).catch(() => {});
+  };
+  const ready = !!info.ready;
+  const checkRow = (key, label, settings) => `<label class="check"><input type="checkbox" data-key="${key}" ${settings[key] ? "checked" : ""}>${label}</label>`;
+  const draw = (settings) => {
+    const top = DANMAKU_FIELDS.slice(0, 4).map((field) => sliderRow(field, settings)).join("");
+    const bottom = DANMAKU_FIELDS.slice(4).map((field) => sliderRow(field, settings)).join("");
+    const later = DANMAKU_CHECKS.slice(1).map(([key, label]) => checkRow(key, label, settings)).join("");
+    form.innerHTML = `<div class="sheet-head"><h2>弹幕设置</h2><button type="button" id="danmaku-reset">重置</button></div>
+      ${checkRow("on", "弹幕开关", settings)}
+      ${top}
+      ${later}
+      ${bottom}
+      ${ready ? "" : `<p class="muted">这一集还没有匹配到弹幕，设置会在匹配到之后生效。</p>`}
+      <div class="actions"><button type="button" id="danmaku-close">关闭</button></div>`;
+    form.querySelector("#danmaku-reset").addEventListener("click", async () => {
+      const saved = await saveDanmaku(DANMAKU_DEFAULTS);
+      if (saved) draw(saved);
+    });
+    form.querySelector("#danmaku-close").addEventListener("click", close);
+    form.querySelectorAll("input").forEach((input) => {
+      input.addEventListener("input", () => {
+        const field = DANMAKU_FIELDS.find((item) => item.key === input.dataset.key);
+        if (field) input.parentElement.querySelector("b").textContent = field.text(Number(input.value));
+        clearTimeout(danmakuTimer);
+        danmakuTimer = setTimeout(() => saveDanmaku(readDanmaku(form)), 180);
+      });
+    });
+  };
+  draw(info.settings || DANMAKU_DEFAULTS);
+  node.addEventListener("click", (event) => { if (event.target === node) close(); });
+}
+
+function readDanmaku(form) {
+  const body = {};
+  form.querySelectorAll("[data-key]").forEach((input) => {
+    const field = DANMAKU_FIELDS.find((item) => item.key === input.dataset.key);
+    if (input.type === "checkbox") body[input.dataset.key] = input.checked;
+    else if (field) body[input.dataset.key] = field.to(Number(input.value));
+  });
+  return body;
+}
+
+async function saveDanmaku(body) {
+  try {
+    const data = await api("/api/danmaku/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return data.settings || body;
+  } catch (error) {
+    showToast(error.message);
+    return null;
+  }
+}
+
+async function watchDanmakuSettings() {
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    try {
+      const data = await api("/api/danmaku/request");
+      if (data.open) danmakuDialog();
+    } catch (error) {}
+  }
+}
+
 async function boot() {
   try {
     state = await api("/api/status");
@@ -681,6 +803,7 @@ async function boot() {
   }
   open(state.logged_in ? "home" : "login");
   checkUpdate(true);
+  watchDanmakuSettings();
 }
 
 boot();

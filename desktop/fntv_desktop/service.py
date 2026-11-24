@@ -1,5 +1,6 @@
 """登录、浏览和播放。进度按 Android 端 play/record 的字段回写。"""
 
+import ctypes
 import json
 import threading
 import time
@@ -8,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .api import FnClient, FnError, display_title, normalize_server
-from .danmu import comments_to_ass, load_comments
+from .danmu import comments_to_ass, danmaku_options, danmaku_options_from_config, load_comments
 from .player import MpvPlayer, find_mpv
 from .update import Updater, local_version
 
@@ -41,6 +42,10 @@ class Desktop:
         self.playback_source = None
         self._danmu_comments = []
         self._danmu_lock = threading.Lock()
+        self._danmu_match = None
+        self._danmu_loaded_limit = 0
+        self._danmaku_request = ""
+        self._window = None
         self._restore_client()
 
     def _load_config(self):
@@ -350,14 +355,73 @@ class Desktop:
     def set_subtitle(self, track_id):
         self._player_call(lambda: self.player.set_subtitle(track_id))
 
-    def set_danmaku(self, enabled, scale=None):
-        if scale is not None:
-            self.config["danmu_scale"] = float(scale)
-            self._save_config()
+    def attach_window(self, window):
+        self._window = window
+
+    def focus_window(self, enabled=True):
+        window = self._window
+        if window is None:
+            return
+        try:
+            window.on_top = bool(enabled)
+        except Exception:
+            pass
+        if not enabled:
+            return
+        try:
+            window.restore()
+            window.show()
+        except Exception:
+            pass
+        _raise_window(window)
+
+    def danmaku_settings(self):
+        with self._danmu_lock:
+            ready = bool(self._danmu_comments)
+        return {"settings": danmaku_options_from_config(self.config), "ready": ready}
+
+    def update_danmaku_settings(self, payload):
+        options = danmaku_options_from_config(self.config)
+        if isinstance(payload, dict):
+            options.update(payload)
+        options = danmaku_options(options)
+        self.config["danmaku"] = options
+        self.config["danmu_on"] = options["on"]
+        self._save_config()
+        with self._danmu_lock:
+            count = len(self._danmu_comments or [])
+        refetch = (
+            options["max_comments"] > self._danmu_loaded_limit
+            and count >= self._danmu_loaded_limit > 0
+            and self._danmu_match
+        )
+        if refetch:
+            path = self._write_danmu(self._danmu_match[0], self._danmu_match[1])
+        else:
             path = self._rewrite_danmu()
+        if self.player.running():
             if path:
                 self._player_call(lambda: self.player.set_danmaku_file(path))
-        self._player_call(lambda: self.player.set_danmaku(bool(enabled)))
+            self._player_call(lambda: self.player.set_danmaku(options["on"]))
+        return options
+
+    def take_danmaku_request(self):
+        path = self.player.status_path.with_name("status.txt.settings")
+        try:
+            token = path.read_text(encoding="utf-8").strip()
+        except Exception:
+            return False
+        if not token or token == self._danmaku_request:
+            return False
+        self._danmaku_request = token
+        self.focus_window(True)
+        return True
+
+    def set_danmaku(self, enabled, scale=None):
+        payload = {"on": bool(enabled)}
+        if scale is not None:
+            payload["fontsize"] = max(12, min(40, int(round(22 * float(scale)))))
+        self.update_danmaku_settings(payload)
 
     def set_speed(self, speed):
         self._player_call(lambda: self.player.set_speed(speed))
@@ -636,14 +700,17 @@ class Desktop:
         return ""
 
     def _write_danmu(self, file_name, episode_number):
+        self._danmu_match = (file_name, episode_number)
+        limit = danmaku_options_from_config(self.config)["max_comments"]
         try:
-            comments = load_comments(self.config.get("danmu_url") or "", file_name, episode_number)
+            comments = load_comments(self.config.get("danmu_url") or "", file_name, episode_number, limit)
         except Exception:
             return ""
-        if not comments:
-            return ""
+        self._danmu_loaded_limit = limit
         with self._danmu_lock:
             self._danmu_comments = comments
+        if not comments:
+            return ""
         return self._save_danmu_ass(comments)
 
     def _rewrite_danmu(self):
@@ -654,9 +721,17 @@ class Desktop:
         return self._save_danmu_ass(comments)
 
     def _save_danmu_ass(self, comments):
-        scale = float(self.config.get("danmu_scale") or 1)
+        options = danmaku_options_from_config(self.config)
+        duration = 0
+        job = self.job or {}
+        try:
+            duration = int(job.get("duration") or 0)
+        except (TypeError, ValueError):
+            duration = 0
+        if self.player.duration and self.player.duration > duration:
+            duration = int(self.player.duration)
         path = self.directory / "danmu.ass"
-        path.write_text(comments_to_ass(comments, scale), encoding="utf-8")
+        path.write_text(comments_to_ass(comments, options, duration), encoding="utf-8")
         return str(path)
 
     def _detail_view(self, info):
@@ -740,3 +815,22 @@ def _stream_cookie(stream):
     if isinstance(cookie, list):
         cookie = "; ".join(str(part) for part in cookie if part)
     return str(cookie or "")
+
+
+def _raise_window(window):
+    native = getattr(window, "native", None)
+    hwnd = native if isinstance(native, int) else 0
+    if not hwnd:
+        handle = getattr(native, "Handle", None) or getattr(native, "hwnd", None)
+        if hasattr(handle, "ToInt64"):
+            hwnd = int(handle.ToInt64())
+        elif isinstance(handle, int):
+            hwnd = handle
+    if not hwnd:
+        return
+    try:
+        user32 = ctypes.windll.user32
+        user32.ShowWindow(hwnd, 9)
+        user32.SetForegroundWindow(hwnd)
+    except Exception:
+        return

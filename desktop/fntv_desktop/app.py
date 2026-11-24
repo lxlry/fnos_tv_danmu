@@ -15,7 +15,7 @@ def main():
     thread.start()
     url = "http://127.0.0.1:%s/" % desktop.port
     try:
-        _open_window(url)
+        _open_window(url, desktop)
     finally:
         try:
             desktop.stop()
@@ -24,10 +24,11 @@ def main():
         httpd.shutdown()
 
 
-def _open_window(url):
+def _open_window(url, desktop):
     try:
         import webview
-        webview.create_window("飞牛TV", url, width=1280, height=820, min_size=(960, 640))
+        window = webview.create_window("飞牛TV", url, width=1280, height=820, min_size=(960, 640))
+        desktop.attach_window(window)
         webview.start()
         return
     except Exception:
