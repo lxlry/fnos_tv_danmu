@@ -50,8 +50,11 @@ Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
 [Files]
 Source: "FNTV\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Tasks]
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加选项:"; Flags: checkedonce
+
 [Icons]
-Name: "{{autodesktop}}\飞牛TV"; Filename: "{{app}}\FNTV.exe"
+Name: "{{autodesktop}}\飞牛TV"; Filename: "{{app}}\FNTV.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{{app}}\FNTV.exe"; Description: "启动飞牛TV"; Flags: nowait postinstall skipifsilent

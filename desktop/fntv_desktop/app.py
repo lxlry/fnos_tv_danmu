@@ -7,6 +7,7 @@ import webbrowser
 from .player import main_window_bounds
 from .server import serve
 from .service import Desktop
+from .tray import bind_close_prompt
 
 
 def main():
@@ -39,6 +40,7 @@ def _open_window(url, desktop):
             options["y"] = y
         window = webview.create_window("飞牛TV", url, **options)
         desktop.attach_window(window)
+        bind_close_prompt(window)
         webview.start()
         return
     except Exception:
