@@ -12,6 +12,8 @@ public class PlayInfoResponse {
     public String type;
     @SerializedName("parent_guid")
     public String parentGuid;
+    @SerializedName("grand_guid")
+    public String grandGuid;
     @SerializedName("media_guid")
     public String mediaGuid;
     @SerializedName("video_guid")

@@ -76,7 +76,7 @@ public class PlayerActivity extends AppCompatActivity {
     private SubtitleMergeOverlay subtitleMerge;
 
     private Handler handler = new Handler(Looper.getMainLooper());
-    private String itemGuid, baseUrl, itemTitle, itemTV, itemPoster, itemCategory, parentGuid;
+    private String itemGuid, baseUrl, itemTitle, itemTV, itemPoster, itemCategory, parentGuid, grandGuid, launchGuid;
     private long itemDuration;
     private FnApiManager apiManager;
     private String mediaGuid, videoGuid, audioGuid, subtitleGuid, resolution;
@@ -153,6 +153,7 @@ public class PlayerActivity extends AppCompatActivity {
         isHwDecode = "hardware".equals(prefs.getString("decoder_mode", "hardware"));
 
         itemGuid = getIntent().getStringExtra("guid");
+        launchGuid = itemGuid;
         seekTs = getIntent().getLongExtra("ts", 0) * 1000L;
         itemDuration = getIntent().getLongExtra("duration", 0);
         itemTitle = getIntent().getStringExtra("title");
@@ -1031,6 +1032,7 @@ public class PlayerActivity extends AppCompatActivity {
                     mediaGuid = info.mediaGuid; videoGuid = info.videoGuid; audioGuid = info.audioGuid;
                     if (info.guid != null && !info.guid.isEmpty()) itemGuid = info.guid;
                     if (info.parentGuid != null && !info.parentGuid.isEmpty()) parentGuid = info.parentGuid;
+                    if (info.grandGuid != null && !info.grandGuid.isEmpty()) grandGuid = info.grandGuid;
                     Log.d(TAG, "play/info 返回: type=" + info.getClass().getSimpleName()
                             + " guid=" + info.guid
                             + " mediaGuid=" + info.mediaGuid
@@ -1045,10 +1047,10 @@ public class PlayerActivity extends AppCompatActivity {
                     subtitleGuid = info.subtitleGuid != null ? info.subtitleGuid : "_no_display_";
                     if (info.item != null && info.item.tvTitle != null) itemTV = info.item.tvTitle;
                     if (info.item != null) itemTitle = info.item.title;
-                    restoreSeriesSpeed();
-                    applyServerSkip(info.playConfig);
                     if (info.item != null && info.item.seasonNumber > 0) seasonNumber = info.item.seasonNumber;
                     if (info.item != null) getIntent().putExtra("episode_number", info.item.episodeNumber);
+                    restoreSeriesSpeed();
+                    applyServerSkip(info.playConfig);
                     int epNum = info.item != null ? info.item.episodeNumber : 0;
                     String matchName = itemTV != null && !itemTV.isEmpty() ? itemTV : itemTitle;
                     if (matchName != null && !matchName.isEmpty() && epNum > 0) {
@@ -1228,14 +1230,14 @@ public class PlayerActivity extends AppCompatActivity {
         if (cloudStreamManager != null) cloudStreamManager.applyDefaultChineseSubtitle();
         long pos = player != null ? Math.max(0, player.getCurrentPosition()) : 0;
         // 进度还没落到历史位置时，音轨换流也要用 seekTs，不能用当前的 0
-        long resumeMs = (seekTs > 0 && pos + 2500 < seekTs) ? seekTs : pos;
+        long resumeMs = withIntro((seekTs > 0 && pos + 2500 < seekTs) ? seekTs : pos);
         boolean audioRemux = cloudStreamManager != null && cloudStreamManager.applySavedAudioTrack(resumeMs);
         if (audioRemux) {
             seeked = true;
             return seekTs > 0;
         }
         if (!seeked && seekTs > 0) {
-            if (seekToSafe(seekTs, true)) {
+            if (seekToSafe(withIntro(seekTs), true)) {
                 seeked = true;
                 return true;
             }
@@ -2111,7 +2113,20 @@ public class PlayerActivity extends AppCompatActivity {
         focusSkipPage(dialog);
     }
 
-    /** 电视剧用父级 guid，电影用影片 guid。都没有时才用片名，兼容以前存在本地的设置。 */
+    /** 电视剧用父级、整部剧和片名一起记，避免重新进入时编号变了就读不到。 */
+    private java.util.List<String> skipIds() {
+        java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
+        if (launchGuid != null && !launchGuid.isEmpty()) ids.add(launchGuid);
+        if (grandGuid != null && !grandGuid.isEmpty()) ids.add(grandGuid);
+        if (parentGuid != null && !parentGuid.isEmpty()) ids.add(parentGuid);
+        if (itemGuid != null && !itemGuid.isEmpty()) ids.add(itemGuid);
+        if (itemTV != null && !itemTV.isEmpty()) {
+            ids.add(itemTV);
+            ids.add("show:" + itemTV + ":" + seasonNumber);
+        }
+        return new java.util.ArrayList<>(ids);
+    }
+
     private String skipCacheId() {
         if (parentGuid != null && !parentGuid.isEmpty()) return parentGuid;
         if (itemGuid != null && !itemGuid.isEmpty()) return itemGuid;
@@ -2126,22 +2141,60 @@ public class PlayerActivity extends AppCompatActivity {
     private int readSkipSec(boolean intro) {
         SharedPreferences sp = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
         String suffix = intro ? "_intro" : "_outro";
-        String[] ids = new String[] {parentGuid, itemGuid, itemTV};
-        for (String id : ids) {
-            if (id == null || id.isEmpty()) continue;
-            String key = "skip_" + id + suffix;
-            if (sp.contains(key)) return sp.getInt(key, 0);
+        String field = intro ? "opening" : "ending";
+        int best = 0;
+        org.json.JSONObject book = new org.json.JSONObject();
+        try {
+            String raw = sp.getString("skip_book", "");
+            if (raw != null && !raw.isEmpty()) book = new org.json.JSONObject(raw);
+        } catch (org.json.JSONException ignored) {
+            book = new org.json.JSONObject();
         }
-        return 0;
+        for (String id : skipIds()) {
+            org.json.JSONObject row = book.optJSONObject(id);
+            if (row != null && row.has(field)) best = Math.max(best, row.optInt(field, 0));
+            String key = "skip_" + id + suffix;
+            if (sp.contains(key)) best = Math.max(best, sp.getInt(key, 0));
+        }
+        return best;
+    }
+
+    private long withIntro(long targetMs) {
+        int introSec = readSkipSec(true);
+        if (introSec <= 0) return Math.max(0, targetMs);
+        long introMs = introSec * 1000L;
+        if (targetMs < introMs) return introMs;
+        return targetMs;
+    }
+
+    private void storeSkip(boolean intro, int saved) {
+        SharedPreferences sp = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
+        SharedPreferences.Editor editor = sp.edit();
+        String suffix = intro ? "_intro" : "_outro";
+        String field = intro ? "opening" : "ending";
+        org.json.JSONObject book;
+        try {
+            String raw = sp.getString("skip_book", "");
+            book = raw == null || raw.isEmpty() ? new org.json.JSONObject() : new org.json.JSONObject(raw);
+        } catch (org.json.JSONException err) {
+            book = new org.json.JSONObject();
+        }
+        for (String id : skipIds()) {
+            org.json.JSONObject row = book.optJSONObject(id);
+            if (row == null) row = new org.json.JSONObject();
+            try {
+                row.put(field, saved);
+                book.put(id, row);
+            } catch (org.json.JSONException ignored) {
+            }
+            editor.putInt("skip_" + id + suffix, saved);
+        }
+        editor.putString("skip_book", book.toString()).commit();
     }
 
     private void writeSkipSec(boolean intro, int sec) {
         int saved = Math.max(0, Math.min(sec, 20 * 60));
-        SharedPreferences.Editor editor = getSharedPreferences("fntv_prefs", MODE_PRIVATE).edit();
-        String suffix = intro ? "_intro" : "_outro";
-        if (parentGuid != null && !parentGuid.isEmpty()) editor.putInt("skip_" + parentGuid + suffix, saved);
-        if (itemGuid != null && !itemGuid.isEmpty()) editor.putInt("skip_" + itemGuid + suffix, saved);
-        editor.commit();
+        storeSkip(intro, saved);
         if (intro) {
             skipIntroDirty = true;
             introSkipped = false;
@@ -2157,34 +2210,34 @@ public class PlayerActivity extends AppCompatActivity {
         else maybeSkipOutro(player.getCurrentPosition(), player.getDuration());
     }
 
-    /** 把服务端账号上的片头片尾写入本地。用户这次已经改过的那一项保留。 */
+    /** 服务端带回的时间只在大于 0 时覆盖本地。空值或 0 不擦掉这台机器已经记住的设置。 */
     private void applyServerSkip(PlayInfoResponse.PlayConfig config) {
         if (config != null) {
-            SharedPreferences.Editor editor = getSharedPreferences("fntv_prefs", MODE_PRIVATE).edit();
-            boolean wrote = false;
-            String[] ids = new String[] {parentGuid, itemGuid};
-            for (String id : ids) {
-                if (id == null || id.isEmpty()) continue;
-                if (config.skipOpening != null && !skipIntroDirty) {
-                    editor.putInt("skip_" + id + "_intro", Math.max(0, config.skipOpening));
-                    wrote = true;
-                }
-                if (config.skipEnding != null && !skipOutroDirty) {
-                    editor.putInt("skip_" + id + "_outro", Math.max(0, config.skipEnding));
-                    wrote = true;
-                }
+            if (config.skipOpening != null && config.skipOpening > 0 && !skipIntroDirty && config.skipOpening != readSkipSec(true)) {
+                writeServerSkip(true, config.skipOpening);
             }
-            if (wrote) editor.commit();
+            if (config.skipEnding != null && config.skipEnding > 0 && !skipOutroDirty && config.skipEnding != readSkipSec(false)) {
+                writeServerSkip(false, config.skipEnding);
+            }
             Log.d(TAG, "片头片尾同步 guid=" + skipCacheId()
                     + " opening=" + (config.skipOpening == null ? "null" : config.skipOpening)
-                    + " ending=" + (config.skipEnding == null ? "null" : config.skipEnding));
+                    + " ending=" + (config.skipEnding == null ? "null" : config.skipEnding)
+                    + " local=" + readSkipSec(true) + "/" + readSkipSec(false));
         }
+        int localOpening = readSkipSec(true);
+        int localEnding = readSkipSec(false);
+        if (localOpening > 0) storeSkip(true, localOpening);
+        if (localEnding > 0) storeSkip(false, localEnding);
         boolean migrate = false;
-        if (!skipIntroDirty && (config == null || config.skipOpening == null) && readSkipSec(true) > 0) migrate = true;
-        if (!skipOutroDirty && (config == null || config.skipEnding == null) && readSkipSec(false) > 0) migrate = true;
+        if (!skipIntroDirty && (config == null || config.skipOpening == null || config.skipOpening <= 0) && readSkipSec(true) > 0) migrate = true;
+        if (!skipOutroDirty && (config == null || config.skipEnding == null || config.skipEnding <= 0) && readSkipSec(false) > 0) migrate = true;
         playInfoReady = true;
         if (skipIntroDirty || skipOutroDirty || migrate) pushSkipConfig();
         refreshSkipMarks();
+    }
+
+    private void writeServerSkip(boolean intro, int sec) {
+        storeSkip(intro, Math.max(0, Math.min(sec, 20 * 60)));
     }
 
     /** 片头、片尾一起提交，避免只改一项时把另一项在服务端清掉。 */
