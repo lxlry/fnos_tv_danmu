@@ -613,6 +613,50 @@ def find_mpv(configured=""):
     return ""
 
 
+def screen_work_area():
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        rect = wintypes.RECT()
+        ok = ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)
+        if not ok:
+            user32 = ctypes.windll.user32
+            return 0, 0, int(user32.GetSystemMetrics(0)), int(user32.GetSystemMetrics(1))
+        return int(rect.left), int(rect.top), int(rect.right - rect.left), int(rect.bottom - rect.top)
+    except Exception:
+        return None
+
+
+def main_window_bounds():
+    width, height = 1120, 740
+    area = screen_work_area()
+    if not area:
+        return width, height, None, None
+    left, top, area_w, area_h = area
+    margin = 32
+    width = min(width, max(640, area_w - margin * 2))
+    height = min(height, max(480, area_h - margin * 2))
+    x = left + max(0, (area_w - width) // 2)
+    y = top + max(0, (area_h - height) // 2)
+    return width, height, x, y
+
+
+def player_window_bounds():
+    width, height, _, _ = main_window_bounds()
+    area = screen_work_area()
+    player_w = max(720, width - 80)
+    player_h = max(460, height - 56)
+    if not area:
+        return player_w, player_h, None, None
+    left, top, area_w, area_h = area
+    player_w = min(player_w, max(640, area_w - 64))
+    player_h = min(player_h, max(420, area_h - 64))
+    x = left + max(0, (area_w - player_w) // 2)
+    y = top + max(0, (area_h - player_h) // 2)
+    return player_w, player_h, x, y
+
+
 class MpvPlayer:
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -663,8 +707,12 @@ class MpvPlayer:
                 "--sub-ass-override=no",
                 "--script=%s" % self.script_path,
                 "--title=%s" % (title or "飞牛TV"),
-                url,
             ])
+            player_w, player_h, player_x, player_y = player_window_bounds()
+            if player_x is not None:
+                command.append("--geometry=%dx%d+%d+%d" % (player_w, player_h, player_x, player_y))
+            command.append("--autofit-larger=%dx%d" % (player_w, player_h))
+            command.append(url)
             if start_sec and start_sec > 1:
                 command.insert(-1, "--start=%.3f" % float(start_sec))
             self.proc = subprocess.Popen(command)

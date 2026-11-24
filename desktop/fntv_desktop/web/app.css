@@ -254,13 +254,12 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   color: #d5dde6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
+  line-height: 1.6;
+  max-height: calc(1.6em * 4);
   overflow: hidden;
   cursor: pointer;
 }
-.overview.open { display: block; -webkit-line-clamp: unset; }
+.overview.open { max-height: none; }
 .update-log { white-space: pre-line; }
 .update-track {
   display: none;
@@ -294,6 +293,16 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .episode-head { display: flex; align-items: baseline; gap: 10px; }
 .episode-head h2 { margin-bottom: 0; }
 .episode-head span { color: var(--muted); }
+.season-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 14px;
+}
+.season-grid .season-card {
+  flex: 0 0 148px;
+  width: 148px;
+  padding: 0;
+}
 .season-card.active .poster { box-shadow: 0 0 0 2px var(--accent); }
 .row .episode {
   flex: 0 0 200px;

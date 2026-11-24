@@ -4,6 +4,7 @@ import sys
 import threading
 import webbrowser
 
+from .player import main_window_bounds
 from .server import serve
 from .service import Desktop
 
@@ -27,7 +28,16 @@ def main():
 def _open_window(url, desktop):
     try:
         import webview
-        window = webview.create_window("飞牛TV", url, width=1280, height=820, min_size=(960, 640))
+        width, height, x, y = main_window_bounds()
+        options = {
+            "width": width,
+            "height": height,
+            "min_size": (min(960, width), min(640, height)),
+        }
+        if x is not None:
+            options["x"] = x
+            options["y"] = y
+        window = webview.create_window("飞牛TV", url, **options)
         desktop.attach_window(window)
         webview.start()
         return

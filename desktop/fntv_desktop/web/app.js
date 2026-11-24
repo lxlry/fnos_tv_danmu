@@ -368,9 +368,11 @@ function drawDetail(data, episodes) {
   const seriesTitle = data.series_title || data.title;
   const seasons = (data.seasons || []).map((season) => {
     const meta = [season.count ? "共" + season.count + "集" : "", season.year || ""].filter(Boolean).join(" · ");
+    const extra = seasonExtra(season);
     return `<button class="card season-card" type="button" data-guid="${esc(season.guid)}">
       <div class="poster">${season.poster ? `<img src="${poster(season.poster)}" alt="">` : ""}</div>
       <b>${esc(seasonLabel(season))}</b>
+      ${extra ? `<span>${esc(extra)}</span>` : ""}
       <span>${esc(meta)}</span>
     </button>`;
   }).join("");
@@ -405,7 +407,7 @@ function drawDetail(data, episodes) {
       </div>
     </article>
     ${overviewBlock(data.overview)}
-    ${seasons ? `<h2>季</h2><div class="row" id="seasons">${seasons}</div>` : ""}
+    ${seasons ? `<h2>季</h2><div class="season-grid" id="seasons">${seasons}</div>` : ""}
     <div id="episode-section"></div>
     ${people ? `<h2>演职人员</h2><div class="row cast-row">${people}</div>` : ""}
     ${facts ? `<h2>文件信息</h2><div class="facts">${facts}</div>${file.report ? `<button type="button" id="file-more">查看全部</button>` : ""}` : ""}`;
@@ -449,8 +451,9 @@ function drawSeason(series, season, episodes) {
   const current = episodes.find((episode) => episode.guid === resumeGuid) || episodes[0] || null;
   const number = current ? episodeNumber(current, Math.max(0, episodes.indexOf(current))) : 0;
   const chips = seasons.length > 1 ? `<div class="chips" id="season-tabs">${seasons.map((item) => `<button type="button" class="${item.guid === season.guid ? "active" : ""}" data-guid="${esc(item.guid)}">${esc(seasonLabel(item))}</button>`).join("")}</div>` : "";
-  const meta = [seasonLabel(season), season.count ? "共" + season.count + "集" : "", season.year || ""].filter(Boolean).join(" · ");
-  const overview = String(season.overview || "").trim() || series.overview || "";
+  const extra = seasonExtra(season);
+  const meta = [seasonLabel(season), extra, season.count ? "共" + season.count + "集" : "", season.year || ""].filter(Boolean).join(" · ");
+  const overview = String(season.overview || "").trim() || String(series.overview || "").trim();
   view.innerHTML = `<article class="hero">
       <div class="poster">${season.poster ? `<img src="${poster(season.poster)}" alt="">` : ""}</div>
       <div>
@@ -487,6 +490,17 @@ function seasonLabel(season) {
   if (Number(season.number) === 0 || title.includes("特别") || title.includes("特典") || title.includes("番外") || lower.includes("special") || lower === "sp" || lower.includes("ova") || lower.includes("oad")) return "特别篇";
   if (Number(season.number) > 0) return "第" + season.number + "季";
   return title || "本季";
+}
+
+function seasonExtra(season) {
+  const title = String(season.title || "").trim();
+  const label = seasonLabel(season);
+  if (!title || title === label) return "";
+  const extra = title
+    .replace(/^第\s*\d+\s*季\s*[:：\-—]?\s*/, "")
+    .replace(/^特别篇\s*[:：\-—]?\s*/, "")
+    .trim();
+  return extra && extra !== label ? extra : "";
 }
 
 const EPISODE_PAGE = 30;

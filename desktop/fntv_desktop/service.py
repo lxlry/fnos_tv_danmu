@@ -227,13 +227,24 @@ class Desktop:
     def detail(self, guid):
         self._need_login()
         info = self.client.play_info(guid)
+        record = self._optional(lambda: self.client.item(guid), None)
+        if isinstance(record, dict) and record.get("type") == "TV":
+            view = self._view_from_record(record, info)
+            view["seasons"] = self.client.seasons(record.get("guid") or guid)
+            if not str(view.get("overview") or "").strip():
+                view["overview"] = _first_overview(view["seasons"])
+            return view
         view = self._detail_view(info)
+        if isinstance(record, dict) and not str(view.get("overview") or "").strip():
+            view["overview"] = record.get("overview") or ""
         item_type = view["type"]
         if item_type in ("Movie", "Video"):
             view["people"] = self._optional(lambda: self.client.people(view["guid"]), [])
             view["file"] = self._optional(lambda: self.client.file_info(view["guid"], info), {})
         elif item_type == "TV":
             view["seasons"] = self.client.seasons(view["guid"])
+            if not str(view.get("overview") or "").strip():
+                view["overview"] = _first_overview(view["seasons"])
         elif item_type == "Episode":
             view = self._episode_series(view, info)
         return view
@@ -245,29 +256,27 @@ class Desktop:
     def _episode_series(self, view, info):
         episode_guid = view.get("guid") or ""
         season_guid = view.get("parent_guid") or ""
-        season_info = {}
+        season_item = {}
         series_guid = ""
         if season_guid:
-            season_info = self._optional(lambda: self.client.play_info(season_guid), {}) or {}
-            if isinstance(season_info, dict):
-                series_guid = season_info.get("parent_guid") or ""
-                season_item = season_info.get("item") if isinstance(season_info.get("item"), dict) else {}
-                if not series_guid:
-                    series_guid = season_item.get("parent_guid") or ""
+            season_item = self._optional(lambda: self.client.item(season_guid), None) or {}
+            if isinstance(season_item, dict):
+                series_guid = season_item.get("parent_guid") or ""
         seasons = self._optional(lambda: self.client.seasons(series_guid), []) if series_guid else []
         if series_guid and seasons:
-            series_info = self._optional(lambda: self.client.play_info(series_guid), None)
-            if isinstance(series_info, dict):
-                series = self._detail_view(series_info)
+            series_record = self._optional(lambda: self.client.item(series_guid), None)
+            if isinstance(series_record, dict):
+                series = self._view_from_record(series_record, {})
                 series["seasons"] = seasons
                 series["play_guid"] = episode_guid
                 series["episode_number"] = view.get("episode_number") or 0
                 series["season_number"] = view.get("season_number") or 0
                 if view.get("ts"):
                     series["ts"] = view.get("ts")
+                if not str(series.get("overview") or "").strip():
+                    series["overview"] = _first_overview(seasons)
                 return series
-        if season_guid and isinstance(season_info, dict):
-            season_item = season_info.get("item") if isinstance(season_info.get("item"), dict) else {}
+        if season_guid and isinstance(season_item, dict):
             try:
                 number = int(season_item.get("season_number") or view.get("season_number") or 0)
             except (TypeError, ValueError):
@@ -1004,6 +1013,28 @@ class Desktop:
         path.write_text(comments_to_ass(comments, options, duration), encoding="utf-8")
         return str(path)
 
+    def _view_from_record(self, record, info):
+        info = info if isinstance(info, dict) else {}
+        wrapped = {
+            "guid": record.get("guid") or info.get("guid") or "",
+            "type": record.get("type") or info.get("type") or "",
+            "parent_guid": record.get("parent_guid") or info.get("parent_guid") or "",
+            "media_guid": info.get("media_guid") or record.get("media_guid") or "",
+            "ts": info.get("ts") or record.get("watched_ts") or 0,
+            "play_config": info.get("play_config") if isinstance(info.get("play_config"), dict) else {},
+            "item": record,
+        }
+        view = self._detail_view(wrapped)
+        play_item = info.get("item") if isinstance(info.get("item"), dict) else {}
+        play_guid = info.get("guid") or record.get("play_item_guid") or view.get("guid") or ""
+        view["play_guid"] = play_guid
+        if play_guid and play_guid != view.get("guid"):
+            view["episode_number"] = play_item.get("episode_number") or view.get("episode_number") or 0
+            view["season_number"] = play_item.get("season_number") or view.get("season_number") or 0
+        view["overview"] = record.get("overview") or ""
+        view["series_title"] = record.get("tv_title") or record.get("title") or view.get("series_title") or ""
+        return view
+
     def _detail_view(self, info):
         item = info.get("item") if isinstance(info.get("item"), dict) else {}
         play_config = info.get("play_config") if isinstance(info.get("play_config"), dict) else {}
@@ -1067,6 +1098,14 @@ class Desktop:
             return fn()
         except Exception:
             return default
+
+
+def _first_overview(seasons):
+    for season in seasons or []:
+        text = str(season.get("overview") or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _quality_choices(stream):

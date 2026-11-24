@@ -277,6 +277,12 @@ class FnClient:
             raise FnError("没有这部影片的信息")
         return info
 
+    def item(self, guid):
+        row = self.data("GET", "/v/api/v1/item/" + urllib.parse.quote(guid, safe=""))
+        if not isinstance(row, dict):
+            raise FnError("没有这部影片的信息")
+        return row
+
     def seasons(self, guid):
         rows = self.data("GET", "/v/api/v1/season/list/" + urllib.parse.quote(guid, safe="")) or []
         if not isinstance(rows, list):
