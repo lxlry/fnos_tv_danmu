@@ -238,6 +238,9 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   padding: 20px;
   border: 1px solid var(--line);
 }
+.sheet.player-sheet { width: min(560px, 100%); max-height: min(78vh, 720px); overflow: auto; }
+.sheet h3 { margin: 16px 0 8px; font-size: 14px; }
+.sheet .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 720px) {
   .hero { grid-template-columns: 1fr; }
   .hero .poster { max-width: 180px; }

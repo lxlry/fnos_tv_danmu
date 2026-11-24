@@ -319,6 +319,13 @@ class FnClient:
             raise FnError("没有播放地址")
         return result
 
+    def set_skip(self, guid, opening, ending):
+        self.data("POST", "/v/api/v1/play/setConfigByItem", body={
+            "guid": guid,
+            "skip_opening": int(opening),
+            "skip_ending": int(ending),
+        })
+
     def record(self, body):
         item = body.get("item_guid") or ""
         media = body.get("media_guid") or ""

@@ -38,6 +38,7 @@ class Desktop:
         self.session_lock = threading.Lock()
         self.job = None
         self.job_lock = threading.Lock()
+        self.playback_source = None
         self._restore_client()
 
     def _load_config(self):
@@ -236,15 +237,14 @@ class Desktop:
         if not media_guid:
             raise FnError("这部内容没有可播放的文件")
         stream = self.client.stream(media_guid)
-        url, resolution, bitrate = self._choose_url(media_guid, stream, info)
+        url, resolution, bitrate, quality_index = self._choose_url(media_guid, stream, info)
         item = info.get("item") if isinstance(info.get("item"), dict) else {}
-        start = int(info.get("ts") or 0)
-        skip = 0
         play_config = info.get("play_config") if isinstance(info.get("play_config"), dict) else {}
-        if play_config.get("skip_opening"):
-            skip = int(play_config.get("skip_opening") or 0)
-        if skip > start:
-            start = skip
+        opening = int(play_config.get("skip_opening") or 0)
+        ending = int(play_config.get("skip_ending") or 0)
+        start = int(info.get("ts") or 0)
+        if opening > start:
+            start = opening
         title = display_title(item) if item else guid
         episode_number = item.get("episode_number") or 0
         season_number = item.get("season_number") or 0
@@ -254,30 +254,53 @@ class Desktop:
         if not next_guid:
             next_guid = self._find_next(info)
         subtitle = ""
-        if self.config.get("danmu_on") and self.config.get("danmu_url"):
+        danmaku_on = bool(self.config.get("danmu_on", True)) and bool(self.config.get("danmu_url"))
+        if danmaku_on:
             subtitle = self._write_danmu(match_name, episode_number)
+            danmaku_on = bool(subtitle)
         session_id = uuid.uuid4().hex
         cookie = _stream_cookie(stream)
         with self.session_lock:
             self.sessions[session_id] = {"url": url, "cookie": cookie}
+        self.playback_source = {
+            "stream": stream,
+            "info": info,
+            "media_guid": media_guid,
+            "quality_index": quality_index,
+            "subtitle": subtitle,
+        }
         self._save_job_progress()
         job = {
             "guid": info.get("guid") or guid,
+            "parent_guid": info.get("parent_guid") or "",
             "media_guid": media_guid,
             "video_guid": info.get("video_guid") or "",
             "audio_guid": info.get("audio_guid") or "",
             "subtitle_guid": info.get("subtitle_guid") or "_no_display_",
             "resolution": resolution,
             "bitrate": bitrate,
+            "quality_index": quality_index,
             "duration": int(item.get("duration") or 0),
             "title": title,
             "next_guid": next_guid or "",
             "session_id": session_id,
+            "skip_opening": opening,
+            "skip_ending": ending,
+            "outro_done": False,
         }
         with self.job_lock:
             self.job = job
         local_url = "/stream/%s" % session_id
-        self.player.start(mpv_path, "http://127.0.0.1:%s%s" % (self.port, local_url), title, job["guid"], start, subtitle)
+        self.player.start(
+            mpv_path,
+            "http://127.0.0.1:%s%s" % (self.port, local_url),
+            title,
+            job["guid"],
+            start,
+            subtitle,
+            danmaku_on and bool(subtitle),
+            self.config.get("danmu_scale") or 1,
+        )
         return {"title": title, "guid": job["guid"]}
 
     def stop(self):
@@ -285,6 +308,87 @@ class Desktop:
         with self.job_lock:
             self.job = None
         self.player.stop()
+
+    def playback(self):
+        if not self.player.running() or not self.job:
+            raise FnError("播放器没有在运行")
+        try:
+            tracks = self.player.tracks()
+        except OSError as err:
+            raise FnError(str(err))
+        source = self.playback_source or {}
+        job = self.job
+        return {
+            "title": job.get("title") or "",
+            "audio": tracks["audio"],
+            "subtitle": tracks["subtitle"],
+            "qualities": _quality_choices(source.get("stream") or {}),
+            "quality_index": job.get("quality_index") or 0,
+            "danmaku_on": tracks["danmaku_on"],
+            "danmaku_ready": bool(source.get("subtitle")),
+            "danmaku_scale": tracks["danmaku_scale"],
+            "skip_opening": int(job.get("skip_opening") or 0),
+            "skip_ending": int(job.get("skip_ending") or 0),
+            "speed": tracks.get("speed") or 1,
+        }
+
+    def set_audio(self, track_id):
+        self._player_call(lambda: self.player.set_audio(track_id))
+
+    def set_subtitle(self, track_id):
+        self._player_call(lambda: self.player.set_subtitle(track_id))
+
+    def set_danmaku(self, enabled, scale=None):
+        if scale is not None:
+            self.config["danmu_scale"] = float(scale)
+            self._save_config()
+            self._player_call(lambda: self.player.set_scale(scale))
+        self._player_call(lambda: self.player.set_danmaku(bool(enabled)))
+
+    def set_speed(self, speed):
+        self._player_call(lambda: self.player.set_speed(speed))
+
+    def set_quality(self, index):
+        source = self.playback_source or {}
+        stream = source.get("stream")
+        info = dict(source.get("info") or {})
+        info["ts"] = int(self.player.position or info.get("ts") or 0)
+        media_guid = source.get("media_guid") or ""
+        job = self.job
+        if not stream or not info or not job:
+            raise FnError("播放器没有在运行")
+        url, resolution, bitrate, picked = self._choose_url(media_guid, stream, info, index)
+        with self.session_lock:
+            session = self.sessions.get(job.get("session_id") or "")
+            if session is not None:
+                session["url"] = url
+        job["resolution"] = resolution
+        job["bitrate"] = bitrate
+        job["quality_index"] = picked
+        source["quality_index"] = picked
+        local = "http://127.0.0.1:%s/stream/%s?v=%s" % (self.port, job["session_id"], int(time.time()))
+        self._player_call(lambda: self.player.load(local, self.player.position))
+
+    def set_skip(self, opening, ending):
+        job = self.job
+        if not job:
+            raise FnError("播放器没有在运行")
+        opening = max(0, min(int(opening or 0), 20 * 60))
+        ending = max(0, min(int(ending or 0), 20 * 60))
+        guid = job.get("parent_guid") or job.get("guid") or ""
+        if guid:
+            self.client.set_skip(guid, opening, ending)
+        job["skip_opening"] = opening
+        job["skip_ending"] = ending
+        job["outro_done"] = False
+        if opening > int(self.player.position or 0):
+            self._player_call(lambda: self.player.seek(opening))
+
+    def _player_call(self, action):
+        try:
+            action()
+        except OSError as err:
+            raise FnError(str(err))
 
     def playing(self):
         job = self.job
@@ -310,10 +414,34 @@ class Desktop:
         return url, session.get("cookie") or ""
 
     def _progress_loop(self):
+        ticks = 0
         while True:
-            time.sleep(15)
-            if self.player.running():
+            time.sleep(2)
+            ticks += 2
+            if not self.player.running():
+                continue
+            self._maybe_skip_outro()
+            if ticks >= 14:
+                ticks = 0
                 self._save_job_progress()
+
+    def _maybe_skip_outro(self):
+        job = self.job
+        if not job or job.get("outro_done"):
+            return
+        ending = int(job.get("skip_ending") or 0)
+        duration = float(self.player.duration or 0)
+        position = float(self.player.position or 0)
+        if ending <= 0 or duration <= ending or position < duration - ending:
+            return
+        job["outro_done"] = True
+        if self.config.get("auto_next") and job.get("next_guid"):
+            try:
+                self.play(job["next_guid"])
+            except FnError:
+                return
+        else:
+            self._player_call(lambda: self.player.seek(max(duration - 1, 0)))
 
     def _on_player_exit(self, eof):
         self._save_job_progress()
@@ -352,41 +480,44 @@ class Desktop:
         except FnError:
             return
 
-    def _choose_url(self, media_guid, stream, info):
-        direct = stream.get("direct_link_qualities") or []
-        qualities = stream.get("qualities") or []
+    def _choose_url(self, media_guid, stream, info, quality_index=None):
+        direct = [item for item in (stream.get("direct_link_qualities") or []) if isinstance(item, dict)]
+        qualities = [item for item in (stream.get("qualities") or []) if isinstance(item, dict)]
         file_stream = stream.get("file_stream") if isinstance(stream.get("file_stream"), dict) else {}
         path = file_stream.get("path") or ""
         online = path.startswith("在线/") or path.startswith("在线\\")
-        picked = None
-        picked_index = 0
-        for index, quality in enumerate(direct):
-            if not isinstance(quality, dict):
-                continue
-            if picked is None or (quality.get("bitrate") or 0) > (picked.get("bitrate") or 0):
-                picked = quality
-                picked_index = index
-        resolution = ""
-        bitrate = 0
-        if isinstance(picked, dict):
+        if direct:
+            if quality_index is None:
+                picked_index = max(range(len(direct)), key=lambda index: direct[index].get("bitrate") or 0)
+            else:
+                picked_index = max(0, min(int(quality_index), len(direct) - 1))
+            picked = direct[picked_index]
             resolution = picked.get("resolution") or ""
             bitrate = picked.get("bitrate") or 0
             link = (picked.get("url") or "").replace("\\u0026", "&")
             if link:
                 if link.startswith("/"):
                     link = self.client.base + link
-                return link, resolution, bitrate
+                return link, resolution, bitrate, picked_index
             return (
                 self.client.base + "/v/api/v1/media/range/%s?direct_link_quality_index=%s" % (media_guid, picked_index),
                 resolution,
                 bitrate,
+                picked_index,
             )
-        if isinstance(qualities, list) and qualities and isinstance(qualities[0], dict):
-            resolution = qualities[0].get("resolution") or ""
-            bitrate = qualities[0].get("bitrate") or 0
+        picked_index = 0
+        resolution = ""
+        bitrate = 0
+        if qualities:
+            if quality_index is None:
+                picked_index = 0
+            else:
+                picked_index = max(0, min(int(quality_index), len(qualities) - 1))
+            resolution = qualities[picked_index].get("resolution") or ""
+            bitrate = qualities[picked_index].get("bitrate") or 0
         if online and resolution:
-            return self._transcoded_url(stream, info, resolution, bitrate), resolution, bitrate
-        return self.client.base + "/v/api/v1/media/range/" + media_guid, resolution, bitrate
+            return self._transcoded_url(stream, info, resolution, bitrate), resolution, bitrate, picked_index
+        return self.client.base + "/v/api/v1/media/range/" + media_guid, resolution, bitrate, picked_index
 
     def _transcoded_url(self, stream, info, resolution, bitrate):
         video = stream.get("video_stream") if isinstance(stream.get("video_stream"), dict) else {}
@@ -490,6 +621,28 @@ class Desktop:
     def _need_login(self):
         if not self.client.base or not self.client.token:
             raise FnError("请先登录", "auth")
+
+
+def _quality_choices(stream):
+    direct = [item for item in (stream.get("direct_link_qualities") or []) if isinstance(item, dict)]
+    rows = direct or [item for item in (stream.get("qualities") or []) if isinstance(item, dict)]
+    if not rows:
+        return [{"index": 0, "label": "原画"}]
+    choices = []
+    for index, quality in enumerate(rows):
+        resolution = str(quality.get("resolution") or "").strip()
+        bitrate = int(quality.get("bitrate") or 0)
+        if bitrate >= 1000000:
+            rate = "%s Mbps" % int(round(bitrate / 1000000.0))
+        elif bitrate >= 1000:
+            rate = "%s kbps" % (bitrate // 1000)
+        else:
+            rate = ""
+        label = resolution or rate or ("画质 %s" % (index + 1))
+        if resolution and rate:
+            label = "%s · %s" % (resolution, rate)
+        choices.append({"index": index, "label": label})
+    return choices
 
 
 def _stream_cookie(stream):

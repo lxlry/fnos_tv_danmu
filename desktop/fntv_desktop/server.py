@@ -78,6 +78,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
             if path == "/api/playing" and self.command == "GET":
                 return self._json(self.server.desktop.playing())
+            if path == "/api/playback" and self.command == "GET":
+                return self._json(self.server.desktop.playback())
+            if path == "/api/playback/audio" and self.command == "POST":
+                self.server.desktop.set_audio(self._body().get("id"))
+                return self._json({"ok": True})
+            if path == "/api/playback/subtitle" and self.command == "POST":
+                self.server.desktop.set_subtitle(self._body().get("id"))
+                return self._json({"ok": True})
+            if path == "/api/playback/danmaku" and self.command == "POST":
+                body = self._body()
+                self.server.desktop.set_danmaku(body.get("on"), body.get("scale"))
+                return self._json({"ok": True})
+            if path == "/api/playback/quality" and self.command == "POST":
+                self.server.desktop.set_quality(self._body().get("index"))
+                return self._json({"ok": True})
+            if path == "/api/playback/speed" and self.command == "POST":
+                self.server.desktop.set_speed(self._body().get("speed"))
+                return self._json({"ok": True})
+            if path == "/api/playback/skip" and self.command == "POST":
+                body = self._body()
+                self.server.desktop.set_skip(body.get("opening"), body.get("ending"))
+                return self._json({"ok": True})
             if path == "/api/update" and self.command == "GET":
                 quiet = query.get("quiet", ["0"])[0] == "1"
                 return self._json(self.server.desktop.check_update(quiet))

@@ -1,7 +1,7 @@
 {
-  "versionCode": 10002,
-  "versionName": "1.0.2",
-  "exeUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/desktop-1.0.2/FNTV_windows_v1.0.2.exe",
-  "changelog": "继续观看改为横图，点击直接播放\n媒体库封面不再显示进度条\n鼠标移到海报行时，左右箭头点击滚动\n隐藏上下滚动条\n修复搜索中文影片提示 invalid sign",
+  "versionCode": 10003,
+  "versionName": "1.0.3",
+  "exeUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/desktop-1.0.3/FNTV_windows_v1.0.3.exe",
+  "changelog": "播放设置支持弹幕、音轨、字幕、画质和片头片尾\n播放设置支持倍速切换\n播放窗口换成现代界面，鼠标靠近底部可操作进度、暂停、音轨、字幕和倍速",
   "forceUpdate": false
 }

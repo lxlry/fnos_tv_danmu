@@ -46,9 +46,14 @@ jobs:
         run: |
           python fetch_mpv.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python fetch_uosc.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Test-Path dist\FNTV\mpv) { Remove-Item -Recurse -Force dist\FNTV\mpv }
           Copy-Item -Recurse vendor\mpv dist\FNTV\mpv
           if (-not (Test-Path dist\FNTV\mpv\mpv.exe)) { throw "mpv.exe was not bundled" }
+          if (Test-Path dist\FNTV\uosc) { Remove-Item -Recurse -Force dist\FNTV\uosc }
+          Copy-Item -Recurse vendor\uosc dist\FNTV\uosc
+          if (-not (Test-Path dist\FNTV\uosc\scripts\uosc\main.lua)) { throw "uosc was not bundled" }
 
       - name: Pack installer
         id: exe

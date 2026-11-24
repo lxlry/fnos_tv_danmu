@@ -370,6 +370,119 @@ function settingsDialog() {
   });
 }
 
+async function playbackDialog() {
+  let info;
+  try {
+    info = await api("/api/playback");
+  } catch (error) {
+    showToast(error.message);
+    return;
+  }
+  const node = document.createElement("div");
+  node.className = "dialog";
+  node.innerHTML = `<form class="sheet player-sheet" id="playback-form"></form>`;
+  document.body.appendChild(node);
+  const form = node.querySelector("#playback-form");
+  const draw = (data) => {
+    const sizes = [
+      { id: "0.8", label: "小" },
+      { id: "1", label: "标准" },
+      { id: "1.4", label: "大" },
+    ];
+    const scale = String(data.danmaku_scale || 1);
+    const nearest = sizes.reduce((best, item) => Math.abs(Number(item.id) - Number(scale)) < Math.abs(Number(best.id) - Number(scale)) ? item : best).id;
+    form.innerHTML = `<h2>播放设置</h2>
+      <h3>弹幕</h3>
+      <label class="check"><input name="danmaku" type="checkbox" ${data.danmaku_on ? "checked" : ""} ${data.danmaku_ready ? "" : "disabled"}>显示弹幕</label>
+      ${data.danmaku_ready ? "" : `<p class="muted">这一集没有匹配到弹幕。</p>`}
+      <div class="chips" data-group="scale">${sizes.map((item) => `<button type="button" data-scale="${item.id}" class="${item.id === nearest ? "active" : ""}">${item.label}</button>`).join("")}</div>
+      <h3>音频</h3>
+      ${choiceRow(data.audio, "audio")}
+      <h3>字幕</h3>
+      ${choiceRow(data.subtitle, "subtitle")}
+      <h3>倍速</h3>
+      ${choiceRow([0.5, 0.75, 1, 1.25, 1.5, 2, 3].map((item) => ({ id: item, label: item + "x", selected: Number(data.speed || 1) === item })), "speed")}
+      <h3>画质</h3>
+      ${choiceRow((data.qualities || []).map((item) => ({ id: item.index, label: item.label, selected: item.index === data.quality_index })), "quality")}
+      <h3>片头片尾</h3>
+      <div class="pair">
+        <label><span class="muted">片头（秒）</span><input name="opening" type="number" min="0" max="1200" value="${Number(data.skip_opening) || 0}"></label>
+        <label><span class="muted">片尾（秒）</span><input name="ending" type="number" min="0" max="1200" value="${Number(data.skip_ending) || 0}"></label>
+      </div>
+      <div class="actions">
+        <button class="primary" type="submit">保存片头片尾</button>
+        <button type="button" id="close-playback">关闭</button>
+      </div>`;
+    form.querySelector("#close-playback").addEventListener("click", () => node.remove());
+    form.querySelector("[name=danmaku]").addEventListener("change", async (event) => {
+      await applyPlayback("/api/playback/danmaku", { on: event.target.checked, scale: Number(nearest) });
+    });
+    form.querySelectorAll("[data-scale]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const on = form.querySelector("[name=danmaku]").checked;
+        await applyPlayback("/api/playback/danmaku", { on, scale: Number(button.dataset.scale) });
+        draw(await api("/api/playback"));
+      });
+    });
+    bindChoice(form, "audio", (id) => applyPlayback("/api/playback/audio", { id }));
+    bindChoice(form, "subtitle", (id) => applyPlayback("/api/playback/subtitle", { id }));
+    bindChoice(form, "speed", async (id) => {
+      await applyPlayback("/api/playback/speed", { speed: Number(id) });
+    });
+    bindChoice(form, "quality", async (id) => {
+      await applyPlayback("/api/playback/quality", { index: Number(id) });
+      draw(await api("/api/playback"));
+    });
+  };
+  draw(info);
+  node.addEventListener("click", (event) => { if (event.target === node) node.remove(); });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await api("/api/playback/skip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          opening: Number(form.opening.value || 0),
+          ending: Number(form.ending.value || 0),
+        }),
+      });
+      showToast("片头片尾已保存");
+      node.remove();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+}
+
+function choiceRow(items, group) {
+  if (!items || !items.length) return `<p class="muted">没有可切换的选项</p>`;
+  return `<div class="chips" data-group="${group}">${items.map((item) => `<button type="button" data-id="${esc(item.id)}" class="${item.selected ? "active" : ""}">${esc(item.label)}</button>`).join("")}</div>`;
+}
+
+function bindChoice(form, group, action) {
+  const root = form.querySelector(`[data-group="${group}"]`);
+  if (!root) return;
+  root.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await action(button.dataset.id);
+      root.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
+    });
+  });
+}
+
+async function applyPlayback(url, body) {
+  try {
+    await api(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 async function refreshNow() {
   try {
     const playing = await api("/api/playing");
@@ -380,7 +493,8 @@ async function refreshNow() {
     const minutes = Math.floor((playing.position || 0) / 60);
     const seconds = String((playing.position || 0) % 60).padStart(2, "0");
     nowBar.hidden = false;
-    nowBar.innerHTML = `<span>${esc(playing.title)} · ${minutes}:${seconds}</span><button id="stop-play" type="button">停止</button>`;
+    nowBar.innerHTML = `<span>${esc(playing.title)} · ${minutes}:${seconds}</span><span class="actions"><button id="playback-settings" type="button">播放设置</button><button id="stop-play" type="button">停止</button></span>`;
+    nowBar.querySelector("#playback-settings").addEventListener("click", () => playbackDialog());
     nowBar.querySelector("#stop-play").addEventListener("click", async () => {
       await api("/api/stop", { method: "POST" });
       nowBar.hidden = true;
