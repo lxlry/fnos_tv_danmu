@@ -503,12 +503,17 @@ local function watch_episodes()
 end
 
 local function open_overlay(kind)
-  load_panel()
-  open_kind = kind
-  last_live = ""
-  show_menu(kind)
-  if kind == "skip" then watch_live() end
-  if kind == "episodes" then watch_episodes() end
+  local ok, err = pcall(function()
+    load_panel()
+    open_kind = kind
+    last_live = ""
+    show_menu(kind)
+    if kind == "skip" then watch_live() end
+    if kind == "episodes" then watch_episodes() end
+  end)
+  if not ok then
+    mp.osd_message("菜单没有打开：" .. tostring(err), 3)
+  end
 end
 
 mp.register_script_message("panel-event", function(raw)
@@ -542,6 +547,9 @@ end)
 mp.register_script_message("skip-settings", function()
   open_overlay("skip")
 end)
+mp.add_key_binding("", "episode-list", function() open_overlay("episodes") end)
+mp.add_key_binding("", "danmaku-settings", function() open_overlay("danmaku") end)
+mp.add_key_binding("", "skip-settings", function() open_overlay("skip") end)
 mp.register_script_message("speed", function(value)
   play_speed = tonumber(value) or 1
   mp.set_property("speed", play_speed)

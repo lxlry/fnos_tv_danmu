@@ -23,7 +23,7 @@ timeline_line_width=2
 timeline_size=40
 progress=windowed
 progress_size=2
-controls=menu,gap,<has_many_audio>audio,<has_many_video>video,<has_many_edition>editions,gap,space,speed,space,gap,subtitles,command:playlist_play:script-message episode-list?选集,command:toggle_on:script-message danmaku-settings?弹幕,command:schedule:script-message skip-settings?片头尾,gap,fullscreen
+controls=menu,gap,<has_many_audio>audio,<has_many_video>video,<has_many_edition>editions,gap,space,speed,space,gap,subtitles,command:playlist_play:script-binding progress/episode-list?选集,command:toggle_on:script-binding progress/danmaku-settings?弹幕,command:schedule:script-binding progress/skip-settings?片头尾,gap,fullscreen
 controls_size=32
 controls_margin=8
 controls_spacing=2
@@ -71,9 +71,9 @@ c script-binding uosc/chapters #! 章节
 # script-binding uosc/audio-device #! 音频设备
 ctrl+s async screenshot #! 截图
 f cycle fullscreen #! 全屏
-e script-message episode-list #! 选集
-d script-message danmaku-settings #! 弹幕设置
-i script-message skip-settings #! 片头尾
+e script-binding progress/episode-list #! 选集
+d script-binding progress/danmaku-settings #! 弹幕设置
+i script-binding progress/skip-settings #! 片头尾
 esc quit #! 退出
 """
 

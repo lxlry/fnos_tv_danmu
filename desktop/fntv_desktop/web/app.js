@@ -350,6 +350,18 @@ async function renderDetail(guid) {
   drawDetail(data, data.episodes || []);
 }
 
+function overviewBlock(text) {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  return `<h2>简介</h2><p class="overview">${esc(value)}</p>`;
+}
+
+function bindOverview(root) {
+  root.querySelectorAll(".overview").forEach((node) => {
+    node.addEventListener("click", () => node.classList.toggle("open"));
+  });
+}
+
 function drawDetail(data, episodes) {
   const playGuid = data.play_guid || data.guid;
   const playable = data.type === "Movie" || data.type === "Video" || data.type === "Episode" || data.media_guid || (data.play_guid && data.play_guid !== data.guid);
@@ -358,7 +370,7 @@ function drawDetail(data, episodes) {
     const meta = [season.count ? "共" + season.count + "集" : "", season.year || ""].filter(Boolean).join(" · ");
     return `<button class="card season-card" type="button" data-guid="${esc(season.guid)}">
       <div class="poster">${season.poster ? `<img src="${poster(season.poster)}" alt="">` : ""}</div>
-      <b>${esc(season.title)}</b>
+      <b>${esc(seasonLabel(season))}</b>
       <span>${esc(meta)}</span>
     </button>`;
   }).join("");
@@ -387,17 +399,18 @@ function drawDetail(data, episodes) {
       <div>
         <h1>${esc(data.type === "TV" || data.type === "Episode" ? seriesTitle : data.title)}</h1>
         <p class="muted">${esc(data.meta || data.type || "")}</p>
-        <p class="overview">${esc(data.overview || "暂无简介")}</p>
         <div class="actions">
           ${playable ? `<button class="primary" id="play" type="button">${playLabel(data)}</button>` : ""}
         </div>
       </div>
     </article>
+    ${overviewBlock(data.overview)}
     ${seasons ? `<h2>季</h2><div class="row" id="seasons">${seasons}</div>` : ""}
     <div id="episode-section"></div>
     ${people ? `<h2>演职人员</h2><div class="row cast-row">${people}</div>` : ""}
     ${facts ? `<h2>文件信息</h2><div class="facts">${facts}</div>${file.report ? `<button type="button" id="file-more">查看全部</button>` : ""}` : ""}`;
   view.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove()));
+  bindOverview(view);
   const play = view.querySelector("#play");
   if (play) play.addEventListener("click", () => startPlay(playGuid, nextAfter(showEpisodes ? episodes : [], playGuid)));
   const more = view.querySelector("#file-more");
@@ -435,22 +448,24 @@ function drawSeason(series, season, episodes) {
   const resumeGuid = series.play_guid || "";
   const current = episodes.find((episode) => episode.guid === resumeGuid) || episodes[0] || null;
   const number = current ? episodeNumber(current, Math.max(0, episodes.indexOf(current))) : 0;
-  const chips = seasons.length > 1 ? `<div class="chips" id="season-tabs">${seasons.map((item) => `<button type="button" class="${item.guid === season.guid ? "active" : ""}" data-guid="${esc(item.guid)}">${esc(item.title)}</button>`).join("")}</div>` : "";
+  const chips = seasons.length > 1 ? `<div class="chips" id="season-tabs">${seasons.map((item) => `<button type="button" class="${item.guid === season.guid ? "active" : ""}" data-guid="${esc(item.guid)}">${esc(seasonLabel(item))}</button>`).join("")}</div>` : "";
   const meta = [seasonLabel(season), season.count ? "共" + season.count + "集" : "", season.year || ""].filter(Boolean).join(" · ");
+  const overview = String(season.overview || "").trim() || series.overview || "";
   view.innerHTML = `<article class="hero">
       <div class="poster">${season.poster ? `<img src="${poster(season.poster)}" alt="">` : ""}</div>
       <div>
         <h1>${esc(series.series_title || series.title || "")}</h1>
         <p class="muted">${esc(meta)}</p>
-        <p class="overview">${esc(season.overview || series.overview || "暂无简介")}</p>
         <div class="actions">
           ${current ? `<button class="primary" id="play" type="button">第${number}集</button>` : ""}
         </div>
       </div>
     </article>
+    ${overviewBlock(overview)}
     ${chips}
     <div id="episode-section"></div>`;
   view.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove()));
+  bindOverview(view);
   const play = view.querySelector("#play");
   if (play && current) play.addEventListener("click", () => startPlay(current.guid, nextAfter(episodes, current.guid)));
   paintEpisodes(episodes, current ? current.guid : "");
@@ -481,6 +496,22 @@ function episodeNumber(episode, index) {
   return number > 0 ? number : index + 1;
 }
 
+function episodeTitle(episode, index) {
+  const raw = String(episode.raw_title || "").trim();
+  if (raw) return raw;
+  return "第" + episodeNumber(episode, index) + "集";
+}
+
+function runtimeLabel(seconds) {
+  const value = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (!value) return "";
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  if (hours > 0) return hours + "小时" + (minutes ? minutes + "分钟" : "");
+  if (minutes > 0) return minutes + "分钟";
+  return value + "秒";
+}
+
 function paintEpisodes(episodes, current) {
   const root = view.querySelector("#episode-section");
   if (!root) return;
@@ -504,11 +535,13 @@ function paintEpisodes(episodes, current) {
       if (Math.floor((episodeNumber(episode, index) - 1) / EPISODE_PAGE) !== selected) return "";
       const image = poster(episode.poster);
       const number = episodeNumber(episode, index);
-      const watched = Number(episode.ts) > 0 ? "看过" : "";
+      const watched = episode.guid === current ? "当前" : (Number(episode.watched) === 1 || Number(episode.ts) > 0 ? "已看" : "");
+      const runtime = runtimeLabel(episode.duration);
+      const sub = ["第" + number + "集", runtime, watched].filter(Boolean).join(" · ");
       return `<button class="episode${episode.guid === current ? " active" : ""}" type="button" data-guid="${esc(episode.guid)}">
         ${image ? `<img src="${image}" alt="">` : `<span class="still"></span>`}
-        <b>${esc(episode.title || ("第" + number + "集"))}</b>
-        <span>${esc(episode.subtitle || watched)}</span>
+        <b>${esc(episodeTitle(episode, index))}</b>
+        <span>${esc(sub)}</span>
       </button>`;
     }).join("");
     root.innerHTML = `<div class="episode-head"><h2>选集</h2><span>共${episodes.length}集</span></div>
