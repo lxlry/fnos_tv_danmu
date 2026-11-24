@@ -1,5 +1,6 @@
 const view = document.querySelector("#view");
 const backBtn = document.querySelector("#back");
+const brandBtn = document.querySelector("#brand");
 const searchForm = document.querySelector("#search-form");
 const searchInput = document.querySelector("#search");
 const settingsBtn = document.querySelector("#settings");
@@ -18,6 +19,12 @@ backBtn.addEventListener("click", () => {
   const previous = stack[stack.length - 1];
   if (!previous) return renderCurrent();
   open(previous.name, previous.arg, false);
+});
+brandBtn.addEventListener("click", () => {
+  searchInput.value = "";
+  forgetHome();
+  stack.length = 0;
+  open(state && state.logged_in ? "home" : "login");
 });
 settingsBtn.addEventListener("click", () => settingsDialog());
 searchForm.addEventListener("submit", (event) => {

@@ -687,6 +687,7 @@ class Desktop:
         job["skip_ending"] = ending
         job["outro_done"] = False
         self._write_panel_state()
+        self.player.publish_skip(opening, ending)
         if opening > int(self.player.position or 0):
             self._player_call(lambda: self.player.seek(opening))
 
@@ -722,12 +723,12 @@ class Desktop:
     def _progress_loop(self):
         ticks = 0
         while True:
-            time.sleep(2)
-            ticks += 2
+            time.sleep(0.5)
+            ticks += 1
             if not self.player.running():
                 continue
             self._maybe_skip_outro()
-            if ticks >= 14:
+            if ticks >= 28:
                 ticks = 0
                 self._save_job_progress()
 

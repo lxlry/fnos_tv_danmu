@@ -93,6 +93,7 @@ def main():
     (DEST / "script-opts" / "uosc.conf").write_text(CONF, encoding="utf-8")
     (DEST / "mpv.conf").write_text(MPV_CONF, encoding="utf-8")
     (DEST / "input.conf").write_text(INPUT_CONF, encoding="utf-8")
+    patch_skip_marks(DEST)
     print("已放到 %s" % DEST)
 
 
@@ -139,6 +140,61 @@ def read_url(url, minimum):
         except Exception as exc:
             last = str(exc)
     raise SystemExit("下载 uosc 失败: %s" % last)
+
+
+SKIP_STATE = """\tduration = nil, -- current media duration
+\tskip_opening = 0, -- seconds from the start
+\tskip_ending = 0, -- seconds before the end"""
+SKIP_OBSERVE = """mp.observe_property('duration', 'number', create_state_setter('_duration', update_duration))
+mp.observe_property('user-data/fntv/skip-opening', 'string', function(_, value)
+	set_state('skip_opening', tonumber(value) or 0)
+	request_render()
+end)
+mp.observe_property('user-data/fntv/skip-ending', 'string', function(_, value)
+	set_state('skip_ending', tonumber(value) or 0)
+	request_render()
+end)"""
+SKIP_DRAW = """\t-- Short white ticks: intro is seconds from the start, outro is seconds before the end.
+\tif visibility > 0 and state.duration and state.duration > 0 then
+\t\tlocal function draw_skip_mark(at)
+\t\t\tif not at or at <= 0.05 or at >= state.duration - 0.05 then return end
+\t\t\tlocal x = t2x(at)
+\t\t\tlocal half = math.max(6 * state.scale, foreground_size * 1.6)
+\t\t\tlocal thick = math.max(1, round(1.25 * state.scale))
+\t\t\tass:new_event()
+\t\t\tass:append(string.format(
+\t\t\t\t'{\\\\pos(0,0)\\\\rDefault\\\\an7\\\\blur0\\\\bord0\\\\1c&HFFFFFF\\\\1a&H%X&}',
+\t\t\t\topacity_to_alpha(visibility)
+\t\t\t))
+\t\t\tass:draw_start()
+\t\t\tass:rect_cw(x - thick, fcy - half, x + thick, fcy + half)
+\t\t\tass:draw_stop()
+\t\tend
+\t\tdraw_skip_mark(tonumber(state.skip_opening) or 0)
+\t\tlocal ending = tonumber(state.skip_ending) or 0
+\t\tif ending > 0 then draw_skip_mark(state.duration - ending) end
+\tend
+
+\tlocal function draw_timeline_timestamp(x, y, align, timestamp, opts)"""
+
+
+def patch_skip_marks(root):
+    main_lua = root / "scripts" / "uosc" / "main.lua"
+    timeline = root / "scripts" / "uosc" / "elements" / "Timeline.lua"
+    main_text = main_lua.read_text(encoding="utf-8")
+    if "skip_opening" not in main_text:
+        old_state = "\tduration = nil, -- current media duration"
+        old_observe = "mp.observe_property('duration', 'number', create_state_setter('_duration', update_duration))"
+        if old_state not in main_text or old_observe not in main_text:
+            raise SystemExit("uosc 进度条标记补丁对不上 main.lua")
+        main_text = main_text.replace(old_state, SKIP_STATE, 1).replace(old_observe, SKIP_OBSERVE, 1)
+        main_lua.write_text(main_text, encoding="utf-8")
+    timeline_text = timeline.read_text(encoding="utf-8")
+    if "draw_skip_mark" not in timeline_text:
+        anchor = "\tlocal function draw_timeline_timestamp(x, y, align, timestamp, opts)"
+        if anchor not in timeline_text:
+            raise SystemExit("uosc 进度条标记补丁对不上 Timeline.lua")
+        timeline.write_text(timeline_text.replace(anchor, SKIP_DRAW, 1), encoding="utf-8")
 
 
 def drop_other_platforms(root):

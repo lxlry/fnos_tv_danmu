@@ -37,7 +37,14 @@ header {
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(12px);
 }
-.brand { font-weight: 700; letter-spacing: 0.04em; }
+button.brand {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+button.brand:hover { color: var(--accent); }
 #search-form { flex: 1; }
 #search, input, select {
   width: 100%;

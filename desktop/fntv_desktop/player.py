@@ -38,11 +38,14 @@ local end_path = status_path .. ".end"
 local last_write = 0
 mp.set_property("user-data/fntv/danmaku", danmu_on and "on" or "off")
 
-local function external_sub()
+local real_sid = nil
+local applying_danmu = false
+
+local function danmu_track()
   local tracks = mp.get_property_native("track-list") or {}
   for i = #tracks, 1, -1 do
     local track = tracks[i]
-    if track.type == "sub" and track.external then
+    if track.type == "sub" and track.external and track.title == "弹幕" then
       return track.id
     end
   end
@@ -50,30 +53,66 @@ local function external_sub()
 end
 
 local function apply_danmu()
-  if danmu_path == "" then return end
-  local found = external_sub()
+  if applying_danmu then return end
+  applying_danmu = true
+  mp.set_property("secondary-sub-ass-override", "no")
+  mp.set_property("secondary-sub-visibility", "yes")
+  if danmu_path == "" then
+    applying_danmu = false
+    return
+  end
+  local sid = mp.get_property("sid")
+  local found = danmu_track()
+  if sid and sid ~= "no" and tostring(sid) ~= tostring(found) then
+    real_sid = sid
+  end
   if found == nil then
-    mp.commandv("sub-add", danmu_path, "cached")
-    found = external_sub()
+    mp.commandv("sub-add", danmu_path, "auto", "弹幕", "dan")
+    found = danmu_track()
   end
-  if found == nil then return end
+  if found == nil then
+    applying_danmu = false
+    return
+  end
+  sid = mp.get_property("sid")
   if danmu_on then
-    mp.set_property("secondary-sid", found)
+    if tostring(sid) == tostring(found) then
+      mp.set_property("sid", real_sid or "no")
+    end
+    if tostring(mp.get_property("secondary-sid")) ~= tostring(found) then
+      mp.set_property("secondary-sid", found)
+    end
   else
-    mp.set_property("secondary-sid", "no")
+    if tostring(mp.get_property("secondary-sid")) == tostring(found) then
+      mp.set_property("secondary-sid", "no")
+    end
+    if tostring(mp.get_property("sid")) == tostring(found) then
+      mp.set_property("sid", real_sid or "no")
+    end
   end
+  applying_danmu = false
+end
+
+local function media_span()
+  local pos = mp.get_property_number("playback-time")
+  if pos == nil then pos = mp.get_property_number("time-pos") or 0 end
+  local dur = mp.get_property_number("duration") or 0
+  if mp.get_property_native("rebase-start-time") == false then
+    local start_time = mp.get_property_number("demuxer-start-time") or 0
+    if start_time > 0 and dur > 0 then dur = dur + start_time end
+  end
+  return math.max(0, pos), math.max(0, dur)
 end
 
 local function write_status()
-  local pos = mp.get_property_number("time-pos")
-  local dur = mp.get_property_number("duration")
-  if pos == nil then return end
+  if mp.get_property_number("playback-time") == nil and mp.get_property_number("time-pos") == nil then return end
+  local pos, dur = media_span()
   local now = mp.get_time()
-  if now - last_write < 2 then return end
+  if now - last_write < 0.5 then return end
   last_write = now
   local file = io.open(status_path, "w")
   if file then
-    file:write(tostring(pos), " ", tostring(dur or 0))
+    file:write(tostring(pos), " ", tostring(dur))
     file:close()
   end
 end
@@ -91,6 +130,7 @@ mp.register_event("file-loaded", function()
   mp.add_timeout(0.2, function()
     mp.set_property("speed", play_speed)
     ignore_speed = false
+    apply_danmu()
   end)
 end)
 mp.register_script_message("danmu", function(state)
@@ -100,12 +140,26 @@ mp.register_script_message("danmu", function(state)
 end)
 mp.register_script_message("danmu-file", function(path)
   danmu_path = path or ""
-  local found = external_sub()
+  local found = danmu_track()
   if found ~= nil then
-    mp.set_property("secondary-sid", "no")
+    if tostring(mp.get_property("secondary-sid")) == tostring(found) then
+      mp.set_property("secondary-sid", "no")
+    end
+    if tostring(mp.get_property("sid")) == tostring(found) then
+      mp.set_property("sid", real_sid or "no")
+    end
     mp.commandv("sub-remove", found)
   end
   apply_danmu()
+end)
+mp.observe_property("sid", "string", function(_, value)
+  if applying_danmu or value == nil then return end
+  local found = danmu_track()
+  if found and tostring(value) == tostring(found) then
+    apply_danmu()
+    return
+  end
+  real_sid = value
 end)
 mp.observe_property("user-data/fntv/danmaku", "string", function(_, value)
   if value ~= "on" and value ~= "off" then return end
@@ -144,6 +198,11 @@ local function trim_num(value)
   return text
 end
 
+local function publish_skip_marks()
+  mp.set_property("user-data/fntv/skip-opening", tostring(math.floor(tonumber(panel.skip.opening) or 0)))
+  mp.set_property("user-data/fntv/skip-ending", tostring(math.floor(tonumber(panel.skip.ending) or 0)))
+end
+
 local function load_panel()
   panel.danmaku = defaults()
   panel.skip = {title = "", opening = 0, ending = 0}
@@ -154,11 +213,17 @@ local function load_panel()
   panel.series = ""
   panel.season = 0
   local file = io.open(state_path, "r")
-  if not file then return end
+  if not file then
+    publish_skip_marks()
+    return
+  end
   local raw = file:read("*a")
   file:close()
   local ok, data = pcall(utils.parse_json, raw)
-  if not ok or type(data) ~= "table" then return end
+  if not ok or type(data) ~= "table" then
+    publish_skip_marks()
+    return
+  end
   if type(data.danmaku) == "table" then
     for key, value in pairs(data.danmaku) do panel.danmaku[key] = value end
   end
@@ -179,6 +244,7 @@ local function load_panel()
       end
     end
   end
+  publish_skip_marks()
 end
 
 local function write_state(play_guid)
@@ -274,14 +340,14 @@ end
 
 local function skip_side(which)
   local saved = math.floor(tonumber(panel.skip[which]) or 0)
-  local pos = mp.get_property_number("time-pos") or 0
-  local dur = mp.get_property_number("duration") or 0
+  local pos, dur = media_span()
   local live = which == "opening" and pos or (dur > 0 and math.max(0, dur - pos) or -1)
-  local use = leaf(which == "opening" and "设为片头" or "设为片尾", live < 0 and "片长未知" or clock(live), "skip:" .. which .. ":live", false)
+  local meaning = which == "opening" and "跳过开头 " or "跳过片尾 "
+  local use = leaf(which == "opening" and "设为片头" or "设为片尾", live < 0 and "片长未知" or meaning .. clock(live), "skip:" .. which .. ":live", false)
   local reset = leaf("重置", "0分0秒", "skip:" .. which .. ":0", saved == 0)
   return {
     title = which == "opening" and "片头时长" or "片尾时长",
-    hint = clock(saved),
+    hint = meaning .. clock(saved),
     keep_open = true,
     items = {use, reset, custom_menu(which, saved)},
   }
@@ -434,9 +500,8 @@ local function watch_live()
       last_live = ""
       return
     end
-    local pos = math.floor(mp.get_property_number("time-pos") or 0)
-    local dur = mp.get_property_number("duration") or 0
-    local text = tostring(pos) .. ":" .. tostring(math.floor(dur))
+    local pos, dur = media_span()
+    local text = tostring(math.floor(pos)) .. ":" .. tostring(math.floor(dur))
     if text == last_live then return end
     last_live = text
     refresh_menu()
@@ -445,15 +510,15 @@ end
 
 local function resolve(value)
   if value == "skip:opening:live" then
-    return "skip:opening:" .. tostring(math.max(0, math.floor(mp.get_property_number("time-pos") or 0)))
+    local pos = media_span()
+    return "skip:opening:" .. tostring(math.floor(pos))
   end
   if value == "skip:ending:live" then
-    local dur = mp.get_property_number("duration") or 0
+    local pos, dur = media_span()
     if dur <= 0 then
       mp.osd_message("还不知道片长，稍后再设片尾", 2)
       return nil
     end
-    local pos = mp.get_property_number("time-pos") or 0
     return "skip:ending:" .. tostring(math.max(0, math.floor(dur - pos)))
   end
   return value
@@ -538,7 +603,12 @@ mp.register_script_message("panel-event", function(raw)
   if not value or value == "" or value == "ignore" then return end
   if not apply_local(value) then return end
   write_state()
+  publish_skip_marks()
   refresh_menu()
+end)
+mp.register_event("file-loaded", function()
+  mp.add_timeout(0.4, load_panel)
+  mp.add_timeout(1.2, load_panel)
 end)
 mp.register_script_message("episode-list", function()
   open_overlay("episodes")
@@ -787,6 +857,15 @@ class MpvPlayer:
 
     def set_danmaku_file(self, path):
         self.command(["script-message", "danmu-file", path or ""])
+
+    def publish_skip(self, opening, ending):
+        if not self.running():
+            return
+        try:
+            ipc_command(["set_property", "user-data/fntv/skip-opening", str(int(opening or 0))])
+            ipc_command(["set_property", "user-data/fntv/skip-ending", str(int(ending or 0))])
+        except OSError:
+            return
 
     def set_scale(self, scale):
         return
