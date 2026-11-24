@@ -1,7 +1,7 @@
 {
-  "versionCode": 10004,
-  "versionName": "1.0.4",
-  "exeUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/desktop-1.0.4/FNTV_windows_v1.0.4.exe",
-  "changelog": "打开软件时检查更新，下载安装包时显示进度条\n鼠标移到封面上会轻轻抬起并放大\n播放窗口改为白色控件，进度条上方可开关弹幕\n播放时不再在软件底部显示正在播放\n点击播放后更快打开播放器",
+  "versionCode": 10005,
+  "versionName": "1.0.5",
+  "exeUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/desktop-1.0.5/FNTV_windows_v1.0.5.exe",
+  "changelog": "首次打开窗口改为适中大小并居中\n播放窗口比主窗口略小\n影视剧显示简介，季列表可以看完每一季\n点击左上角飞牛TV回到首页并刷新\n播放器里弹幕、选集、片头尾可以打开\n片头按开头跳过，片尾按结尾跳过，进度条上有标记\n重新进入播放会保留已设置的片头尾\n弹幕和字幕可以同时显示，滚动更顺\n进度条改成底部细长条",
   "forceUpdate": false
 }

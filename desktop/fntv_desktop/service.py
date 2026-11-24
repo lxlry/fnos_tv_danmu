@@ -81,6 +81,52 @@ class Desktop:
             encoding="utf-8",
         )
 
+    def _remember_skip(self, guids, opening, ending):
+        book = self.config.get("skip")
+        if not isinstance(book, dict):
+            book = {}
+            self.config["skip"] = book
+        row = {"opening": int(opening or 0), "ending": int(ending or 0)}
+        changed = False
+        for guid in guids:
+            if not guid or book.get(guid) == row:
+                continue
+            book[guid] = dict(row)
+            changed = True
+        if changed:
+            self._save_config()
+
+    def _recall_skip(self, guids):
+        book = self.config.get("skip")
+        if not isinstance(book, dict):
+            return None
+        for guid in guids:
+            row = book.get(guid) if guid else None
+            if isinstance(row, dict):
+                return int(row.get("opening") or 0), int(row.get("ending") or 0)
+        return None
+
+    def _skip_for_play(self, info, requested_guid):
+        info = info if isinstance(info, dict) else {}
+        keys = []
+        for key in (info.get("parent_guid"), info.get("guid"), requested_guid):
+            if key and key not in keys:
+                keys.append(key)
+        remembered = self._recall_skip(keys)
+        local_opening, local_ending = remembered if remembered else (0, 0)
+        play_config = info.get("play_config") if isinstance(info.get("play_config"), dict) else {}
+
+        def pick(name, local_value):
+            if name not in play_config or play_config.get(name) is None:
+                return local_value
+            return int(play_config.get(name) or 0)
+
+        opening = pick("skip_opening", local_opening)
+        ending = pick("skip_ending", local_ending)
+        if play_config.get("skip_opening") is not None or play_config.get("skip_ending") is not None:
+            self._remember_skip(keys, opening, ending)
+        return opening, ending
+
     def _restore_client(self):
         if not self.config.get("server") or not self.config.get("token"):
             return
@@ -312,9 +358,7 @@ class Desktop:
         if not media_guid:
             raise FnError("这部内容没有可播放的文件")
         item = info.get("item") if isinstance(info.get("item"), dict) else {}
-        play_config = info.get("play_config") if isinstance(info.get("play_config"), dict) else {}
-        opening = int(play_config.get("skip_opening") or 0)
-        ending = int(play_config.get("skip_ending") or 0)
+        opening, ending = self._skip_for_play(info, guid)
         start = int(info.get("ts") or 0)
         if opening > start:
             start = opening
@@ -680,9 +724,13 @@ class Desktop:
             raise FnError("播放器没有在运行")
         opening = max(0, min(int(opening or 0), 20 * 60))
         ending = max(0, min(int(ending or 0), 20 * 60))
-        guid = job.get("parent_guid") or job.get("guid") or ""
-        if guid:
-            self.client.set_skip(guid, opening, ending)
+        guids = []
+        for key in (job.get("parent_guid"), job.get("guid")):
+            if key and key not in guids:
+                guids.append(key)
+        for key in guids:
+            self.client.set_skip(key, opening, ending)
+        self._remember_skip(guids, opening, ending)
         job["skip_opening"] = opening
         job["skip_ending"] = ending
         job["outro_done"] = False
@@ -1067,6 +1115,7 @@ class Desktop:
         resolutions = stream.get("resolutions") or []
         if resolutions:
             meta.append(str(resolutions[0]))
+        opening, ending = self._skip_for_play(info, info.get("guid") or item.get("guid") or "")
         return {
             "guid": info.get("guid") or item.get("guid") or "",
             "title": display_title(item) if item else "未命名",
@@ -1087,8 +1136,8 @@ class Desktop:
             "episodes": [],
             "people": [],
             "file": {},
-            "skip_opening": play_config.get("skip_opening") or 0,
-            "skip_ending": play_config.get("skip_ending") or 0,
+            "skip_opening": opening,
+            "skip_ending": ending,
         }
 
     def _need_login(self):

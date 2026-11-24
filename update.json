@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527063,
-    "versionName": "9527.063",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.063/FNTV_release_v9527.063.apk",
-    "changelog": "片头尾设置里，片头时长和片尾时长改为上下移动焦点",
+    "versionCode": 9527064,
+    "versionName": "9527.064",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.064/FNTV_release_v9527.064.apk",
+    "changelog": "重新进入播放会保留已设置的片头尾，进度条上的标记还在",
     "forceUpdate": false
 }

@@ -2126,18 +2126,22 @@ public class PlayerActivity extends AppCompatActivity {
     private int readSkipSec(boolean intro) {
         SharedPreferences sp = getSharedPreferences("fntv_prefs", MODE_PRIVATE);
         String suffix = intro ? "_intro" : "_outro";
-        String key = skipPrefsKey() + suffix;
-        if (sp.contains(key)) return sp.getInt(key, 0);
-        if (itemTV != null && !itemTV.isEmpty()) {
-            return sp.getInt("skip_" + itemTV + suffix, 0);
+        String[] ids = new String[] {parentGuid, itemGuid, itemTV};
+        for (String id : ids) {
+            if (id == null || id.isEmpty()) continue;
+            String key = "skip_" + id + suffix;
+            if (sp.contains(key)) return sp.getInt(key, 0);
         }
         return 0;
     }
 
     private void writeSkipSec(boolean intro, int sec) {
         int saved = Math.max(0, Math.min(sec, 20 * 60));
-        getSharedPreferences("fntv_prefs", MODE_PRIVATE).edit()
-                .putInt(skipPrefsKey() + (intro ? "_intro" : "_outro"), saved).apply();
+        SharedPreferences.Editor editor = getSharedPreferences("fntv_prefs", MODE_PRIVATE).edit();
+        String suffix = intro ? "_intro" : "_outro";
+        if (parentGuid != null && !parentGuid.isEmpty()) editor.putInt("skip_" + parentGuid + suffix, saved);
+        if (itemGuid != null && !itemGuid.isEmpty()) editor.putInt("skip_" + itemGuid + suffix, saved);
+        editor.commit();
         if (intro) {
             skipIntroDirty = true;
             introSkipped = false;
@@ -2155,20 +2159,23 @@ public class PlayerActivity extends AppCompatActivity {
 
     /** 把服务端账号上的片头片尾写入本地。用户这次已经改过的那一项保留。 */
     private void applyServerSkip(PlayInfoResponse.PlayConfig config) {
-        String id = skipCacheId();
-        if (config != null && id != null && !id.isEmpty()) {
+        if (config != null) {
             SharedPreferences.Editor editor = getSharedPreferences("fntv_prefs", MODE_PRIVATE).edit();
             boolean wrote = false;
-            if (config.skipOpening != null && !skipIntroDirty) {
-                editor.putInt("skip_" + id + "_intro", Math.max(0, config.skipOpening));
-                wrote = true;
+            String[] ids = new String[] {parentGuid, itemGuid};
+            for (String id : ids) {
+                if (id == null || id.isEmpty()) continue;
+                if (config.skipOpening != null && !skipIntroDirty) {
+                    editor.putInt("skip_" + id + "_intro", Math.max(0, config.skipOpening));
+                    wrote = true;
+                }
+                if (config.skipEnding != null && !skipOutroDirty) {
+                    editor.putInt("skip_" + id + "_outro", Math.max(0, config.skipEnding));
+                    wrote = true;
+                }
             }
-            if (config.skipEnding != null && !skipOutroDirty) {
-                editor.putInt("skip_" + id + "_outro", Math.max(0, config.skipEnding));
-                wrote = true;
-            }
-            if (wrote) editor.apply();
-            Log.d(TAG, "片头片尾同步 guid=" + id
+            if (wrote) editor.commit();
+            Log.d(TAG, "片头片尾同步 guid=" + skipCacheId()
                     + " opening=" + (config.skipOpening == null ? "null" : config.skipOpening)
                     + " ending=" + (config.skipEnding == null ? "null" : config.skipEnding));
         }
@@ -2182,12 +2189,18 @@ public class PlayerActivity extends AppCompatActivity {
 
     /** 片头、片尾一起提交，避免只改一项时把另一项在服务端清掉。 */
     private void pushSkipConfig() {
-        String guid = parentGuid != null && !parentGuid.isEmpty() ? parentGuid : itemGuid;
+        int opening = readSkipSec(true);
+        int ending = readSkipSec(false);
+        postSkipConfig(parentGuid, opening, ending);
+        if (itemGuid != null && !itemGuid.equals(parentGuid)) postSkipConfig(itemGuid, opening, ending);
+    }
+
+    private void postSkipConfig(String guid, int opening, int ending) {
         if (guid == null || guid.isEmpty() || apiManager == null) return;
         Map<String, Object> body = new HashMap<>();
         body.put("guid", guid);
-        body.put("skip_opening", readSkipSec(true));
-        body.put("skip_ending", readSkipSec(false));
+        body.put("skip_opening", opening);
+        body.put("skip_ending", ending);
         Log.d(TAG, "setConfigByItem 请求: " + new com.google.gson.Gson().toJson(body));
         apiManager.getApi().setSkipConfig(body).enqueue(new retrofit2.Callback<ApiResponse<Object>>() {
             @Override public void onResponse(retrofit2.Call<ApiResponse<Object>> call,
