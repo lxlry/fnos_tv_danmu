@@ -40,6 +40,49 @@ mp.set_property("user-data/fntv/danmaku", danmu_on and "on" or "off")
 
 local real_sid = nil
 local applying_danmu = false
+local saved_sync = nil
+
+local function smooth_scroll(enable)
+  if not enable then
+    mp.commandv("vf", "remove", "@danmu-fps")
+    if saved_sync then
+      mp.set_property("video-sync", saved_sync)
+      saved_sync = nil
+    end
+    return
+  end
+  local hz = mp.get_property_number("display-fps") or 60
+  if hz < 48 then hz = 60 end
+  if hz > 60 then hz = 60 end
+  hz = math.floor(hz + 0.5)
+  local filters = mp.get_property_native("vf") or {}
+  local has = false
+  for _, filter in ipairs(filters) do
+    if filter.label == "danmu-fps" then
+      has = true
+      break
+    end
+  end
+  local source = mp.get_property_number("container-fps") or 0
+  if source <= 1 and not has then
+    source = mp.get_property_number("estimated-vf-fps") or 0
+  end
+  if source >= hz - 1 then
+    if has then mp.commandv("vf", "remove", "@danmu-fps") end
+    if saved_sync then
+      mp.set_property("video-sync", saved_sync)
+      saved_sync = nil
+    end
+    return
+  end
+  if not saved_sync then
+    saved_sync = mp.get_property("video-sync") or "audio"
+  end
+  if not has then
+    mp.commandv("vf", "add", string.format("@danmu-fps:fps=fps=%d", hz))
+  end
+  mp.set_property("video-sync", "display-resample")
+end
 
 local function danmu_track()
   local tracks = mp.get_property_native("track-list") or {}
@@ -58,6 +101,7 @@ local function apply_danmu()
   mp.set_property("secondary-sub-ass-override", "no")
   mp.set_property("secondary-sub-visibility", "yes")
   if danmu_path == "" then
+    smooth_scroll(false)
     applying_danmu = false
     return
   end
@@ -71,6 +115,7 @@ local function apply_danmu()
     found = danmu_track()
   end
   if found == nil then
+    smooth_scroll(false)
     applying_danmu = false
     return
   end
@@ -90,6 +135,7 @@ local function apply_danmu()
       mp.set_property("sid", real_sid or "no")
     end
   end
+  smooth_scroll(danmu_on)
   applying_danmu = false
 end
 
