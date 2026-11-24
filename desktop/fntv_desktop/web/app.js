@@ -16,6 +16,13 @@ backBtn.addEventListener("click", () => {
   if (!previous) return renderCurrent();
   open(previous.name, previous.arg, false);
 });
+const playbackSettingsBtn = document.querySelector("#playback-settings");
+const stopPlayBtn = document.querySelector("#stop-play");
+playbackSettingsBtn.addEventListener("click", () => playbackDialog());
+stopPlayBtn.addEventListener("click", async () => {
+  await api("/api/stop", { method: "POST" });
+  refreshNow();
+});
 settingsBtn.addEventListener("click", () => settingsDialog());
 searchForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -317,7 +324,6 @@ async function startPlay(guid, nextGuid) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guid, next_guid: nextGuid || "" }),
     });
-    showToast("正在播放 " + (result.title || ""));
     refreshNow();
   } catch (error) {
     showToast(error.message);
@@ -486,22 +492,14 @@ async function applyPlayback(url, body) {
 async function refreshNow() {
   try {
     const playing = await api("/api/playing");
-    if (!playing.running) {
-      nowBar.hidden = true;
-      return;
-    }
-    const minutes = Math.floor((playing.position || 0) / 60);
-    const seconds = String((playing.position || 0) % 60).padStart(2, "0");
-    nowBar.hidden = false;
-    nowBar.innerHTML = `<span>${esc(playing.title)} · ${minutes}:${seconds}</span><span class="actions"><button id="playback-settings" type="button">播放设置</button><button id="stop-play" type="button">停止</button></span>`;
-    nowBar.querySelector("#playback-settings").addEventListener("click", () => playbackDialog());
-    nowBar.querySelector("#stop-play").addEventListener("click", async () => {
-      await api("/api/stop", { method: "POST" });
-      nowBar.hidden = true;
-    });
+    const show = Boolean(playing.running);
+    playbackSettingsBtn.hidden = !show;
+    stopPlayBtn.hidden = !show;
   } catch (error) {
-    nowBar.hidden = true;
+    playbackSettingsBtn.hidden = true;
+    stopPlayBtn.hidden = true;
   }
+  nowBar.hidden = true;
 }
 
 let updateOpen = false;
@@ -525,6 +523,7 @@ function showUpdateDialog(info) {
   node.innerHTML = `<div class="sheet">
     <h2>${esc(info.title || "发现新版本")}</h2>
     <p class="overview update-log">${esc(info.changelog || "暂无更新说明")}</p>
+    <div class="update-track" id="update-track" hidden><span id="update-fill"></span></div>
     <p class="muted" id="update-progress"></p>
     <div class="actions">
       <button class="primary" id="update-now" type="button">立即更新</button>
@@ -533,7 +532,7 @@ function showUpdateDialog(info) {
   </div>`;
   document.body.appendChild(node);
   const close = () => {
-    if (info.force) return;
+    if (info.force || node.dataset.downloading) return;
     updateOpen = false;
     node.remove();
   };
@@ -543,11 +542,40 @@ function showUpdateDialog(info) {
   node.querySelector("#update-now").addEventListener("click", () => downloadUpdate(info.exeUrl, node));
 }
 
+function formatSize(bytes) {
+  const value = Number(bytes) || 0;
+  if (value >= 1048576) return (value / 1048576).toFixed(1) + " MB";
+  if (value >= 1024) return Math.round(value / 1024) + " KB";
+  return value + " B";
+}
+
+function renderDownload(node, state) {
+  const track = node.querySelector("#update-track");
+  const fill = node.querySelector("#update-fill");
+  const progress = node.querySelector("#update-progress");
+  track.hidden = false;
+  const total = Number(state.total) || 0;
+  const received = Number(state.received) || 0;
+  if (total > 0) {
+    const percent = Math.min(100, Math.round(received / total * 100));
+    track.classList.remove("indeterminate");
+    fill.style.transform = "";
+    fill.style.width = percent + "%";
+    progress.textContent = "正在下载 " + percent + "% · " + formatSize(received) + " / " + formatSize(total);
+    return;
+  }
+  track.classList.add("indeterminate");
+  fill.style.width = "";
+  progress.textContent = received > 0 ? "正在下载 " + formatSize(received) : "正在下载…";
+}
+
 async function downloadUpdate(exeUrl, node) {
   const button = node.querySelector("#update-now");
-  const progress = node.querySelector("#update-progress");
+  const later = node.querySelector("#update-later");
   button.disabled = true;
-  progress.textContent = "正在下载…";
+  if (later) later.disabled = true;
+  node.dataset.downloading = "1";
+  renderDownload(node, { received: 0, total: 0 });
   try {
     await api("/api/update/download", {
       method: "POST",
@@ -557,18 +585,21 @@ async function downloadUpdate(exeUrl, node) {
     for (;;) {
       const state = await api("/api/update/progress");
       if (state.status === "failed") throw new Error(state.message || "下载失败");
-      if (state.total) {
-        const percent = Math.min(100, Math.round(state.received / state.total * 100));
-        progress.textContent = "正在下载 " + percent + "%";
-      }
+      renderDownload(node, state);
       if (state.status === "done") break;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 400));
     }
-    progress.textContent = "下载完成，即将安装并重新打开";
+    const fill = node.querySelector("#update-fill");
+    const track = node.querySelector("#update-track");
+    track.classList.remove("indeterminate");
+    fill.style.width = "100%";
+    node.querySelector("#update-progress").textContent = "下载完成，即将安装并重新打开";
     await api("/api/update/apply", { method: "POST" });
   } catch (error) {
     button.disabled = false;
-    progress.textContent = error.message;
+    if (later) later.disabled = false;
+    delete node.dataset.downloading;
+    node.querySelector("#update-progress").textContent = error.message;
   }
 }
 

@@ -116,6 +116,8 @@ class Updater:
             request = urllib.request.Request(exe_url, headers={"User-Agent": "FNTV"})
             with urllib.request.urlopen(request, context=WEB_SSL, timeout=60) as response:
                 total = int(response.headers.get("Content-Length") or 0)
+                if total <= 0:
+                    total = _asset_size(exe_url)
                 received = 0
                 with dest.open("wb") as output:
                     while True:
@@ -194,6 +196,43 @@ def _release_has_asset(url, file_name):
         state = asset.get("state") or ""
         return state in ("", "uploaded")
     return False
+
+
+def _asset_size(exe_url):
+    match = RELEASE_URL.search(exe_url or "")
+    if not match:
+        return 0
+    repo, tag, file_name = match.group(1), urllib.parse.unquote(match.group(2)), urllib.parse.unquote(match.group(3))
+    api = "https://api.github.com/repos/%s/releases/tags/%s" % (repo, urllib.parse.quote(tag))
+    for url in (api, "https://ghfast.top/" + api):
+        size = _asset_size_from(url, file_name)
+        if size is not None:
+            return size
+    return 0
+
+
+def _asset_size_from(url, file_name):
+    try:
+        request = urllib.request.Request(url, headers={
+            "User-Agent": "FNTV",
+            "Accept": "application/vnd.github+json",
+        })
+        with urllib.request.urlopen(request, context=WEB_SSL, timeout=8) as response:
+            if response.status != 200:
+                return None
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    assets = payload.get("assets") if isinstance(payload, dict) else None
+    if not isinstance(assets, list):
+        return None
+    for asset in assets:
+        if isinstance(asset, dict) and asset.get("name") == file_name:
+            try:
+                return int(asset.get("size") or 0)
+            except (TypeError, ValueError):
+                return 0
+    return 0
 
 
 def _launch_and_exit(installer):

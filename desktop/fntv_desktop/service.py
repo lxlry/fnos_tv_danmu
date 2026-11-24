@@ -236,8 +236,6 @@ class Desktop:
         media_guid = info.get("media_guid") or ""
         if not media_guid:
             raise FnError("这部内容没有可播放的文件")
-        stream = self.client.stream(media_guid)
-        url, resolution, bitrate, quality_index = self._choose_url(media_guid, stream, info)
         item = info.get("item") if isinstance(info.get("item"), dict) else {}
         play_config = info.get("play_config") if isinstance(info.get("play_config"), dict) else {}
         opening = int(play_config.get("skip_opening") or 0)
@@ -251,57 +249,67 @@ class Desktop:
         match_name = item.get("tv_title") or item.get("title") or title
         if episode_number:
             match_name = "%s S%02dE%02d" % (match_name, season_number or 0, episode_number)
-        if not next_guid:
-            next_guid = self._find_next(info)
-        subtitle = ""
-        danmaku_on = bool(self.config.get("danmu_on", True)) and bool(self.config.get("danmu_url"))
-        if danmaku_on:
-            subtitle = self._write_danmu(match_name, episode_number)
-            danmaku_on = bool(subtitle)
-        session_id = uuid.uuid4().hex
-        cookie = _stream_cookie(stream)
-        with self.session_lock:
-            self.sessions[session_id] = {"url": url, "cookie": cookie}
-        self.playback_source = {
-            "stream": stream,
-            "info": info,
-            "media_guid": media_guid,
-            "quality_index": quality_index,
-            "subtitle": subtitle,
-        }
-        self._save_job_progress()
-        job = {
-            "guid": info.get("guid") or guid,
-            "parent_guid": info.get("parent_guid") or "",
-            "media_guid": media_guid,
-            "video_guid": info.get("video_guid") or "",
-            "audio_guid": info.get("audio_guid") or "",
-            "subtitle_guid": info.get("subtitle_guid") or "_no_display_",
-            "resolution": resolution,
-            "bitrate": bitrate,
-            "quality_index": quality_index,
-            "duration": int(item.get("duration") or 0),
-            "title": title,
-            "next_guid": next_guid or "",
-            "session_id": session_id,
-            "skip_opening": opening,
-            "skip_ending": ending,
-            "outro_done": False,
-        }
-        with self.job_lock:
-            self.job = job
-        local_url = "/stream/%s" % session_id
-        self.player.start(
-            mpv_path,
-            "http://127.0.0.1:%s%s" % (self.port, local_url),
-            title,
-            job["guid"],
-            start,
-            subtitle,
-            danmaku_on and bool(subtitle),
-            self.config.get("danmu_scale") or 1,
-        )
-        return {"title": title, "guid": job["guid"]}
+        self._save_job_progress_later()
+        pool = ThreadPoolExecutor(max_workers=2)
+        handed = False
+        try:
+            next_future = None if next_guid else pool.submit(self._find_next, info)
+            danmaku_on = bool(self.config.get("danmu_on", True)) and bool(self.config.get("danmu_url"))
+            danmu_future = pool.submit(self._write_danmu, match_name, episode_number) if danmaku_on else None
+            stream = self.client.stream(media_guid)
+            url, resolution, bitrate, quality_index = self._choose_url(media_guid, stream, info)
+            session_id = uuid.uuid4().hex
+            cookie = _stream_cookie(stream)
+            with self.session_lock:
+                self.sessions[session_id] = {"url": url, "cookie": cookie}
+            self.playback_source = {
+                "stream": stream,
+                "info": info,
+                "media_guid": media_guid,
+                "quality_index": quality_index,
+                "subtitle": "",
+            }
+            job = {
+                "guid": info.get("guid") or guid,
+                "parent_guid": info.get("parent_guid") or "",
+                "media_guid": media_guid,
+                "video_guid": info.get("video_guid") or "",
+                "audio_guid": info.get("audio_guid") or "",
+                "subtitle_guid": info.get("subtitle_guid") or "_no_display_",
+                "resolution": resolution,
+                "bitrate": bitrate,
+                "quality_index": quality_index,
+                "duration": int(item.get("duration") or 0),
+                "title": title,
+                "next_guid": next_guid or "",
+                "session_id": session_id,
+                "skip_opening": opening,
+                "skip_ending": ending,
+                "outro_done": False,
+            }
+            with self.job_lock:
+                self.job = job
+            local_url = "/stream/%s" % session_id
+            self.player.start(
+                mpv_path,
+                "http://127.0.0.1:%s%s" % (self.port, local_url),
+                title,
+                job["guid"],
+                start,
+                "",
+                danmaku_on,
+                self.config.get("danmu_scale") or 1,
+            )
+            threading.Thread(
+                target=self._finish_playback,
+                args=(session_id, next_future, danmu_future, pool),
+                daemon=True,
+            ).start()
+            handed = True
+            return {"title": title, "guid": job["guid"]}
+        finally:
+            if not handed:
+                pool.shutdown(wait=False)
 
     def stop(self):
         self._save_job_progress()
@@ -455,6 +463,68 @@ class Desktop:
         with self.job_lock:
             if self.job is job:
                 self.job = None
+
+    def _finish_playback(self, session_id, next_future, danmu_future, pool):
+        try:
+            if next_future is not None:
+                try:
+                    found = next_future.result() or ""
+                except Exception:
+                    found = ""
+                with self.job_lock:
+                    job = self.job
+                    if job and job.get("session_id") == session_id and found:
+                        job["next_guid"] = found
+            if danmu_future is None:
+                return
+            try:
+                path = danmu_future.result() or ""
+            except Exception:
+                path = ""
+            if not path:
+                return
+            source = self.playback_source
+            if isinstance(source, dict):
+                source["subtitle"] = path
+            for _ in range(25):
+                with self.job_lock:
+                    job = self.job
+                if not job or job.get("session_id") != session_id or not self.player.running():
+                    return
+                try:
+                    self.player.set_danmaku_file(path)
+                    return
+                except OSError:
+                    time.sleep(0.12)
+        finally:
+            pool.shutdown(wait=False)
+
+    def _save_job_progress_later(self):
+        job = self.job
+        if not job or not self.client.token:
+            return
+        position = int(self.player.position or 0)
+        if position < 1:
+            return
+        duration = int(self.player.duration or 0) or int(job.get("duration") or 0)
+        body = {
+            "item_guid": job["guid"],
+            "media_guid": job["media_guid"],
+            "video_guid": job.get("video_guid") or "",
+            "audio_guid": job.get("audio_guid") or "",
+            "subtitle_guid": job.get("subtitle_guid") or "_no_display_",
+            "resolution": job.get("resolution") or "",
+            "bitrate": int(job.get("bitrate") or 0),
+            "ts": position,
+            "duration": duration,
+        }
+        threading.Thread(target=self._record_body, args=(body,), daemon=True).start()
+
+    def _record_body(self, body):
+        try:
+            self.client.record(body)
+        except FnError:
+            return
 
     def _save_job_progress(self):
         job = self.job

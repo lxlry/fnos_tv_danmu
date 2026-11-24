@@ -68,14 +68,14 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   display: flex;
   gap: 14px;
   overflow-x: auto;
-  padding-bottom: 8px;
+  padding: 8px 0;
   align-items: flex-start;
   scroll-behavior: smooth;
 }
 .scroller { position: relative; }
 .scroll-arrow {
   position: absolute;
-  top: 79px;
+  top: 87px;
   z-index: 2;
   width: 42px;
   height: 64px;
@@ -97,7 +97,7 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .row .card { flex: 0 0 148px; width: 148px; }
 .row.landscape .card { flex-basis: 220px; width: 220px; }
 .row.landscape .poster { aspect-ratio: 16 / 9; }
-.scroller:has(.landscape) .scroll-arrow { top: 30px; }
+.scroller:has(.landscape) .scroll-arrow { top: 38px; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -109,7 +109,9 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   background: transparent;
   text-align: left;
   color: inherit;
+  transition: transform 0.28s ease;
 }
+.card:hover, .lib:hover { transform: translateY(-6px); }
 .poster {
   position: relative;
   aspect-ratio: 2 / 3;
@@ -117,8 +119,49 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   overflow: hidden;
   background: linear-gradient(160deg, #243246, #121820);
   box-shadow: var(--shadow);
+  transition: box-shadow 0.28s ease;
 }
-.poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.45s ease;
+}
+.poster::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.22) 50%, transparent 68%);
+  transform: translateX(-130%);
+  transition: transform 0.55s ease;
+  pointer-events: none;
+}
+.card:hover .poster,
+.lib:hover .poster,
+.hero:hover .poster {
+  box-shadow: 0 22px 40px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(61, 222, 200, 0.55);
+}
+.card:hover .poster img,
+.lib:hover .poster img,
+.hero:hover .poster img,
+.episode:hover img {
+  transform: scale(1.08);
+}
+.card:hover .poster::after,
+.lib:hover .poster::after,
+.hero:hover .poster::after {
+  transform: translateX(130%);
+}
+.poster .progress { z-index: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .card, .lib, .poster, .poster img, .poster::after { transition: none; }
+  .card:hover, .lib:hover,
+  .card:hover .poster img, .lib:hover .poster img, .hero:hover .poster img, .episode:hover img,
+  .card:hover .poster::after, .lib:hover .poster::after, .hero:hover .poster::after {
+    transform: none;
+  }
+}
 .poster .progress {
   position: absolute;
   left: 0; right: 0; bottom: 0;
@@ -180,6 +223,30 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .hero .poster { aspect-ratio: 2 / 3; }
 .overview { color: #d5dde6; max-width: 760px; }
 .update-log { white-space: pre-line; }
+.update-track {
+  height: 8px;
+  margin: 14px 0 8px;
+  border-radius: 999px;
+  background: #243140;
+  overflow: hidden;
+}
+.update-track span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+.update-track.indeterminate span {
+  width: 35%;
+  transition: none;
+  animation: update-indet 1.1s ease-in-out infinite;
+}
+@keyframes update-indet {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
 .actions { display: flex; gap: 10px; margin: 14px 0; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chips button.active { background: var(--accent); color: var(--accent-ink); }
@@ -194,7 +261,7 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   background: var(--bg-2);
   border: 1px solid var(--line);
 }
-.episode img { width: 92px; height: 52px; object-fit: cover; border-radius: 8px; background: #111; }
+.episode img { width: 92px; height: 52px; object-fit: cover; border-radius: 8px; background: #111; transition: transform 0.35s ease; }
 .pager { margin: 18px 0; }
 
 #now {

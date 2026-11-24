@@ -35,6 +35,7 @@ local danmu_on = __DANMU_ON__
 local play_speed = 1
 local end_path = status_path .. ".end"
 local last_write = 0
+mp.set_property("user-data/fntv/danmaku", danmu_on and "on" or "off")
 
 local function external_sub()
   local tracks = mp.get_property_native("track-list") or {}
@@ -93,6 +94,18 @@ mp.register_event("file-loaded", function()
 end)
 mp.register_script_message("danmu", function(state)
   danmu_on = state == "on"
+  mp.set_property("user-data/fntv/danmaku", danmu_on and "on" or "off")
+  apply_danmu()
+end)
+mp.register_script_message("danmu-file", function(path)
+  danmu_path = path or ""
+  apply_danmu()
+end)
+mp.observe_property("user-data/fntv/danmaku", "string", function(_, value)
+  if value ~= "on" and value ~= "off" then return end
+  local on = value == "on"
+  if on == danmu_on then return end
+  danmu_on = on
   apply_danmu()
 end)
 mp.register_script_message("speed", function(value)
@@ -199,10 +212,9 @@ class MpvPlayer:
                     "--config-dir=%s" % ui,
                     "--osc=no",
                     "--osd-bar=no",
-                    "--border=no",
                 ])
             command.extend([
-                "--force-window=yes",
+                "--force-window=immediate",
                 "--no-terminal",
                 "--keep-open=no",
                 "--input-ipc-server=%s" % PIPE_NAME,
@@ -237,6 +249,9 @@ class MpvPlayer:
 
     def set_danmaku(self, enabled):
         self.command(["script-message", "danmu", "on" if enabled else "off"])
+
+    def set_danmaku_file(self, path):
+        self.command(["script-message", "danmu-file", path or ""])
 
     def set_scale(self, scale):
         self.command(["set_property", "sub-ass-override", "scale"])

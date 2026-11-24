@@ -17,34 +17,35 @@ API = "https://api.github.com/repos/tomasklaen/uosc/releases/latest"
 PAGE = "https://github.com/tomasklaen/uosc/releases/latest"
 DOWNLOAD_PREFIXES = ("https://ghfast.top/", "https://gh-proxy.com/")
 DEST = Path(__file__).resolve().parent / "vendor" / "uosc"
-CONF = """# 飞牛TV 播放器界面。其余选项用 uosc 默认值。
+CONF = """# 飞牛TV 播放器界面，控件布局参考 uosc_danmaku。
 timeline_style=line
-timeline_line_width=2
-timeline_size=42
+timeline_line_width=3
+timeline_size=40
 timeline_persistency=paused
-controls=menu,gap,play-pause,gap,subtitles,audio,chapters,space,speed,gap,fullscreen
-controls_size=40
+progress=windowed
+progress_size=3
+controls=menu,gap,play-pause,gap,subtitles,audio,chapters,gap,cycle:toggle_on:user-data/fntv/danmaku:on=toggle_on!/off=toggle_off?弹幕,space,speed,gap,fullscreen
+controls_size=32
 controls_margin=8
-controls_spacing=8
+controls_spacing=2
 volume=right
 volume_size=40
-speed_persistency=idle
 top_bar=no-border
 top_bar_size=40
 top_bar_controls=right
 top_bar_title=yes
-window_border_size=1
-border_radius=8
+window_border_size=0
+border_radius=4
 autohide=yes
 pause_indicator=flash
 font_scale=1
-text_border=1
-color=foreground=edf2f7,foreground_text=10141a,background=10141a,background_text=edf2f7,curtain=000000,success=3ddec8,error=ff8b7a,window_border=10141a
+text_border=1.2
+color=foreground=ffffff,foreground_text=000000,background=000000,background_text=ffffff,curtain=111111,success=a5e075,error=ff616e,window_border=ffffff
 languages=zh-hans
 """
 MPV_CONF = """osc=no
 osd-bar=no
-border=no
+border=yes
 cursor-autohide=800
 keep-open=no
 """
