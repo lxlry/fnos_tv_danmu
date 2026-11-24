@@ -9,19 +9,15 @@ const toast = document.querySelector("#toast");
 let state = null;
 const stack = [];
 let toastTimer = 0;
+let homeKeep = null;
+let homeSignature = "";
+let homeRefreshToken = 0;
 
 backBtn.addEventListener("click", () => {
   stack.pop();
   const previous = stack[stack.length - 1];
   if (!previous) return renderCurrent();
   open(previous.name, previous.arg, false);
-});
-const playbackSettingsBtn = document.querySelector("#playback-settings");
-const stopPlayBtn = document.querySelector("#stop-play");
-playbackSettingsBtn.addEventListener("click", () => playbackDialog());
-stopPlayBtn.addEventListener("click", async () => {
-  await api("/api/stop", { method: "POST" });
-  refreshNow();
 });
 settingsBtn.addEventListener("click", () => settingsDialog());
 searchForm.addEventListener("submit", (event) => {
@@ -108,8 +104,8 @@ function bindRows(root) {
     const right = arrowButton("right", "向右");
     wrap.append(left, right);
     const distance = () => Math.max(row.clientWidth - 40, 160);
-    left.addEventListener("click", () => row.scrollBy({ left: -distance(), behavior: "smooth" }));
-    right.addEventListener("click", () => row.scrollBy({ left: distance(), behavior: "smooth" }));
+    left.addEventListener("click", () => scrollRow(row, -distance()));
+    right.addEventListener("click", () => scrollRow(row, distance()));
     const update = () => {
       const max = row.scrollWidth - row.clientWidth;
       left.hidden = row.scrollLeft <= 2;
@@ -118,6 +114,23 @@ function bindRows(root) {
     row.addEventListener("scroll", update);
     update();
   });
+}
+
+function scrollRow(row, delta) {
+  const max = Math.max(0, row.scrollWidth - row.clientWidth);
+  const start = row.scrollLeft;
+  const target = Math.min(max, Math.max(0, start + delta));
+  if (Math.abs(target - start) < 1) return;
+  if (row._scrollFrame) cancelAnimationFrame(row._scrollFrame);
+  const duration = 460;
+  const began = performance.now();
+  const step = (now) => {
+    const progress = Math.min(1, (now - began) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    row.scrollLeft = start + (target - start) * eased;
+    if (progress < 1) row._scrollFrame = requestAnimationFrame(step);
+  };
+  row._scrollFrame = requestAnimationFrame(step);
 }
 
 function arrowButton(side, label) {
@@ -136,13 +149,76 @@ function chrome(show) {
 }
 
 function open(name, arg, push = true) {
-  if (push) stack.push({ name, arg });
+  if (push) {
+    keepHome();
+    stack.push({ name, arg });
+  }
   renderCurrent();
+}
+
+function pageScroll() {
+  return (document.scrollingElement || document.documentElement).scrollTop;
+}
+
+function setPageScroll(value) {
+  (document.scrollingElement || document.documentElement).scrollTop = value;
+}
+
+function forgetHome() {
+  homeKeep = null;
+  homeSignature = "";
+  homeRefreshToken += 1;
+}
+
+function keepHome() {
+  const current = stack[stack.length - 1];
+  if (!current || current.name !== "home" || !view.childElementCount) return;
+  if (homeKeep && view.firstElementChild === homeKeep.node) {
+    homeKeep.scroll = pageScroll();
+    view.removeChild(homeKeep.node);
+    return;
+  }
+  const node = document.createElement("div");
+  while (view.firstChild) node.appendChild(view.firstChild);
+  homeKeep = { node, scroll: pageScroll() };
+}
+
+function showKeptHome() {
+  view.replaceChildren(homeKeep.node);
+  const scroll = homeKeep.scroll;
+  requestAnimationFrame(() => setPageScroll(scroll));
+  refreshHome();
+}
+
+async function refreshHome() {
+  const token = ++homeRefreshToken;
+  try {
+    const data = await api("/api/home");
+    if (token !== homeRefreshToken) return;
+    const current = stack[stack.length - 1];
+    if (!current || current.name !== "home") return;
+    if (JSON.stringify(data) === homeSignature) return;
+    const scroll = pageScroll();
+    paintHome(data);
+    requestAnimationFrame(() => setPageScroll(scroll));
+  } catch (error) {
+    if (token !== homeRefreshToken) return;
+    if (error.kind === "auth") {
+      forgetHome();
+      stack.length = 0;
+      open("login");
+      showToast(error.message);
+    }
+  }
 }
 
 async function renderCurrent() {
   const current = stack[stack.length - 1];
   chrome(current && current.name !== "login");
+  if (current && current.name === "home" && homeKeep) {
+    showKeptHome();
+    return;
+  }
   view.innerHTML = `<p class="muted">正在加载…</p>`;
   try {
     if (current.name === "login") return renderLogin();
@@ -152,6 +228,7 @@ async function renderCurrent() {
     if (current.name === "detail") return await renderDetail(current.arg);
   } catch (error) {
     if (error.kind === "auth") {
+      forgetHome();
       stack.length = 0;
       open("login");
       showToast(error.message);
@@ -196,6 +273,7 @@ function renderLogin() {
         }),
       });
       state = await api("/api/status");
+      forgetHome();
       stack.length = 0;
       open("home");
     } catch (error) {
@@ -206,7 +284,11 @@ function renderLogin() {
 }
 
 async function renderHome() {
-  const data = await api("/api/home");
+  paintHome(await api("/api/home"));
+}
+
+function paintHome(data) {
+  homeSignature = JSON.stringify(data);
   const libraries = (data.libraries || []).map((item) => `<button class="lib" data-guid="${esc(item.guid)}" data-type="Library" data-title="${esc(item.title)}">
       <div class="poster">${item.poster ? `<img src="${poster(item.poster)}" alt="">` : ""}</div>
       <b>${esc(item.title)}</b>
@@ -225,10 +307,10 @@ async function renderHome() {
   }).join("");
   const resume = (data.continue || []).map((item) => card(item, { play: true })).join("");
   view.innerHTML = `<h1>你好，${esc(state.username || state.account || "")}</h1>
-    <p class="muted">${esc(state.server || "")}${state.mpv_ready ? "" : " · 没有找到随程序提供的 mpv"}</p>
+    ${state.mpv_ready ? "" : `<p class="muted">没有找到随程序提供的 mpv</p>`}
     ${resume ? `<h2>继续观看</h2><div class="row landscape">${resume}</div>` : ""}
     <h2>媒体库</h2>
-    <div class="grid">${libraries || `<p class="muted">没有媒体库</p>`}</div>
+    <div class="grid libraries">${libraries || `<p class="muted">没有媒体库</p>`}</div>
     ${sections}`;
   bindCards(view);
 }
@@ -319,12 +401,11 @@ function nextAfter(episodes, guid) {
 
 async function startPlay(guid, nextGuid) {
   try {
-    const result = await api("/api/play", {
+    await api("/api/play", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guid, next_guid: nextGuid || "" }),
     });
-    refreshNow();
   } catch (error) {
     showToast(error.message);
   }
@@ -355,6 +436,7 @@ function settingsDialog() {
     await api("/api/logout", { method: "POST" });
     node.remove();
     state = await api("/api/status");
+    forgetHome();
     stack.length = 0;
     open("login");
   });
@@ -489,19 +571,6 @@ async function applyPlayback(url, body) {
   }
 }
 
-async function refreshNow() {
-  try {
-    const playing = await api("/api/playing");
-    const show = Boolean(playing.running);
-    playbackSettingsBtn.hidden = !show;
-    stopPlayBtn.hidden = !show;
-  } catch (error) {
-    playbackSettingsBtn.hidden = true;
-    stopPlayBtn.hidden = true;
-  }
-  nowBar.hidden = true;
-}
-
 let updateOpen = false;
 
 async function checkUpdate(quiet) {
@@ -523,7 +592,7 @@ function showUpdateDialog(info) {
   node.innerHTML = `<div class="sheet">
     <h2>${esc(info.title || "发现新版本")}</h2>
     <p class="overview update-log">${esc(info.changelog || "暂无更新说明")}</p>
-    <div class="update-track" id="update-track" hidden><span id="update-fill"></span></div>
+    <div class="update-track" id="update-track"><span id="update-fill"></span></div>
     <p class="muted" id="update-progress"></p>
     <div class="actions">
       <button class="primary" id="update-now" type="button">立即更新</button>
@@ -553,14 +622,14 @@ function renderDownload(node, state) {
   const track = node.querySelector("#update-track");
   const fill = node.querySelector("#update-fill");
   const progress = node.querySelector("#update-progress");
-  track.hidden = false;
+  track.classList.add("show");
   const total = Number(state.total) || 0;
   const received = Number(state.received) || 0;
   if (total > 0) {
     const percent = Math.min(100, Math.round(received / total * 100));
     track.classList.remove("indeterminate");
     fill.style.transform = "";
-    fill.style.width = percent + "%";
+    fill.style.width = Math.max(percent, received > 0 ? 2 : 0) + "%";
     progress.textContent = "正在下载 " + percent + "% · " + formatSize(received) + " / " + formatSize(total);
     return;
   }
@@ -611,7 +680,6 @@ async function boot() {
     return;
   }
   open(state.logged_in ? "home" : "login");
-  setInterval(refreshNow, 3000);
   checkUpdate(true);
 }
 

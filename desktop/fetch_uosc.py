@@ -17,14 +17,13 @@ API = "https://api.github.com/repos/tomasklaen/uosc/releases/latest"
 PAGE = "https://github.com/tomasklaen/uosc/releases/latest"
 DOWNLOAD_PREFIXES = ("https://ghfast.top/", "https://gh-proxy.com/")
 DEST = Path(__file__).resolve().parent / "vendor" / "uosc"
-CONF = """# 飞牛TV 播放器界面，控件布局参考 uosc_danmaku。
+CONF = """# 飞牛TV 播放器界面。底部控件按 uosc_danmaku 的排布。
 timeline_style=line
-timeline_line_width=3
+timeline_line_width=2
 timeline_size=40
-timeline_persistency=paused
 progress=windowed
-progress_size=3
-controls=menu,gap,play-pause,gap,subtitles,audio,chapters,gap,cycle:toggle_on:user-data/fntv/danmaku:on=toggle_on!/off=toggle_off?弹幕,space,speed,gap,fullscreen
+progress_size=2
+controls=menu,gap,subtitles,<has_many_audio>audio,<has_many_video>video,<has_many_edition>editions,gap,cycle:toggle_on:user-data/fntv/danmaku:on=toggle_on/off=toggle_off?弹幕,gap,space,speed,space,gap,fullscreen
 controls_size=32
 controls_margin=8
 controls_spacing=2

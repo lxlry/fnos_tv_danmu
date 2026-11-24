@@ -112,13 +112,20 @@ class Updater:
         if match:
             name = urllib.parse.unquote(match.group(3))
         dest = Path(tempfile.gettempdir()) / name
+        total = _asset_size(exe_url)
+        with self._lock:
+            self._download["total"] = total
+            self._download["received"] = 0
         try:
             request = urllib.request.Request(exe_url, headers={"User-Agent": "FNTV"})
             with urllib.request.urlopen(request, context=WEB_SSL, timeout=60) as response:
-                total = int(response.headers.get("Content-Length") or 0)
-                if total <= 0:
-                    total = _asset_size(exe_url)
+                header_total = int(response.headers.get("Content-Length") or 0)
+                if header_total > total:
+                    total = header_total
                 received = 0
+                with self._lock:
+                    self._download["total"] = total
+                    self._download["received"] = 0
                 with dest.open("wb") as output:
                     while True:
                         chunk = response.read(256 * 1024)
@@ -128,9 +135,16 @@ class Updater:
                         received += len(chunk)
                         with self._lock:
                             self._download["received"] = received
-                            self._download["total"] = total
+                            if total:
+                                self._download["total"] = total
             with self._lock:
-                self._download.update({"status": "done", "path": str(dest), "received": dest.stat().st_size})
+                size = dest.stat().st_size
+                self._download.update({
+                    "status": "done",
+                    "path": str(dest),
+                    "received": size,
+                    "total": total or size,
+                })
         except Exception as err:
             with self._lock:
                 self._download.update({"status": "failed", "message": "下载失败：%s" % err})

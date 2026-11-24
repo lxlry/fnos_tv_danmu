@@ -7,9 +7,14 @@ import urllib.request
 from .api import SSL_CTX
 
 
-def comments_to_ass(comments):
+def comments_to_ass(comments, scale=1):
     events = []
     lanes = [0.0] * 14
+    scale = float(scale or 1)
+    if scale <= 0:
+        scale = 1
+    size = max(18, int(round(46 * scale)))
+    lane_step = max(36, int(round(58 * scale)))
     for item in comments:
         text, at, mode, color = _parse_comment(item)
         if not text:
@@ -25,23 +30,25 @@ def comments_to_ass(comments):
         lanes[lane] = at + 8
         events.append((at, at + 8, "Scroll", lane, color, text))
     events.sort(key=lambda item: item[0])
+    style_row = (
+        "Style: %s,Microsoft YaHei,%d,&H00FFFFFF,&H00FFFFFF,&H00202020,&H64000000,"
+        "0,0,0,0,100,100,0,0,1,2,0,%s,40,40,%d,1"
+    )
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
         "PlayResX: 1920",
         "PlayResY: 1080",
         "WrapStyle: 2",
+        "ScaledBorderAndShadow: yes",
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Scroll,Microsoft YaHei,46,&H00FFFFFF,&H00FFFFFF,&H00202020,&H64000000,"
-        "0,0,0,0,100,100,0,0,1,2,0,8,40,40,30,1",
-        "Style: Top,Microsoft YaHei,46,&H00FFFFFF,&H00FFFFFF,&H00202020,&H64000000,"
-        "0,0,0,0,100,100,0,0,1,2,0,8,40,40,40,1",
-        "Style: Bottom,Microsoft YaHei,46,&H00FFFFFF,&H00FFFFFF,&H00202020,&H64000000,"
-        "0,0,0,0,100,100,0,0,1,2,0,2,40,40,40,1",
+        style_row % ("Scroll", size, 8, 30),
+        style_row % ("Top", size, 8, 40),
+        style_row % ("Bottom", size, 2, 40),
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -49,10 +56,10 @@ def comments_to_ass(comments):
     for at, end, style, lane, color, text in events:
         colour = _ass_colour(color)
         if style == "Scroll":
-            y = 48 + lane * 58
-            body = "{\\move(1980,%d,-500,%d)\\c%s}%s" % (y, y, colour, _escape(text))
+            y = 40 + lane * lane_step
+            body = "{\\an8\\move(1920,%d,-400,%d)\\c%s}%s" % (y, y, colour, _escape(text))
         else:
-            body = "{\\c%s}%s" % (colour, _escape(text))
+            body = "{\\an8\\c%s}%s" % (colour, _escape(text)) if style == "Top" else "{\\an2\\c%s}%s" % (colour, _escape(text))
         lines.append("Dialogue: 0,%s,%s,%s,,0,0,0,,%s" % (_ts(at), _ts(end), style, body))
     return "\n".join(lines) + "\n"
 

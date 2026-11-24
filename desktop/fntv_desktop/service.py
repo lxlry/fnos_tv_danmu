@@ -39,6 +39,8 @@ class Desktop:
         self.job = None
         self.job_lock = threading.Lock()
         self.playback_source = None
+        self._danmu_comments = []
+        self._danmu_lock = threading.Lock()
         self._restore_client()
 
     def _load_config(self):
@@ -229,6 +231,8 @@ class Desktop:
 
     def play(self, guid, next_guid=""):
         self._need_login()
+        with self._danmu_lock:
+            self._danmu_comments = []
         mpv_path = find_mpv(self.config.get("mpv_path") or "")
         if not mpv_path:
             raise FnError("没有找到随程序提供的 mpv。请重新下载完整压缩包。")
@@ -334,7 +338,7 @@ class Desktop:
             "quality_index": job.get("quality_index") or 0,
             "danmaku_on": tracks["danmaku_on"],
             "danmaku_ready": bool(source.get("subtitle")),
-            "danmaku_scale": tracks["danmaku_scale"],
+            "danmaku_scale": float(self.config.get("danmu_scale") or 1),
             "skip_opening": int(job.get("skip_opening") or 0),
             "skip_ending": int(job.get("skip_ending") or 0),
             "speed": tracks.get("speed") or 1,
@@ -350,7 +354,9 @@ class Desktop:
         if scale is not None:
             self.config["danmu_scale"] = float(scale)
             self._save_config()
-            self._player_call(lambda: self.player.set_scale(scale))
+            path = self._rewrite_danmu()
+            if path:
+                self._player_call(lambda: self.player.set_danmaku_file(path))
         self._player_call(lambda: self.player.set_danmaku(bool(enabled)))
 
     def set_speed(self, speed):
@@ -636,8 +642,21 @@ class Desktop:
             return ""
         if not comments:
             return ""
+        with self._danmu_lock:
+            self._danmu_comments = comments
+        return self._save_danmu_ass(comments)
+
+    def _rewrite_danmu(self):
+        with self._danmu_lock:
+            comments = list(self._danmu_comments or [])
+        if not comments:
+            return ""
+        return self._save_danmu_ass(comments)
+
+    def _save_danmu_ass(self, comments):
+        scale = float(self.config.get("danmu_scale") or 1)
         path = self.directory / "danmu.ass"
-        path.write_text(comments_to_ass(comments), encoding="utf-8")
+        path.write_text(comments_to_ass(comments, scale), encoding="utf-8")
         return str(path)
 
     def _detail_view(self, info):

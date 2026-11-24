@@ -52,7 +52,7 @@ local function apply_danmu()
   if danmu_path == "" then return end
   local found = external_sub()
   if found == nil then
-    mp.commandv("sub-add", danmu_path, "auto")
+    mp.commandv("sub-add", danmu_path, "cached")
     found = external_sub()
   end
   if found == nil then return end
@@ -99,6 +99,11 @@ mp.register_script_message("danmu", function(state)
 end)
 mp.register_script_message("danmu-file", function(path)
   danmu_path = path or ""
+  local found = external_sub()
+  if found ~= nil then
+    mp.set_property("secondary-sid", "no")
+    mp.commandv("sub-remove", found)
+  end
   apply_danmu()
 end)
 mp.observe_property("user-data/fntv/danmaku", "string", function(_, value)
@@ -218,8 +223,7 @@ class MpvPlayer:
                 "--no-terminal",
                 "--keep-open=no",
                 "--input-ipc-server=%s" % PIPE_NAME,
-                "--sub-ass-override=scale",
-                "--sub-scale=%s" % _scale(danmaku_scale),
+                "--sub-ass-override=no",
                 "--script=%s" % self.script_path,
                 "--title=%s" % (title or "飞牛TV"),
                 url,
@@ -254,8 +258,7 @@ class MpvPlayer:
         self.command(["script-message", "danmu-file", path or ""])
 
     def set_scale(self, scale):
-        self.command(["set_property", "sub-ass-override", "scale"])
-        self.command(["set_property", "sub-scale", _scale(scale)])
+        return
 
     def set_speed(self, speed):
         self.command(["script-message", "speed", str(_playback_speed(speed))])
