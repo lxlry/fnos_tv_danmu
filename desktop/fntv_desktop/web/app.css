@@ -98,14 +98,11 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .row.landscape .card { flex-basis: 220px; width: 220px; }
 .row.landscape .poster { aspect-ratio: 16 / 9; }
 .scroller:has(.landscape) .scroll-arrow { top: 38px; }
+.scroller:has(.libraries) .scroll-arrow { top: 41px; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 16px;
-}
-.grid.libraries {
-  grid-template-columns: repeat(auto-fill, 232px);
-  justify-content: start;
 }
 .card, .lib {
   border: 0;
@@ -192,6 +189,8 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .lib .poster { aspect-ratio: 16 / 9; }
 .lib .poster img { object-fit: contain; }
 .lib:hover .poster img { transform: none; }
+.row.libraries { gap: 16px; }
+.row.libraries .lib { flex: 0 0 232px; width: 232px; }
 .lib-block { margin-top: 6px; }
 .lib-head {
   display: inline-flex;
@@ -218,6 +217,23 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .login label span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
 .check { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .check input { width: auto; }
+.sheet .check { justify-content: space-between; width: 100%; margin: 8px 0; }
+.sheet .check input { margin-left: auto; }
+.skip-row, .skip-live {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 8px 0;
+  text-align: left;
+  background: #121820;
+}
+.skip-live { border: 1px solid var(--line); border-radius: 12px; }
+.skip-live b, .skip-row b { font-weight: 650; }
+.skip-clock { margin: 8px 0 16px; text-align: center; font-size: 32px; font-weight: 750; }
+.wheels { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: center; margin: 18px 0; }
+.wheels input { text-align: center; }
 .login .primary { width: 100%; margin-top: 8px; }
 
 .hero {
@@ -256,20 +272,55 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
   100% { transform: translateX(160%); }
 }
 .actions { display: flex; gap: 10px; margin: 14px 0; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 12px; }
 .chips button.active { background: var(--accent); color: var(--accent-ink); }
-.episodes { display: grid; gap: 8px; }
-.episode {
-  display: grid;
-  grid-template-columns: 92px 1fr auto;
-  gap: 12px;
-  align-items: center;
-  width: 100%;
+.episode-head { display: flex; align-items: baseline; gap: 10px; }
+.episode-head h2 { margin-bottom: 0; }
+.episode-head span { color: var(--muted); }
+.season-card.active .poster { box-shadow: 0 0 0 2px var(--accent); }
+.row .episode {
+  flex: 0 0 200px;
+  width: 200px;
+  display: block;
   text-align: left;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
-.episode img { width: 92px; height: 52px; object-fit: cover; border-radius: 8px; background: #111; transition: transform 0.35s ease; }
+.row .episode img, .row .episode .still {
+  width: 100%;
+  height: 112px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #121820;
+  display: block;
+}
+.row .episode.active img, .row .episode.active .still { box-shadow: 0 0 0 2px var(--accent); }
+.scroller:has(.episodes-row) .scroll-arrow { top: 32px; }
+.scroller:has(.cast-row) .scroll-arrow { top: 4px; }
+.cast { flex: 0 0 92px; width: 92px; text-align: center; }
+.cast .avatar {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #202021;
+  color: var(--muted);
+  font-size: 18px;
+}
+.cast img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cast b, .cast span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.facts { max-width: 820px; }
+.fact { display: grid; grid-template-columns: 72px 1fr; gap: 8px; margin: 4px 0; }
+.fact span { color: var(--muted); }
+.fact b { font-weight: 500; }
+body.panel header, body.panel #view, body.panel #now { display: none; }
+body.panel { background: var(--bg-2); }
+body.panel .dialog { background: transparent; padding: 12px; align-items: stretch; }
+body.panel .sheet { width: 100%; max-height: calc(100vh - 24px); }
 .pager { margin: 18px 0; }
 
 #now {

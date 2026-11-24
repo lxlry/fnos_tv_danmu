@@ -310,7 +310,7 @@ function paintHome(data) {
     ${state.mpv_ready ? "" : `<p class="muted">没有找到随程序提供的 mpv</p>`}
     ${resume ? `<h2>继续观看</h2><div class="row landscape">${resume}</div>` : ""}
     <h2>媒体库</h2>
-    <div class="grid libraries">${libraries || `<p class="muted">没有媒体库</p>`}</div>
+    <div class="row libraries">${libraries || `<p class="muted">没有媒体库</p>`}</div>
     ${sections}`;
   bindCards(view);
 }
@@ -345,9 +345,34 @@ async function renderDetail(guid) {
 }
 
 function drawDetail(data, episodes) {
-  const seasons = (data.seasons || []).map((season, index) =>
-    `<button type="button" class="season${index === 0 ? " active" : ""}" data-guid="${esc(season.guid)}">${esc(season.title)}</button>`).join("");
   const playable = data.type === "Movie" || data.type === "Video" || data.type === "Episode" || data.media_guid;
+  const seasons = (data.seasons || []).map((season) => {
+    const meta = [season.count ? "共" + season.count + "集" : "", season.year || ""].filter(Boolean).join(" · ");
+    return `<button class="card season-card" type="button" data-guid="${esc(season.guid)}">
+      <div class="poster">${season.poster ? `<img src="${poster(season.poster)}" alt="">` : ""}</div>
+      <b>${esc(season.title)}</b>
+      <span>${esc(meta)}</span>
+    </button>`;
+  }).join("");
+  const people = (data.people || []).map((person) => {
+    const image = poster(person.image);
+    const letter = esc((person.name || person.role || "?").slice(0, 1));
+    return `<div class="cast">
+      <span class="avatar">${image ? `<img src="${image}" alt="">` : letter}</span>
+      <b>${esc(person.name || "")}</b>
+      <span>${esc(person.role || "")}</span>
+    </div>`;
+  }).join("");
+  const file = data.file || {};
+  const facts = [
+    ["位置", file.location],
+    ["大小", file.size],
+    ["创建时间", file.created],
+    ["添加时间", file.added],
+    ["视频", file.video],
+    ["音频", file.audio],
+    ["字幕", file.subtitle],
+  ].filter((item) => item[1]).map((item) => `<div class="fact"><span>${item[0]}</span><b>${esc(item[1])}</b></div>`).join("");
   view.innerHTML = `<article class="hero">
       <div class="poster">${data.poster ? `<img src="${poster(data.poster)}" alt="">` : ""}</div>
       <div>
@@ -357,40 +382,94 @@ function drawDetail(data, episodes) {
         <div class="actions">
           ${playable ? `<button class="primary" id="play" type="button">${Number(data.ts) > 30 ? "继续播放" : "播放"}</button>` : ""}
         </div>
-        ${seasons ? `<div class="chips">${seasons}</div>` : ""}
       </div>
     </article>
-    <div class="episodes" id="episodes"></div>`;
+    ${seasons ? `<h2>季</h2><div class="row" id="seasons">${seasons}</div>` : ""}
+    <div id="episode-section"></div>
+    ${people ? `<h2>演职人员</h2><div class="row cast-row">${people}</div>` : ""}
+    ${facts ? `<h2>文件信息</h2><div class="facts">${facts}</div>${file.report ? `<button type="button" id="file-more">查看全部</button>` : ""}` : ""}`;
   view.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove()));
   const play = view.querySelector("#play");
   if (play) play.addEventListener("click", () => startPlay(data.guid, nextAfter(episodes, data.guid)));
-  fillEpisodes(episodes, data.guid);
-  view.querySelectorAll(".season").forEach((button) => {
+  const more = view.querySelector("#file-more");
+  if (more) more.addEventListener("click", () => showFileReport(file.report));
+  paintEpisodes(episodes, data.guid);
+  bindRows(view);
+  view.querySelectorAll(".season-card").forEach((button, index) => {
+    if (index === 0) button.classList.add("active");
     button.addEventListener("click", async () => {
-      view.querySelectorAll(".season").forEach((one) => one.classList.remove("active"));
+      view.querySelectorAll(".season-card").forEach((one) => one.classList.remove("active"));
       button.classList.add("active");
       const list = await api("/api/episodes?guid=" + encodeURIComponent(button.dataset.guid));
-      fillEpisodes(list.items || [], "");
+      paintEpisodes(list.items || [], "");
     });
   });
 }
 
-function fillEpisodes(episodes, current) {
-  const root = view.querySelector("#episodes");
+const EPISODE_PAGE = 30;
+
+function episodeNumber(episode, index) {
+  const number = Number(episode.episode_number);
+  return number > 0 ? number : index + 1;
+}
+
+function paintEpisodes(episodes, current) {
+  const root = view.querySelector("#episode-section");
   if (!root) return;
-  root.innerHTML = episodes.map((episode) => {
-    const image = poster(episode.poster);
-    return `<button class="episode" type="button" data-guid="${esc(episode.guid)}">
-      ${image ? `<img src="${image}" alt="">` : "<span></span>"}
-      <b>${esc(episode.title)}</b>
-      <span>${Number(episode.ts) > 0 ? "看过" : ""}</span>
-    </button>`;
-  }).join("");
-  root.querySelectorAll(".episode").forEach((button) => {
-    if (button.dataset.guid === current) button.style.outline = "1px solid var(--accent)";
-    button.addEventListener("click", () => startPlay(button.dataset.guid, nextAfter(episodes, button.dataset.guid)));
+  if (!episodes.length) {
+    root.innerHTML = "";
+    return;
+  }
+  const maxNumber = episodes.reduce((max, episode, index) => Math.max(max, episodeNumber(episode, index)), episodes.length);
+  const pages = Math.max(1, Math.ceil(maxNumber / EPISODE_PAGE));
+  let page = 0;
+  episodes.forEach((episode, index) => {
+    if (episode.guid === current) page = Math.floor((episodeNumber(episode, index) - 1) / EPISODE_PAGE);
   });
-  root.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove()));
+  const draw = (selected) => {
+    const ranges = pages <= 1 ? "" : Array.from({ length: pages }, (_, index) => {
+      const start = index * EPISODE_PAGE + 1;
+      const end = Math.min((index + 1) * EPISODE_PAGE, maxNumber);
+      return `<button type="button" class="${index === selected ? "active" : ""}" data-page="${index}">${start}-${end}</button>`;
+    }).join("");
+    const cards = episodes.map((episode, index) => {
+      if (Math.floor((episodeNumber(episode, index) - 1) / EPISODE_PAGE) !== selected) return "";
+      const image = poster(episode.poster);
+      const number = episodeNumber(episode, index);
+      const watched = Number(episode.ts) > 0 ? "看过" : "";
+      return `<button class="episode${episode.guid === current ? " active" : ""}" type="button" data-guid="${esc(episode.guid)}">
+        ${image ? `<img src="${image}" alt="">` : `<span class="still"></span>`}
+        <b>${esc(episode.title || ("第" + number + "集"))}</b>
+        <span>${esc(episode.subtitle || watched)}</span>
+      </button>`;
+    }).join("");
+    root.innerHTML = `<div class="episode-head"><h2>选集</h2><span>共${episodes.length}集</span></div>
+      ${ranges ? `<div class="chips" id="episode-ranges">${ranges}</div>` : ""}
+      <div class="row episodes-row">${cards}</div>`;
+    root.querySelectorAll("[data-page]").forEach((button) => {
+      button.addEventListener("click", () => draw(Number(button.dataset.page)));
+    });
+    root.querySelectorAll(".episode").forEach((button) => {
+      button.addEventListener("click", () => startPlay(button.dataset.guid, nextAfter(episodes, button.dataset.guid)));
+    });
+    root.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove()));
+    bindRows(root);
+  };
+  draw(page);
+}
+
+function showFileReport(report) {
+  const node = document.createElement("div");
+  node.className = "dialog";
+  node.innerHTML = `<div class="sheet player-sheet">
+    <h2>媒体信息</h2>
+    <pre class="report">${esc(report || "")}</pre>
+    <div class="actions"><button type="button" id="close-report">关闭</button></div>
+  </div>`;
+  document.body.appendChild(node);
+  const close = () => node.remove();
+  node.querySelector("#close-report").addEventListener("click", close);
+  node.addEventListener("click", (event) => { if (event.target === node) close(); });
 }
 
 function nextAfter(episodes, guid) {
@@ -418,8 +497,8 @@ function settingsDialog() {
     <h2>设置</h2>
     <label><span class="muted">弹幕服务器</span><input name="danmu_url" value="${esc(state.danmu_url || "")}" placeholder="http://IP:9321"></label>
     <label><span class="muted">mpv.exe 路径（留空则自动查找）</span><input name="mpv_path" value="${esc(state.mpv_path || "")}"></label>
-    <label class="check"><input name="danmu_on" type="checkbox" ${state.danmu_on ? "checked" : ""}>播放时加载弹幕</label>
-    <label class="check"><input name="auto_next" type="checkbox" ${state.auto_next ? "checked" : ""}>剧集播完自动下一集</label>
+    <label class="check"><span>播放时加载弹幕</span><input name="danmu_on" type="checkbox" ${state.danmu_on ? "checked" : ""}></label>
+    <label class="check"><span>剧集播完自动下一集</span><input name="auto_next" type="checkbox" ${state.auto_next ? "checked" : ""}></label>
     <p class="muted">当前版本 ${esc(state.version || "")}。mpv 里空格暂停，左右方向键快进，上下方向键调音量。</p>
     <div class="actions">
       <button class="primary" type="submit">保存</button>
@@ -723,14 +802,10 @@ async function danmakuDialog() {
     danmakuOpen = false;
     clearTimeout(danmakuTimer);
     node.remove();
-    api("/api/window/focus", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ on: false }),
-    }).catch(() => {});
+    closePlayerPanel(null);
   };
   const ready = !!info.ready;
-  const checkRow = (key, label, settings) => `<label class="check"><input type="checkbox" data-key="${key}" ${settings[key] ? "checked" : ""}>${label}</label>`;
+  const checkRow = (key, label, settings) => `<label class="check"><span>${label}</span><input type="checkbox" data-key="${key}" ${settings[key] ? "checked" : ""}></label>`;
   const draw = (settings) => {
     const top = DANMAKU_FIELDS.slice(0, 4).map((field) => sliderRow(field, settings)).join("");
     const bottom = DANMAKU_FIELDS.slice(4).map((field) => sliderRow(field, settings)).join("");
@@ -784,17 +859,180 @@ async function saveDanmaku(body) {
   }
 }
 
+let skipOpen = false;
+
+function skipClock(sec) {
+  const value = Math.max(0, Math.floor(Number(sec) || 0));
+  return Math.floor(value / 60) + "分" + (value % 60) + "秒";
+}
+
+async function skipDialog() {
+  if (skipOpen) return;
+  skipOpen = true;
+  const node = document.createElement("div");
+  node.className = "dialog";
+  node.innerHTML = `<div class="sheet player-sheet" id="skip-sheet"></div>`;
+  document.body.appendChild(node);
+  const sheet = node.querySelector("#skip-sheet");
+  let page = "menu";
+  let which = "opening";
+  let timer = 0;
+  const close = () => {
+    skipOpen = false;
+    clearInterval(timer);
+    node.remove();
+    closePlayerPanel(null);
+  };
+  const load = async (quiet) => {
+    try {
+      return await api("/api/skip");
+    } catch (error) {
+      if (!quiet) showToast(error.message);
+      return null;
+    }
+  };
+  const save = async (opening, ending) => {
+    await api("/api/playback/skip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ opening, ending }),
+    });
+  };
+  const draw = async () => {
+    const data = await load();
+    if (!data || !node.isConnected) return;
+    clearInterval(timer);
+    timer = 0;
+    if (page === "menu") {
+      sheet.innerHTML = `<div class="sheet-head"><h2>片头片尾</h2><button type="button" id="skip-close">关闭</button></div>
+        <p class="muted">生效范围：${esc(data.title || "当前视频")}</p>
+        <button class="skip-row" type="button" data-edit="opening"><b>片头时长</b><span>${skipClock(data.opening)} &gt;</span></button>
+        <button class="skip-row" type="button" data-edit="ending"><b>片尾时长</b><span>${skipClock(data.ending)} &gt;</span></button>`;
+      sheet.querySelector("#skip-close").addEventListener("click", close);
+      sheet.querySelectorAll("[data-edit]").forEach((button) => {
+        button.addEventListener("click", () => {
+          which = button.dataset.edit;
+          page = "edit";
+          draw();
+        });
+      });
+      return;
+    }
+    if (page === "custom") {
+      const current = which === "opening" ? data.opening : data.ending;
+      sheet.innerHTML = `<div class="sheet-head"><button type="button" id="skip-back">返回</button><h2>自定义${which === "opening" ? "片头" : "片尾"}时长</h2></div>
+        <div class="wheels">
+          <input id="skip-min" type="number" min="0" max="20" value="${Math.min(20, Math.floor(current / 60))}">
+          <span>分</span>
+          <input id="skip-sec" type="number" min="0" max="59" value="${current % 60}">
+          <span>秒</span>
+        </div>
+        <div class="actions">
+          <button type="button" id="skip-zero">重置</button>
+          <button class="primary" type="button" id="skip-ok">确定</button>
+        </div>`;
+      sheet.querySelector("#skip-back").addEventListener("click", () => { page = "edit"; draw(); });
+      sheet.querySelector("#skip-zero").addEventListener("click", () => {
+        sheet.querySelector("#skip-min").value = "0";
+        sheet.querySelector("#skip-sec").value = "0";
+      });
+      sheet.querySelector("#skip-ok").addEventListener("click", async () => {
+        const total = Math.max(0, Math.min(20, Number(sheet.querySelector("#skip-min").value) || 0)) * 60
+          + Math.max(0, Math.min(59, Number(sheet.querySelector("#skip-sec").value) || 0));
+        try {
+          await save(which === "opening" ? total : data.opening, which === "ending" ? total : data.ending);
+          page = "edit";
+          draw();
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+      return;
+    }
+    const saved = which === "opening" ? data.opening : data.ending;
+    const liveValue = which === "opening" ? data.position : (data.duration > 0 ? Math.max(0, data.duration - data.position) : -1);
+    sheet.innerHTML = `<div class="sheet-head"><button type="button" id="skip-back">返回</button><h2>${which === "opening" ? "片头时长" : "片尾时长"}</h2><button type="button" id="skip-reset">重置</button></div>
+      <p class="muted">生效范围：${esc(data.title || "当前视频")}</p>
+      <div class="skip-clock">${skipClock(saved)}</div>
+      <div class="skip-live">
+        <div><b>${which === "opening" ? "当前播放时间" : "距离片尾"}</b><div class="muted" id="skip-live">${liveValue < 0 ? "片长未知" : skipClock(liveValue)}</div></div>
+        <button type="button" id="skip-use">${which === "opening" ? "设为片头" : "设为片尾"}</button>
+      </div>
+      <button class="skip-row" type="button" id="skip-custom"><b>自定义</b><span>&gt;</span></button>`;
+    sheet.querySelector("#skip-back").addEventListener("click", () => { page = "menu"; draw(); });
+    sheet.querySelector("#skip-custom").addEventListener("click", () => { page = "custom"; draw(); });
+    sheet.querySelector("#skip-reset").addEventListener("click", async () => {
+      try {
+        await save(which === "opening" ? 0 : data.opening, which === "ending" ? 0 : data.ending);
+        draw();
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+    sheet.querySelector("#skip-use").addEventListener("click", async () => {
+      const fresh = await load();
+      if (!fresh) return;
+      if (which === "ending" && !(Number(fresh.duration) > 0)) {
+        showToast("还不知道片长，稍后再设片尾");
+        return;
+      }
+      try {
+        await save(
+          which === "opening" ? fresh.position : fresh.opening,
+          which === "ending" ? Math.max(0, fresh.duration - fresh.position) : fresh.ending,
+        );
+        draw();
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+    timer = setInterval(async () => {
+      const fresh = await load(true);
+      const liveNode = sheet.querySelector("#skip-live");
+      if (!fresh || !liveNode) return;
+      const value = which === "opening" ? fresh.position : (fresh.duration > 0 ? Math.max(0, fresh.duration - fresh.position) : -1);
+      liveNode.textContent = value < 0 ? "片长未知" : skipClock(value);
+    }, 500);
+  };
+  node.addEventListener("click", (event) => { if (event.target === node) close(); });
+  draw();
+}
+
+function closePlayerPanel(node) {
+  if (document.body.classList.contains("panel")) {
+    api("/api/panel/close", { method: "POST" }).catch(() => {});
+    return;
+  }
+  if (node) node.remove();
+}
+
 async function watchDanmakuSettings() {
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, 700));
     try {
       const data = await api("/api/danmaku/request");
-      if (data.open) danmakuDialog();
+      if (data.open) {
+        if (data.kind === "skip") skipDialog();
+        else danmakuDialog();
+      }
     } catch (error) {}
   }
 }
 
 async function boot() {
+  const panel = new URLSearchParams(location.search).get("panel");
+  if (panel === "danmaku" || panel === "skip") {
+    document.body.classList.add("panel");
+    try {
+      state = await api("/api/status");
+    } catch (error) {
+      state = {};
+    }
+    chrome(false);
+    if (panel === "skip") skipDialog();
+    else danmakuDialog();
+    return;
+  }
   try {
     state = await api("/api/status");
   } catch (error) {

@@ -63,11 +63,13 @@ def danmaku_options_from_config(config):
 def comments_to_ass(comments, options=None, duration=0):
     opt = danmaku_options(options)
     size = max(16, int(round(opt["fontsize"] * 46 / 22.0)))
-    lane_step = max(size, int(round(size * opt["row_spacing"] * 0.70)))
+    lane_step = max(size + 8, int(round(size * opt["row_spacing"])))
     max_y = int(1080 * opt["area"] / 100)
-    lane_count = max(1, int((max_y - 40) / lane_step))
-    lanes = [0.0] * lane_count
+    lane_count = max(1, int((max_y - 36) / lane_step))
+    scroll_free = [0.0] * lane_count
+    bottom_free = [0.0] * max(1, min(3, lane_count))
     scroll_for = 8.0 / opt["speed"]
+    speed_px = 2320.0 / scroll_for
     alpha = int(round((1 - opt["opacity"]) * 255))
     alpha = max(0, min(255, alpha))
     prepared = []
@@ -102,12 +104,28 @@ def comments_to_ass(comments, options=None, duration=0):
         if len(active) >= opt["max_active"]:
             continue
         if style == "Scroll":
-            lane = min(range(len(lanes)), key=lambda index: lanes[index])
-            lanes[lane] = at + scroll_for
-            events.append((at, at + scroll_for, style, lane, color, text))
-            active.append(at + scroll_for)
+            width = _text_width(text, size)
+            lane = _free_lane(scroll_free, at)
+            if lane is None:
+                continue
+            hold = (width + size * 0.6) / speed_px
+            scroll_free[lane] = at + hold
+            distance = 1920.0 + width
+            events.append((at, at + distance / speed_px, style, lane, color, text, int(width)))
+            active.append(at + hold)
+        elif style == "Top":
+            lane = _free_lane(scroll_free, at)
+            if lane is None:
+                continue
+            scroll_free[lane] = at + 4
+            events.append((at, at + 4, style, lane, color, text, 0))
+            active.append(at + 4)
         else:
-            events.append((at, at + 4, style, 0, color, text))
+            lane = _free_lane(bottom_free, at)
+            if lane is None:
+                continue
+            bottom_free[lane] = at + 4
+            events.append((at, at + 4, style, lane, color, text, 0))
             active.append(at + 4)
     outline = 2 if opt["outline"] else 0
     style_row = (
@@ -133,18 +151,34 @@ def comments_to_ass(comments, options=None, duration=0):
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
-    for at, end, style, lane, color, text in events:
+    for at, end, style, lane, color, text, width in events:
         colour = _ass_colour(color)
         fade = "\\alpha&H%02X&" % alpha
         if style == "Scroll":
-            y = 40 + lane * lane_step
-            body = "{\\an8\\move(1920,%d,-400,%d)%s\\c%s}%s" % (y, y, fade, colour, _escape(text))
+            y = 24 + lane * lane_step
+            body = "{\\an7\\move(1920,%d,%d,%d)%s\\c%s}%s" % (y, -max(width, 1), y, fade, colour, _escape(text))
         elif style == "Top":
-            body = "{\\an8%s\\c%s}%s" % (fade, colour, _escape(text))
+            y = 24 + lane * lane_step
+            body = "{\\an8\\pos(960,%d)%s\\c%s}%s" % (y, fade, colour, _escape(text))
         else:
-            body = "{\\an2%s\\c%s}%s" % (fade, colour, _escape(text))
+            y = 1048 - lane * lane_step
+            body = "{\\an2\\pos(960,%d)%s\\c%s}%s" % (y, fade, colour, _escape(text))
         lines.append("Dialogue: 0,%s,%s,%s,,0,0,0,,%s" % (_ts(at), _ts(end), style, body))
     return "\n".join(lines) + "\n"
+
+
+def _free_lane(lanes, at):
+    for index, free_at in enumerate(lanes):
+        if free_at <= at + 0.05:
+            return index
+    return None
+
+
+def _text_width(text, size):
+    width = 0.0
+    for char in text:
+        width += size if ord(char) > 255 else size * 0.55
+    return max(float(size), width)
 
 
 def _keep_density(comments, density):

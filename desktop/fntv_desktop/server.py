@@ -91,9 +91,14 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/danmaku/settings" and self.command == "POST":
                 return self._json({"settings": self.server.desktop.update_danmaku_settings(self._body())})
             if path == "/api/danmaku/request" and self.command == "GET":
-                return self._json({"open": self.server.desktop.take_danmaku_request()})
+                return self._json(self.server.desktop.take_danmaku_request())
+            if path == "/api/skip" and self.command == "GET":
+                return self._json(self.server.desktop.skip_state())
             if path == "/api/window/focus" and self.command == "POST":
                 self.server.desktop.focus_window(bool(self._body().get("on")))
+                return self._json({"ok": True})
+            if path == "/api/panel/close" and self.command == "POST":
+                self.server.desktop.close_panel()
                 return self._json({"ok": True})
             if path == "/api/playback/danmaku" and self.command == "POST":
                 body = self._body()

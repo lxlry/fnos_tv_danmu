@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import random
+import re
 import ssl
 import time
 import urllib.error
@@ -285,12 +286,21 @@ class FnClient:
             if not isinstance(row, dict):
                 continue
             number = row.get("season_number") or 0
-            title = row.get("title") or ("特别篇" if number == 0 else "第%s季" % number)
+            title = row.get("title") or ""
+            if number == 0 or title.strip() in ("特别篇", "Specials"):
+                title = "特别篇"
+            elif not title:
+                title = "第%s季" % number
+            count = row.get("local_number_of_episodes") or row.get("number_of_episodes") or 0
+            aired = str(row.get("air_date") or "")
             found.append({
                 "guid": row.get("guid") or "",
                 "title": title,
                 "number": number,
                 "poster": cover_path(row),
+                "count": count,
+                "year": aired[:4] if len(aired) >= 4 else "",
+                "overview": row.get("overview") or "",
             })
         return found
 
@@ -299,6 +309,41 @@ class FnClient:
         if not isinstance(rows, list):
             return []
         return [card_from_item(row) for row in rows if isinstance(row, dict)]
+
+    def people(self, guid):
+        payload = self.data("POST", "/v/api/v1/person/list/" + urllib.parse.quote(guid, safe=""), body={}) or {}
+        rows = payload.get("list") if isinstance(payload, dict) else payload
+        if not isinstance(rows, list):
+            return []
+        people = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = (row.get("name") or row.get("original_name") or "").strip()
+            role = _role_label(row)
+            if not name and not role:
+                continue
+            people.append({
+                "name": name,
+                "role": role,
+                "image": row.get("profile_path") or "",
+                "order": row.get("order") or 0,
+            })
+        people.sort(key=lambda item: item["order"])
+        return people
+
+    def file_info(self, guid, info):
+        payload = self.data("GET", "/v/api/v1/stream/list/" + urllib.parse.quote(guid, safe="")) or {}
+        if not isinstance(payload, dict):
+            return {}
+        dirs = []
+        try:
+            listed = self.data("GET", "/v/api/v1/server/getAppAuthorizedDir") or {}
+            if isinstance(listed, dict):
+                dirs = listed.get("authDirList") or listed.get("auth_dir_list") or []
+        except FnError:
+            dirs = []
+        return _file_summary(payload, info if isinstance(info, dict) else {}, dirs)
 
     def stream(self, media_guid):
         body = {
@@ -407,6 +452,265 @@ def display_title(row):
             return "%s 第%s集" % (tv, episode)
         return tv
     return title or "未命名"
+
+
+def _role_label(row):
+    job = str(row.get("job") or "").strip()
+    role = str(row.get("role") or "").strip()
+    if job == "Actor":
+        return "饰 " + role if role else "演员"
+    names = {"Director": "导演", "Screenplay": "编剧", "Writer": "编剧", "Producer": "制片"}
+    if job in names:
+        return names[job]
+    return job or role
+
+
+def _file_summary(data, info, auth_dirs):
+    files = [row for row in (data.get("files") or []) if isinstance(row, dict)]
+    videos = [row for row in (data.get("video_streams") or []) if isinstance(row, dict)]
+    audios = [row for row in (data.get("audio_streams") or []) if isinstance(row, dict)]
+    subtitles = [row for row in (data.get("subtitle_streams") or []) if isinstance(row, dict)]
+    if not files and not videos and not audios and not subtitles:
+        return {}
+    media_guid = info.get("media_guid") or ""
+    video = _pick_video(videos, info.get("video_guid") or "", media_guid)
+    if video and video.get("media_guid"):
+        media_guid = video.get("media_guid") or media_guid
+    elif not media_guid and files:
+        media_guid = files[0].get("guid") or ""
+    file_row = _pick_by_guid(files, media_guid) or (files[0] if files else None)
+    if video is None:
+        video = _first_real_video(videos, media_guid)
+    audio = _pick_track(audios, media_guid, info.get("audio_guid") or "")
+    subtitle = _pick_track(subtitles, media_guid, info.get("subtitle_guid") or "")
+    placeholder = bool(video) and int(video.get("ext1") or 0) == -1
+    any_real = any(int(row.get("ext1") or 0) != -1 for row in videos)
+    if video is None:
+        hide = not any_real and not audios and not subtitles
+    elif not placeholder:
+        hide = False
+    else:
+        hide = audio is None and subtitle is None
+    facts = {"location": "", "size": "", "created": "", "added": "", "video": "", "audio": "", "subtitle": "", "report": ""}
+    if file_row:
+        facts["location"] = _file_location(file_row.get("path") or "", auth_dirs) or (file_row.get("file_name") or "")
+        facts["size"] = _file_size(file_row.get("size") or 0)
+        created = file_row.get("file_birth_time") or file_row.get("create_time") or 0
+        added = file_row.get("create_time") or file_row.get("update_time") or 0
+        facts["created"] = _clock(created)
+        facts["added"] = _clock(added)
+    if not hide:
+        facts["video"] = _video_line(video)
+        facts["audio"] = _audio_line(audio)
+        facts["subtitle"] = _subtitle_line(subtitle)
+    facts["report"] = _media_report(files, videos, audios, subtitles)
+    if not any(facts.values()):
+        return {}
+    return facts
+
+
+def _pick_video(videos, video_guid, media_guid):
+    if video_guid:
+        for row in videos:
+            if row.get("guid") == video_guid and int(row.get("ext1") or 0) != -1:
+                return row
+    if media_guid:
+        for row in videos:
+            if row.get("media_guid") == media_guid and int(row.get("ext1") or 0) != -1:
+                return row
+    return _first_real_video(videos, "")
+
+
+def _first_real_video(videos, media_guid):
+    fallback = None
+    for row in videos:
+        if int(row.get("ext1") or 0) == -1:
+            continue
+        if not media_guid or row.get("media_guid") == media_guid:
+            return row
+        if fallback is None:
+            fallback = row
+    return fallback
+
+
+def _pick_by_guid(rows, guid):
+    if not guid:
+        return None
+    for row in rows:
+        if row.get("guid") == guid:
+            return row
+    return None
+
+
+def _pick_track(rows, media_guid, guid):
+    if guid:
+        for row in rows:
+            if row.get("guid") == guid:
+                return row
+    fallback = None
+    for row in rows:
+        if media_guid and row.get("media_guid") != media_guid:
+            continue
+        if int(row.get("is_default") or 0) == 1:
+            return row
+        if fallback is None:
+            fallback = row
+    return fallback
+
+
+def _file_location(path, auth_dirs):
+    if not path:
+        return ""
+    normalized = path[1:] if path.startswith("/") else path
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) < 2:
+        return path
+    match = re.match(r"^vol(\d+)$", parts[0])
+    if not match:
+        return path
+    volume = "存储空间 " + match.group(1)
+    username = ""
+    for directory in auth_dirs or []:
+        if not isinstance(directory, dict):
+            continue
+        raw = str(directory.get("path") or "").strip().lstrip("/")
+        prefix = [part for part in raw.split("/") if part]
+        if len(prefix) >= 2 and prefix[0] == parts[0] and prefix[1] == parts[1] and parts[:len(prefix)] == prefix:
+            username = str(directory.get("uname") or "").strip()
+            if username:
+                break
+    user = (username + " 的文件") if username else ("用户 " + parts[1])
+    rest = "/".join(parts[2:])
+    return volume + "/" + user + ("/" + rest if rest else "")
+
+
+def _file_size(size):
+    try:
+        value = float(size or 0)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    units = ("B", "KB", "MB", "GB", "TB")
+    unit = 0
+    while value >= 1024 and unit < len(units) - 1:
+        value /= 1024
+        unit += 1
+    return "%.2f %s" % (value, units[unit])
+
+
+def _bitrate(bps):
+    try:
+        value = float(bps or 0)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    units = ("bps", "Kbps", "Mbps", "Gbps")
+    unit = 0
+    while value >= 1000 and unit < len(units) - 1:
+        value /= 1000
+        unit += 1
+    return "%.2f %s" % (value, units[unit])
+
+
+def _clock(timestamp):
+    try:
+        value = int(timestamp or 0)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    if value < 10000000000:
+        value *= 1000
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(value / 1000.0))
+
+
+def _language_name(code):
+    key = str(code or "").strip().lower()
+    if key in ("", "und", "zxx", "qaa-qtz", "zz-unknow"):
+        return "未知"
+    if key == "_no_display_":
+        return "无"
+    names = {
+        "zh": "中文", "zh-cn": "中文", "chi": "中文", "zho": "中文", "zh-tw": "中文", "zh-hk": "中文",
+        "en": "英语", "eng": "英语", "ja": "日语", "jpn": "日语", "ko": "韩语", "kor": "韩语",
+        "fr": "法语", "fra": "法语", "fre": "法语", "de": "德语", "deu": "德语", "ger": "德语",
+        "es": "西班牙语", "spa": "西班牙语", "ru": "俄语", "rus": "俄语",
+        "th": "泰语", "tha": "泰语", "vi": "越南语", "vie": "越南语",
+    }
+    return names.get(key) or str(code).strip()
+
+
+def _join(parts):
+    return " ".join(part for part in parts if part)
+
+
+def _video_line(video):
+    if not video or int(video.get("ext1") or 0) == -1:
+        return ""
+    depth = int(video.get("bit_depth") or 0)
+    return _join([
+        str(video.get("resolution_type") or ""),
+        str(video.get("codec_name") or "").upper(),
+        _bitrate(video.get("bps") or 0),
+        ("%s bit" % depth) if depth else "",
+    ])
+
+
+def _audio_line(audio):
+    if not audio:
+        return ""
+    codec = audio.get("audio_type") or str(audio.get("codec_name") or "").upper()
+    rate = audio.get("sample_rate")
+    rate_text = ""
+    if rate not in (None, "", 0, "0"):
+        rate_text = str(rate) + " Hz"
+    return _join([_language_name(audio.get("language")), str(codec or ""), audio.get("channel_layout") or "", rate_text])
+
+
+def _subtitle_line(subtitle):
+    if not subtitle:
+        return ""
+    codec = subtitle.get("codec_name") or subtitle.get("codec_type") or ""
+    return _join([_language_name(subtitle.get("language")), str(codec).upper()])
+
+
+def _media_report(files, videos, audios, subtitles):
+    media_ids = []
+    for row in files:
+        guid = row.get("guid") or ""
+        if guid and guid not in media_ids:
+            media_ids.append(guid)
+    for row in videos:
+        guid = row.get("media_guid") or ""
+        if guid and guid not in media_ids:
+            media_ids.append(guid)
+    if not media_ids:
+        media_ids.append("")
+    blocks = []
+    for media_guid in media_ids:
+        lines = []
+        file_row = _pick_by_guid(files, media_guid)
+        if file_row and file_row.get("file_name"):
+            lines.append(file_row.get("file_name"))
+        for video in videos:
+            if int(video.get("ext1") or 0) == -1:
+                continue
+            if media_guid and video.get("media_guid") != media_guid:
+                continue
+            lines.append("视频  " + (_video_line(video) or "—"))
+        for audio in audios:
+            if media_guid and audio.get("media_guid") != media_guid:
+                continue
+            lines.append("音频  " + (_audio_line(audio) or "—"))
+        for subtitle in subtitles:
+            if media_guid and subtitle.get("media_guid") != media_guid:
+                continue
+            lines.append("字幕  " + (_subtitle_line(subtitle) or "—"))
+        if lines:
+            blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 def card_from_item(row):

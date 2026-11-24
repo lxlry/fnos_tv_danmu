@@ -46,7 +46,9 @@ class Desktop:
         self._danmu_loaded_limit = 0
         self._danmaku_request = ""
         self._window = None
+        self._panel = None
         self._restore_client()
+        self._ignore_old_panel_request()
 
     def _load_config(self):
         defaults = {
@@ -220,7 +222,10 @@ class Desktop:
         info = self.client.play_info(guid)
         view = self._detail_view(info)
         item_type = view["type"]
-        if item_type == "TV":
+        if item_type in ("Movie", "Video"):
+            view["people"] = self._optional(lambda: self.client.people(view["guid"]), [])
+            view["file"] = self._optional(lambda: self.client.file_info(view["guid"], info), {})
+        elif item_type == "TV":
             view["seasons"] = self.client.seasons(view["guid"])
             if view["seasons"]:
                 view["episodes"] = self.client.episodes(view["seasons"][0]["guid"])
@@ -405,17 +410,91 @@ class Desktop:
             self._player_call(lambda: self.player.set_danmaku(options["on"]))
         return options
 
+    def _ignore_old_panel_request(self):
+        path = self.player.status_path.with_name("status.txt.settings")
+        try:
+            self._danmaku_request = path.read_text(encoding="utf-8").strip()
+        except Exception:
+            self._danmaku_request = ""
+
     def take_danmaku_request(self):
         path = self.player.status_path.with_name("status.txt.settings")
         try:
             token = path.read_text(encoding="utf-8").strip()
         except Exception:
-            return False
+            return {"open": False}
         if not token or token == self._danmaku_request:
-            return False
+            return {"open": False}
         self._danmaku_request = token
-        self.focus_window(True)
+        kind = token.splitlines()[0].strip()
+        if kind not in ("danmaku", "skip"):
+            kind = "danmaku"
+        if self.open_panel(kind):
+            return {"open": False, "kind": kind}
+        return {"open": True, "kind": kind}
+
+    def open_panel(self, kind):
+        url = "http://127.0.0.1:%s/?panel=%s" % (self.port, kind)
+        title = "片头片尾" if kind == "skip" else "弹幕设置"
+        window = self._panel
+        if window is not None:
+            try:
+                window.set_title(title)
+                window.load_url(url)
+                window.show()
+                return True
+            except Exception:
+                self._panel = None
+        try:
+            import webview
+        except Exception:
+            return False
+        width, height, x, y = _panel_bounds()
+        try:
+            options = {
+                "width": width,
+                "height": height,
+                "on_top": True,
+                "min_size": (360, 480),
+            }
+            if x is not None:
+                options["x"] = x
+                options["y"] = y
+            created = webview.create_window(title, url, **options)
+        except Exception:
+            return False
+        self._panel = created
+        try:
+            created.events.closed += lambda: self._forget_panel(created)
+        except Exception:
+            pass
         return True
+
+    def close_panel(self):
+        window = self._panel
+        self._panel = None
+        if window is None:
+            return
+        try:
+            window.destroy()
+        except Exception:
+            return
+
+    def _forget_panel(self, window):
+        if self._panel is window:
+            self._panel = None
+
+    def skip_state(self):
+        job = self.job or {}
+        duration = int(self.player.duration or job.get("duration") or 0)
+        return {
+            "running": bool(self.player.running() and self.job),
+            "title": job.get("title") or "",
+            "opening": int(job.get("skip_opening") or 0),
+            "ending": int(job.get("skip_ending") or 0),
+            "position": int(self.player.position or 0),
+            "duration": duration,
+        }
 
     def set_danmaku(self, enabled, scale=None):
         payload = {"on": bool(enabled)}
@@ -778,6 +857,8 @@ class Desktop:
             "media_guid": info.get("media_guid") or "",
             "seasons": [],
             "episodes": [],
+            "people": [],
+            "file": {},
             "skip_opening": play_config.get("skip_opening") or 0,
             "skip_ending": play_config.get("skip_ending") or 0,
         }
@@ -785,6 +866,12 @@ class Desktop:
     def _need_login(self):
         if not self.client.base or not self.client.token:
             raise FnError("请先登录", "auth")
+
+    def _optional(self, fn, default):
+        try:
+            return fn()
+        except Exception:
+            return default
 
 
 def _quality_choices(stream):
@@ -815,6 +902,19 @@ def _stream_cookie(stream):
     if isinstance(cookie, list):
         cookie = "; ".join(str(part) for part in cookie if part)
     return str(cookie or "")
+
+
+def _panel_bounds():
+    width, height = 440, 680
+    try:
+        user32 = ctypes.windll.user32
+        screen_w = int(user32.GetSystemMetrics(0))
+        screen_h = int(user32.GetSystemMetrics(1))
+    except Exception:
+        return width, height, None, None
+    x = max(0, screen_w - width - 16)
+    y = max(0, (screen_h - height) // 2)
+    return width, height, x, y
 
 
 def _raise_window(window):
