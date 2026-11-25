@@ -42,7 +42,7 @@ def _open_window(url, desktop):
         window = webview.create_window("飞牛TV", url, **options)
         desktop.attach_window(window)
         bind_close_prompt(window)
-        _bind_frosted_glass(window)
+        _bind_dark_frame(window)
         webview.start()
         return
     except Exception:
@@ -59,42 +59,21 @@ def _open_window(url, desktop):
         return
 
 
-def _bind_frosted_glass(window):
+def _bind_dark_frame(window):
     def apply():
         hwnd = _native_hwnd(window)
         if hwnd:
-            _apply_acrylic(hwnd)
-            _clear_host_background(window)
-
-    def reapply():
-        def later():
-            hwnd = _native_hwnd(window)
-            if hwnd:
-                _apply_acrylic(hwnd)
-
-        threading.Timer(0.4, later).start()
+            _use_dark_title_bar(hwnd)
+        _paint_dark_host(window)
 
     window.events.shown += apply
-    window.events.shown += reapply
     window.events.loaded += apply
 
 
-def _apply_acrylic(hwnd):
-    """Windows 11 亚克力。页面本身半透明时，桌面会被磨砂后透出来。"""
+def _use_dark_title_bar(hwnd):
     import ctypes
     from ctypes import wintypes
 
-    hwnd = int(hwnd)
-    user32 = ctypes.windll.user32
-    GWL_EXSTYLE = -20
-    WS_EX_NOREDIRECTIONBITMAP = 0x00200000
-    get_long = user32.GetWindowLongW
-    get_long.restype = ctypes.c_uint32
-    get_long.argtypes = [wintypes.HWND, ctypes.c_int]
-    style = get_long(hwnd, GWL_EXSTYLE)
-    if not (style & WS_EX_NOREDIRECTIONBITMAP):
-        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOREDIRECTIONBITMAP)
-        user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0027)
     dwm = ctypes.windll.dwmapi
     dwm.DwmSetWindowAttribute.argtypes = [
         wintypes.HWND,
@@ -104,74 +83,20 @@ def _apply_acrylic(hwnd):
     ]
     dwm.DwmSetWindowAttribute.restype = ctypes.c_long
     dark = ctypes.c_int(1)
-    dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(dark), 4)
-    backdrop = ctypes.c_int(3)  # DWMSBT_TRANSIENTWINDOW，亚克力
-    result = dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), 4)
-    if result != 0:
-        mica = ctypes.c_int(2)
-        result = dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(mica), 4)
-    if result != 0:
-        _apply_acrylic_fallback(hwnd)
+    dwm.DwmSetWindowAttribute(int(hwnd), 20, ctypes.byref(dark), 4)
 
 
-def _apply_acrylic_fallback(hwnd):
-    import ctypes
-    from ctypes import wintypes
-
-    class ACCENT_POLICY(ctypes.Structure):
-        _fields_ = [
-            ("AccentState", ctypes.c_int),
-            ("AccentFlags", ctypes.c_int),
-            ("GradientColor", ctypes.c_uint),
-            ("AnimationId", ctypes.c_int),
-        ]
-
-    class WINDOWCOMPOSITIONATTRIBDATA(ctypes.Structure):
-        _fields_ = [
-            ("Attribute", ctypes.c_int),
-            ("Data", ctypes.POINTER(ACCENT_POLICY)),
-            ("SizeOfData", ctypes.c_size_t),
-        ]
-
-    accent = ACCENT_POLICY()
-    accent.AccentState = 4
-    accent.AccentFlags = 2
-    accent.GradientColor = 0x9910141A
-    data = WINDOWCOMPOSITIONATTRIBDATA()
-    data.Attribute = 19
-    data.Data = ctypes.pointer(accent)
-    data.SizeOfData = ctypes.sizeof(accent)
-    try:
-        set_attribute = ctypes.windll.user32.SetWindowCompositionAttribute
-        set_attribute.argtypes = [wintypes.HWND, ctypes.POINTER(WINDOWCOMPOSITIONATTRIBDATA)]
-        set_attribute.restype = wintypes.BOOL
-        set_attribute(int(hwnd), ctypes.byref(data))
-    except Exception:
-        return
-
-
-def _clear_host_background(window):
+def _paint_dark_host(window):
     native = getattr(window, "native", None)
     if native is None:
         return
     try:
-        from System import Array, Boolean, Object
         from System.Drawing import Color
-        from System.Reflection import BindingFlags
-        from System.Windows.Forms import ControlStyles
 
-        method = native.GetType().GetMethod(
-            "SetStyle",
-            BindingFlags.Instance | BindingFlags.NonPublic,
-        )
-        if method is not None:
-            method.Invoke(
-                native,
-                Array[Object]([ControlStyles.SupportsTransparentBackColor, Boolean(True)]),
-            )
-        native.BackColor = Color.Transparent
+        color = Color.FromArgb(255, 16, 20, 26)
+        native.BackColor = color
     except Exception:
-        pass
+        return
     control = getattr(native, "webview", None)
     if control is None:
         browser = getattr(native, "browser", None)
@@ -181,7 +106,7 @@ def _clear_host_background(window):
     try:
         from System.Drawing import Color
 
-        control.DefaultBackgroundColor = Color.Transparent
+        control.DefaultBackgroundColor = Color.FromArgb(255, 16, 20, 26)
     except Exception:
         return
 
