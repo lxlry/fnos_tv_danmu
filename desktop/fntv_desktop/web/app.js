@@ -616,10 +616,55 @@ function applyTheme(theme) {
   document.body.classList.toggle("theme-glass", theme === "glass");
 }
 
+function closePrompt() {
+  if (document.getElementById("close-prompt")) return;
+  const node = document.createElement("div");
+  node.id = "close-prompt";
+  node.className = "dialog";
+  node.innerHTML = `<form class="sheet" id="close-form">
+    <h2>关闭主窗口</h2>
+    <p class="muted">最小化后窗口会收起，只在任务栏右下角保留小图标。播放不会中断。</p>
+    <label class="check"><span>下次不再提醒</span><input id="close-remember" type="checkbox"></label>
+    <div class="actions">
+      <button class="primary" type="button" id="close-minimize">最小化</button>
+      <button type="button" id="close-quit">直接关闭</button>
+      <button type="button" id="close-cancel">取消</button>
+    </div>
+  </form>`;
+  document.body.appendChild(node);
+  const finish = async (action) => {
+    const remember = action !== "cancel" && node.querySelector("#close-remember").checked;
+    node.remove();
+    if (action === "cancel") return;
+    try {
+      const saved = await api("/api/window/close", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, remember }),
+      });
+      if (state && saved && saved.close_action) state.close_action = saved.close_action;
+    } catch (error) {
+      showToast(error.message);
+    }
+  };
+  node.querySelector("#close-minimize").addEventListener("click", () => finish("minimize"));
+  node.querySelector("#close-quit").addEventListener("click", () => finish("quit"));
+  node.querySelector("#close-cancel").addEventListener("click", () => finish("cancel"));
+  node.addEventListener("click", (event) => { if (event.target === node) finish("cancel"); });
+  node.querySelector("#close-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    finish("minimize");
+  });
+}
+
+window.fntvClosePrompt = closePrompt;
+
 function settingsDialog() {
   const node = document.createElement("div");
   const savedTheme = state.theme === "glass" ? "glass" : "default";
   let theme = savedTheme;
+  const savedClose = ["minimize", "quit"].includes(state.close_action) ? state.close_action : "ask";
+  let closeAction = savedClose;
   node.className = "dialog";
   node.innerHTML = `<form class="sheet" id="settings-form">
     <h2>设置</h2>
@@ -632,6 +677,12 @@ function settingsDialog() {
     </div>
     <label class="check"><span>播放时加载弹幕</span><input name="danmu_on" type="checkbox" ${state.danmu_on ? "checked" : ""}></label>
     <label class="check"><span>剧集播完自动下一集</span><input name="auto_next" type="checkbox" ${state.auto_next ? "checked" : ""}></label>
+    <div class="muted">关闭主窗口</div>
+    <div class="chips" id="close-choices">
+      <button type="button" data-close="ask">每次询问</button>
+      <button type="button" data-close="minimize">最小化到托盘</button>
+      <button type="button" data-close="quit">直接关闭</button>
+    </div>
     <p class="muted">当前版本 ${esc(state.version || "")}。mpv 里空格暂停，左右方向键快进，上下方向键调音量。</p>
     <div class="actions">
       <button class="primary" type="submit">保存</button>
@@ -647,6 +698,17 @@ function settingsDialog() {
     applyTheme(theme);
   };
   markTheme();
+  const closeChoices = node.querySelectorAll("#close-choices button");
+  const markClose = () => {
+    closeChoices.forEach((button) => button.classList.toggle("active", button.dataset.close === closeAction));
+  };
+  markClose();
+  closeChoices.forEach((button) => {
+    button.addEventListener("click", () => {
+      closeAction = button.dataset.close;
+      markClose();
+    });
+  });
   choices.forEach((button) => {
     button.addEventListener("click", () => {
       theme = button.dataset.theme;
@@ -681,6 +743,7 @@ function settingsDialog() {
         danmu_on: form.get("danmu_on") === "on",
         auto_next: form.get("auto_next") === "on",
         theme,
+        close_action: closeAction,
       }),
     });
     applyTheme(state.theme);

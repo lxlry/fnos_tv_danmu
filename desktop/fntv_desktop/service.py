@@ -66,6 +66,7 @@ class Desktop:
             "auto_next": True,
             "mpv_path": "",
             "theme": "default",
+            "close_action": "ask",
         }
         try:
             saved = json.loads(self.config_path.read_text(encoding="utf-8"))
@@ -158,6 +159,7 @@ class Desktop:
             "danmu_on": bool(self.config.get("danmu_on", True)),
             "auto_next": bool(self.config.get("auto_next", True)),
             "theme": "glass" if self.config.get("theme") == "glass" else "default",
+            "close_action": self.close_preference(),
             "mpv_path": self.config.get("mpv_path") or "",
             "mpv_ready": bool(mpv_path),
             "version": version["versionName"],
@@ -231,8 +233,34 @@ class Desktop:
             self.config["theme"] = "glass" if values.get("theme") == "glass" else "default"
         if "mpv_path" in values:
             self.config["mpv_path"] = (values.get("mpv_path") or "").strip()
+        if "close_action" in values:
+            self.set_close_preference(values.get("close_action"))
         self._save_config()
         return self.status()
+
+    def close_preference(self):
+        value = self.config.get("close_action") or "ask"
+        if value not in ("ask", "minimize", "quit"):
+            return "ask"
+        return value
+
+    def set_close_preference(self, action):
+        if action not in ("ask", "minimize", "quit"):
+            return
+        self.config["close_action"] = action
+
+    def handle_window_close(self, body):
+        body = body if isinstance(body, dict) else {}
+        action = body.get("action") or "cancel"
+        if action not in ("minimize", "quit", "cancel"):
+            action = "cancel"
+        if action in ("minimize", "quit") and body.get("remember"):
+            self.set_close_preference(action)
+            self._save_config()
+        handler = getattr(self, "perform_close", None)
+        if action in ("minimize", "quit") and handler:
+            handler(action)
+        return {"ok": True, "close_action": self.close_preference()}
 
     def home(self):
         self._need_login()

@@ -41,7 +41,7 @@ def _open_window(url, desktop):
             options["y"] = y
         window = webview.create_window("飞牛TV", url, **options)
         desktop.attach_window(window)
-        bind_close_prompt(window)
+        bind_close_prompt(window, desktop)
         _bind_dark_frame(window)
         webview.start()
         return

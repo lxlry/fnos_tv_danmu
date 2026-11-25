@@ -94,6 +94,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.server.desktop.take_danmaku_request())
             if path == "/api/skip" and self.command == "GET":
                 return self._json(self.server.desktop.skip_state())
+            if path == "/api/window/close" and self.command == "POST":
+                return self._json(self.server.desktop.handle_window_close(self._body()))
             if path == "/api/window/focus" and self.command == "POST":
                 self.server.desktop.focus_window(bool(self._body().get("on")))
                 return self._json({"ok": True})

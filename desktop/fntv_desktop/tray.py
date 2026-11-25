@@ -333,8 +333,8 @@ class TrayIcon:
         return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
 
-def bind_close_prompt(window):
-    """点主窗口关闭时询问。最小化只留托盘图标。"""
+def bind_close_prompt(window, desktop):
+    """点主窗口关闭时，用页面里的设置弹窗询问。最小化只留托盘图标。"""
     state = {"allow": False}
     tray = TrayIcon(lambda: _show_window(window), lambda: None)
 
@@ -349,20 +349,52 @@ def bind_close_prompt(window):
 
     tray._on_quit = quit_from_tray
 
+    def minimize():
+        if not tray.show():
+            return False
+        threading.Timer(0.05, lambda: _hide_window(window)).start()
+        return True
+
+    def quit():
+        state["allow"] = True
+        tray.remove()
+        hwnd = _native_hwnd(window)
+        if hwnd:
+            user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+            return
+        threading.Thread(target=lambda: _quit_window(window, state, tray), name="fntv-quit", daemon=True).start()
+
+    def perform(action):
+        if action == "minimize":
+            minimize()
+        elif action == "quit":
+            quit()
+
+    desktop.perform_close = perform
+
+    def show_prompt():
+        try:
+            window.evaluate_js("window.fntvClosePrompt && window.fntvClosePrompt()")
+        except Exception:
+            return
+
     def on_closing():
         if state["allow"]:
             tray.remove()
             return True
-        choice = ask_close_action(_native_hwnd(window) or 0)
-        if choice == "minimize":
-            if not tray.show():
-                return False
-            threading.Timer(0.05, lambda: _hide_window(window)).start()
+        preference = "ask"
+        try:
+            preference = desktop.close_preference()
+        except Exception:
+            preference = "ask"
+        if preference == "minimize":
+            minimize()
             return False
-        if choice == "quit":
+        if preference == "quit":
             state["allow"] = True
             tray.remove()
             return True
+        threading.Timer(0.05, show_prompt).start()
         return False
 
     window.events.closing += on_closing
