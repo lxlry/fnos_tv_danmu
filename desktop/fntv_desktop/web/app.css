@@ -14,15 +14,37 @@
 * { box-sizing: border-box; }
 * { scrollbar-width: none; }
 *::-webkit-scrollbar { width: 0; height: 0; display: none; }
-html, body { height: 100%; }
+html, body { height: 100%; background: transparent; }
 body {
   margin: 0;
   overflow-x: hidden;
-  background:
-    radial-gradient(1000px 420px at 10% -10%, rgba(61, 222, 200, 0.16), transparent 55%),
-    var(--bg);
   color: var(--text);
   font: 15px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: transparent;
+  isolation: isolate;
+}
+body:not(.panel)::before,
+body:not(.panel)::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+}
+body:not(.panel)::before {
+  inset: -18%;
+  z-index: -2;
+  background:
+    radial-gradient(46% 42% at 0% -8%, rgba(198, 232, 246, 0.9), transparent 62%),
+    radial-gradient(40% 36% at 100% -4%, rgba(72, 132, 214, 0.78), transparent 60%),
+    radial-gradient(48% 42% at 82% 112%, rgba(36, 86, 158, 0.72), transparent 64%),
+    radial-gradient(34% 30% at 8% 108%, rgba(61, 222, 200, 0.42), transparent 62%);
+}
+body:not(.panel)::after {
+  inset: 0;
+  z-index: -1;
+  background: rgba(10, 14, 20, 0.34);
+  backdrop-filter: blur(48px) saturate(1.75);
+  -webkit-backdrop-filter: blur(48px) saturate(1.75);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 80px rgba(8, 12, 18, 0.28);
 }
 
 header {
@@ -357,43 +379,36 @@ h2 { font-size: 18px; margin: 22px 0 12px; }
 .fact span { color: var(--muted); }
 .fact b { font-weight: 500; }
 body.panel header, body.panel #view, body.panel #now { display: none; }
-body.panel { background: var(--bg-2); }
-body.theme-glass {
-  background: transparent;
-  isolation: isolate;
+body.panel { background: var(--bg-2); isolation: auto; }
+body.panel::before, body.panel::after { display: none; }
+body:not(.panel) header,
+body:not(.panel) #now,
+body:not(.panel) .sheet,
+body:not(.panel) .login {
+  background: rgba(16, 22, 30, 0.42);
+  border-color: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(22px) saturate(1.45);
+  -webkit-backdrop-filter: blur(22px) saturate(1.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
-body.theme-glass::before,
-body.theme-glass::after {
-  content: "";
-  position: fixed;
-  pointer-events: none;
+body:not(.panel) #search,
+body:not(.panel) input,
+body:not(.panel) select {
+  background: rgba(8, 12, 18, 0.38);
 }
-body.theme-glass::before {
-  inset: -18%;
-  z-index: -2;
+body.theme-glass:not(.panel)::before {
   background:
-    radial-gradient(42% 34% at 8% 0%, rgba(168, 206, 222, 0.62), transparent 68%),
-    radial-gradient(34% 30% at 92% 12%, rgba(86, 128, 168, 0.5), transparent 70%),
-    radial-gradient(40% 36% at 72% 100%, rgba(42, 74, 104, 0.55), transparent 72%),
-    #07090d;
+    radial-gradient(44% 38% at 4% -8%, rgba(210, 236, 246, 0.78), transparent 66%),
+    radial-gradient(36% 32% at 100% 4%, rgba(120, 168, 220, 0.62), transparent 64%),
+    radial-gradient(42% 38% at 78% 110%, rgba(48, 92, 140, 0.66), transparent 70%),
+    radial-gradient(30% 26% at 12% 102%, rgba(61, 222, 200, 0.28), transparent 66%);
 }
-body.theme-glass::after {
-  inset: 0;
-  z-index: -1;
-  background: rgba(8, 11, 16, 0.38);
-  backdrop-filter: blur(28px) saturate(1.45);
-  -webkit-backdrop-filter: blur(28px) saturate(1.45);
+body.theme-glass:not(.panel)::after {
+  background: rgba(8, 12, 18, 0.2);
+  backdrop-filter: blur(56px) saturate(1.9);
+  -webkit-backdrop-filter: blur(56px) saturate(1.9);
 }
-body.theme-glass header,
-body.theme-glass #now,
-body.theme-glass .sheet,
-body.theme-glass .login {
-  background: rgba(14, 18, 24, 0.42);
-  border-color: rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(22px) saturate(1.35);
-  -webkit-backdrop-filter: blur(22px) saturate(1.35);
-}
-body.theme-glass .poster { background: rgba(16, 22, 30, 0.55); }
+body:not(.panel) .poster { background: rgba(16, 22, 30, 0.45); }
 body.panel .dialog { background: transparent; padding: 12px; align-items: stretch; }
 body.panel .sheet { width: 100%; max-height: calc(100vh - 24px); }
 .pager { margin: 18px 0; }
