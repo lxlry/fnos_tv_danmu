@@ -3,6 +3,7 @@ package com.fntv.app;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewConfiguration;
 import android.widget.ScrollView;
 
@@ -51,6 +52,8 @@ public class HomeScrollView extends ScrollView {
     public void requestChildFocus(android.view.View child, android.view.View focused) {
         if (!holdScroll) {
             super.requestChildFocus(child, focused);
+            // 系统只会把按钮滚进屏幕。满屏海报要整张回到顶部。
+            snapHeroTop(focused);
             return;
         }
         // 仍然把窗口焦点交出去。只拦住随之而来的滚动，否则海报会亮、方向键还停在刷新上。
@@ -73,9 +76,51 @@ public class HomeScrollView extends ScrollView {
         int x = getScrollX();
         int y = getScrollY();
         super.onLayout(changed, l, t, r, b);
-        if (holdScroll && (getScrollX() != x || getScrollY() != y)) {
-            super.scrollTo(x, y);
+        if (holdScroll) {
+            if (getScrollX() != x || getScrollY() != y) super.scrollTo(x, y);
+            return;
         }
+        View focused = findFocus();
+        if (focused != null && focused != this) snapHeroTop(focused);
+    }
+
+    /**
+     * 焦点在满屏海报里、并且按钮在第一屏内时，滚到海报顶部。
+     * 只把「开始播放」露出来会把背景上沿裁掉。
+     */
+    private boolean snapHeroTop(android.view.View from) {
+        android.view.View hero = taggedAncestor(from, "home_hero");
+        if (hero == null || getChildCount() == 0) return false;
+        int viewport = getHeight() - getPaddingTop() - getPaddingBottom();
+        if (viewport <= 0 || hero.getHeight() <= 0) return false;
+        int dest = offsetInScroll(hero);
+        int focusBottom = offsetInScroll(from) + Math.max(from.getHeight(), 1);
+        if (focusBottom > dest + viewport) return false;
+        dest = Math.max(0, dest);
+        if (getScrollY() != dest) scrollTo(getScrollX(), dest);
+        return true;
+    }
+
+    private android.view.View taggedAncestor(android.view.View from, String tag) {
+        android.view.View v = from;
+        while (v != null && v != this) {
+            if (tag.equals(v.getTag())) return v;
+            android.view.ViewParent parent = v.getParent();
+            v = parent instanceof android.view.View ? (android.view.View) parent : null;
+        }
+        return null;
+    }
+
+    private int offsetInScroll(android.view.View target) {
+        int y = 0;
+        android.view.View v = target;
+        while (v != null && v != this) {
+            y += v.getTop();
+            android.view.ViewParent parent = v.getParent();
+            if (!(parent instanceof android.view.View) || parent == this) break;
+            v = (android.view.View) parent;
+        }
+        return y;
     }
 
     /** 恢复滚动位置时，焦点不要再把列表拽走。 */

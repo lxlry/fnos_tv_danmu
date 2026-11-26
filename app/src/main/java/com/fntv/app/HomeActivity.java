@@ -7672,6 +7672,11 @@ public class HomeActivity extends AppCompatActivity {
         if (target == null) return;
         target.requestFocus();
         if (!isTelevision()) return;
+        if (ancestorTagged(target, "home_hero") != null && useImmersiveHero()) {
+            revealInVerticalScroll(target);
+            target.post(() -> revealInVerticalScroll(target));
+            return;
+        }
         target.requestRectangleOnScreen(
                 new android.graphics.Rect(0, 0,
                         Math.max(target.getWidth(), 1),
@@ -7684,6 +7689,17 @@ public class HomeActivity extends AppCompatActivity {
     private void revealInVerticalScroll(View target) {
         ScrollView scroller = findVerticalScroller(target);
         if (scroller == null || scroller.getChildCount() == 0) return;
+        View hero = ancestorTagged(target, "home_hero");
+        if (hero != null && useImmersiveHero()) {
+            int viewport = scroller.getHeight();
+            int heroTop = topWithinContent(hero, scroller);
+            int focusBottom = topWithinContent(target, scroller) + Math.max(target.getHeight(), 1);
+            if (hero.getHeight() > 0 && viewport > 0 && focusBottom <= heroTop + viewport) {
+                int dest = Math.max(0, heroTop);
+                if (scroller.getScrollY() != dest) scroller.scrollTo(0, dest);
+                return;
+            }
+        }
         View block = ancestorTagged(target, "continue_watching");
         View shown = block != null ? block : target;
         if (!shown.isLaidOut()) {

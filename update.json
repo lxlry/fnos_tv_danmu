@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527072,
-    "versionName": "9527.072",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.072/FNTV_release_v9527.072.apk",
-    "changelog": "底栏略矮，设置改为圆齿齿轮，媒体库图标改为圆角文件夹。切换栏目时轻震一下",
+    "versionCode": 9527073,
+    "versionName": "9527.073",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.073/FNTV_release_v9527.073.apk",
+    "changelog": "首页往下移后，焦点回到开始播放时背景图回到顶部",
     "forceUpdate": false
 }
