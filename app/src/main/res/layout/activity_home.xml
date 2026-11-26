@@ -681,58 +681,103 @@ DPAD 遥控器友好
     <LinearLayout
         android:id="@+id/tabBar"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="64dp"
         android:background="@color/bg_chrome"
         android:gravity="center"
         android:orientation="horizontal"
-        android:paddingLeft="8dp"
-        android:paddingRight="8dp">
+        android:paddingLeft="12dp"
+        android:paddingRight="12dp">
 
-        <Button
+        <LinearLayout
             android:id="@+id/tabMovies"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_margin="3dp"
             android:layout_weight="1"
-            android:background="@drawable/selector_tab"
+            android:background="@drawable/selector_tab_cell"
+            android:clickable="true"
             android:focusable="true"
+            android:gravity="center"
             android:nextFocusDown="@+id/tabMovies"
             android:nextFocusRight="@+id/tabLibrary"
-            android:text="影视"
-            android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:orientation="vertical">
 
-        <Button
+            <androidx.appcompat.widget.AppCompatImageView
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:duplicateParentState="true"
+                app:srcCompat="@drawable/tab_ic_home"
+                app:tint="@color/tab_icon" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:duplicateParentState="true"
+                android:text="影视"
+                android:textColor="@color/tab_icon"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/tabLibrary"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_margin="3dp"
             android:layout_weight="1"
-            android:background="@drawable/selector_tab"
+            android:background="@drawable/selector_tab_cell"
+            android:clickable="true"
             android:focusable="true"
+            android:gravity="center"
             android:nextFocusDown="@+id/tabLibrary"
             android:nextFocusLeft="@+id/tabMovies"
             android:nextFocusRight="@+id/tabSettings"
-            android:text="媒体库"
-            android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:orientation="vertical">
 
-        <Button
+            <androidx.appcompat.widget.AppCompatImageView
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:duplicateParentState="true"
+                app:srcCompat="@drawable/tab_ic_library"
+                app:tint="@color/tab_icon" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:duplicateParentState="true"
+                android:text="媒体库"
+                android:textColor="@color/tab_icon"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/tabSettings"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_margin="3dp"
             android:layout_weight="1"
-            android:background="@drawable/selector_tab"
+            android:background="@drawable/selector_tab_cell"
+            android:clickable="true"
             android:focusable="true"
+            android:gravity="center"
             android:nextFocusDown="@+id/tabSettings"
             android:nextFocusLeft="@+id/tabLibrary"
-            android:text="设置"
-            android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:orientation="vertical">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:duplicateParentState="true"
+                app:srcCompat="@drawable/tab_ic_settings"
+                app:tint="@color/tab_icon" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:duplicateParentState="true"
+                android:text="设置"
+                android:textColor="@color/tab_icon"
+                android:textSize="11sp" />
+        </LinearLayout>
 
     </LinearLayout>
 

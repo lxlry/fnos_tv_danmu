@@ -38,7 +38,7 @@ import retrofit2.Response;
 
 public class HomeActivity extends AppCompatActivity {
 
-    private Button tabMovies, tabLibrary, tabSettings;
+    private View tabMovies, tabLibrary, tabSettings;
     private TextView tvHomeTitle;
     private View panelMovies, panelLibrary, panelSettings;
     private LinearLayout moviesContainer, libraryContainer;
@@ -1734,6 +1734,8 @@ public class HomeActivity extends AppCompatActivity {
         heroDots.setVisibility(count > 1 ? View.VISIBLE : View.GONE);
     }
 
+    private boolean heroSeriesLaunching;
+
     private void playHeroItem(PlayListItem item) {
         if (item == null || item.guid == null) return;
         if ("Movie".equals(item.type) || "Video".equals(item.type)) {
@@ -1745,7 +1747,136 @@ public class HomeActivity extends AppCompatActivity {
                     item.ts, item.duration, item.parentGuid);
             return;
         }
+        if ("TV".equals(item.type)) {
+            playHeroSeries(item);
+            return;
+        }
         showDetail(item);
+    }
+
+    /** 剧集：有进度就从进度播，没有就从第一集开头播。 */
+    private void playHeroSeries(final PlayListItem series) {
+        if (heroSeriesLaunching || apiManager.getApi() == null) return;
+        heroSeriesLaunching = true;
+        java.util.Map<String, String> body = new java.util.HashMap<>();
+        body.put("item_guid", series.guid);
+        apiManager.getApi().getPlayInfo(body).enqueue(new Callback<ApiResponse<PlayInfoResponse>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<PlayInfoResponse>> call,
+                                   Response<ApiResponse<PlayInfoResponse>> response) {
+                PlayInfoResponse info = response.isSuccessful() && response.body() != null
+                        && response.body().code == 0 ? response.body().data : null;
+                if (info != null && info.ts > 0 && info.item != null
+                        && info.item.guid != null && !info.item.guid.isEmpty()
+                        && !info.item.guid.equals(series.guid)) {
+                    heroSeriesLaunching = false;
+                    long dur = info.item.duration > 0 ? info.item.duration
+                            : (info.item.runtime > 0 ? info.item.runtime * 60L : 0);
+                    String tv = info.item.tvTitle != null && !info.item.tvTitle.isEmpty()
+                            ? info.item.tvTitle
+                            : (series.tvTitle != null && !series.tvTitle.isEmpty()
+                            ? series.tvTitle : series.title);
+                    String poster = info.item.poster != null && !info.item.poster.isEmpty()
+                            ? info.item.poster
+                            : (series.coverPath() != null ? series.coverPath() : "");
+                    launchPlayer(info.item.guid, info.item.title, tv == null ? "" : tv,
+                            info.item.episodeNumber, poster, series.getCategoryLabel(),
+                            info.ts, dur, info.parentGuid);
+                    return;
+                }
+                playHeroFirstEpisode(series);
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<PlayInfoResponse>> call, Throwable t) {
+                playHeroFirstEpisode(series);
+            }
+        });
+    }
+
+    private void playHeroFirstEpisode(final PlayListItem series) {
+        apiManager.getApi().getSeasonList(series.guid).enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<List<PlayListItem>>> call,
+                                   Response<ApiResponse<List<PlayListItem>>> response) {
+                List<PlayListItem> seasons = response.isSuccessful() && response.body() != null
+                        && response.body().code == 0 ? response.body().data : null;
+                PlayListItem season = firstPlayableSeason(seasons);
+                if (season == null || season.guid == null) {
+                    heroSeriesLaunching = false;
+                    AppToast.show(HomeActivity.this, "没有可播放的剧集");
+                    return;
+                }
+                apiManager.getApi().getEpisodeList(season.guid).enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
+                    @Override
+                    public void onResponse(Call<ApiResponse<List<PlayListItem>>> call,
+                                           Response<ApiResponse<List<PlayListItem>>> response) {
+                        heroSeriesLaunching = false;
+                        List<PlayListItem> episodes = response.isSuccessful() && response.body() != null
+                                && response.body().code == 0 ? response.body().data : null;
+                        PlayListItem episode = firstPlayableEpisode(episodes);
+                        if (episode == null || episode.guid == null) {
+                            AppToast.show(HomeActivity.this, "没有可播放的剧集");
+                            return;
+                        }
+                        long dur = episode.duration > 0 ? episode.duration
+                                : (episode.runtime > 0 ? episode.runtime * 60L : 0);
+                        String tv = episode.tvTitle != null && !episode.tvTitle.isEmpty()
+                                ? episode.tvTitle
+                                : (series.tvTitle != null && !series.tvTitle.isEmpty()
+                                ? series.tvTitle : series.title);
+                        String poster = episode.coverPath() != null ? episode.coverPath()
+                                : (series.coverPath() != null ? series.coverPath() : "");
+                        launchPlayer(episode.guid, episode.title, tv == null ? "" : tv,
+                                episode.episodeNumber, poster, series.getCategoryLabel(),
+                                0, dur, episode.parentGuid != null ? episode.parentGuid : season.guid);
+                    }
+
+                    @Override
+                    public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
+                        heroSeriesLaunching = false;
+                        AppToast.show(HomeActivity.this, "剧集加载失败");
+                    }
+                });
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
+                heroSeriesLaunching = false;
+                AppToast.show(HomeActivity.this, "剧集加载失败");
+            }
+        });
+    }
+
+    private PlayListItem firstPlayableSeason(List<PlayListItem> seasons) {
+        if (seasons == null || seasons.isEmpty()) return null;
+        PlayListItem best = null;
+        for (PlayListItem season : seasons) {
+            if (season == null || season.guid == null || season.guid.isEmpty()) continue;
+            if (season.seasonNumber <= 0 || isSpecialSeason(season)) continue;
+            if (best == null || season.seasonNumber < best.seasonNumber) best = season;
+        }
+        if (best != null) return best;
+        for (PlayListItem season : seasons) {
+            if (season != null && season.guid != null && !season.guid.isEmpty()) return season;
+        }
+        return null;
+    }
+
+    private PlayListItem firstPlayableEpisode(List<PlayListItem> episodes) {
+        if (episodes == null || episodes.isEmpty()) return null;
+        PlayListItem best = null;
+        for (PlayListItem episode : episodes) {
+            if (episode == null || episode.guid == null || episode.guid.isEmpty()) continue;
+            if (best == null) {
+                best = episode;
+                continue;
+            }
+            int number = episode.episodeNumber > 0 ? episode.episodeNumber : Integer.MAX_VALUE;
+            int bestNumber = best.episodeNumber > 0 ? best.episodeNumber : Integer.MAX_VALUE;
+            if (number < bestNumber) best = episode;
+        }
+        return best;
     }
 
     private void noteHeroFocus() {
@@ -4424,13 +4555,12 @@ public class HomeActivity extends AppCompatActivity {
 
     private void loadMediaLibraries() {
         isSearching = false;
-        final boolean samePage = pageRefreshRequested && libraryContainer != null
-                && libraryContainer.getChildCount() > 0 && savedBrowseGuid == null;
+        final boolean keepPage = libraryListOnScreen();
         View browseBar = findViewById(R.id.libBrowseBar);
         if (browseBar != null) browseBar.setVisibility(View.GONE);
         showLibrarySearchBox(true);
         if (tvLibraryPageTitle != null) tvLibraryPageTitle.setVisibility(View.VISIBLE);
-        if (!samePage) {
+        if (!keepPage) {
             clearContainer(libraryContainer, tvLibraryLoading, tvLibraryEmpty);
             tvLibraryLoading.setVisibility(View.VISIBLE);
         }
@@ -4463,7 +4593,7 @@ public class HomeActivity extends AppCompatActivity {
                     String stamp = libsStamp(filteredLibs);
                     mediaLibraries.clear();
                     mediaLibraries.addAll(filteredLibs);
-                    if (samePage && stamp.equals(shownLibListKey)) {
+                    if (keepPage && stamp.equals(shownLibListKey)) {
                         loadLibraryCounts(filteredLibs);
                         noteListRefreshDone(true);
                         return;
@@ -4473,7 +4603,7 @@ public class HomeActivity extends AppCompatActivity {
                     noteListRefreshDone(true);
                     return;
                 }
-                if (!samePage) tvLibraryEmpty.setVisibility(View.VISIBLE);
+                if (!keepPage) tvLibraryEmpty.setVisibility(View.VISIBLE);
                 noteListRefreshDone(false);
             }
             @Override
@@ -4483,7 +4613,7 @@ public class HomeActivity extends AppCompatActivity {
                     return;
                 }
                 tvLibraryLoading.setVisibility(View.GONE);
-                if (!samePage) {
+                if (!keepPage) {
                     tvLibraryEmpty.setText("加载失败: " + t.getMessage());
                     tvLibraryEmpty.setVisibility(View.VISIBLE);
                 }
@@ -4775,6 +4905,7 @@ public class HomeActivity extends AppCompatActivity {
         clearContainer(cont, tvLibraryLoading, tvLibraryEmpty);
         cont.addView(makeLibSectionTitle("媒体库"));
         LinearLayout group = new LinearLayout(this);
+        group.setTag("lib_list");
         group.setOrientation(LinearLayout.VERTICAL);
         group.setBackgroundResource(R.drawable.bg_lib_group);
         group.setLayoutParams(new LinearLayout.LayoutParams(
@@ -4875,6 +5006,13 @@ public class HomeActivity extends AppCompatActivity {
             browseItemsInContainer(m.guid, m.title, libraryContainer, tvLibraryLoading);
         });
         return row;
+    }
+
+    /** 媒体库列表正显示在这一页上，再进来时不必先清空。 */
+    private boolean libraryListOnScreen() {
+        return libraryContainer != null && shownLibListKey != null
+                && savedBrowseGuid == null && !isSearching
+                && hasTaggedChild(libraryContainer, "lib_list");
     }
 
     private static String libCountTag(String guid) {
@@ -6569,18 +6707,26 @@ public class HomeActivity extends AppCompatActivity {
         List<View> shortcuts = shortcutCards();
         if (isHomeHeader(focused) && headerFocusedByUser) return;
         if (!homeEntryFocused || focused == null || isHomeHeader(focused)) {
-            View first = !continueCards.isEmpty() ? continueCards.get(0)
-                    : (!shortcuts.isEmpty() ? shortcuts.get(0) : null);
+            View play = isTelevision() && isUsableFocus(heroPlay) ? heroPlay : null;
+            View first = play != null ? play
+                    : (!continueCards.isEmpty() ? continueCards.get(0)
+                    : (!shortcuts.isEmpty() ? shortcuts.get(0) : null));
             if (isUsableFocus(first)) {
                 focusOn(first);
                 if (first.isFocused()) {
                     homeEntryFocused = true;
-                    if (!continueCards.isEmpty()) initialFocusPlaced = true;
+                    initialFocusPlaced = first == heroPlay || !continueCards.isEmpty();
                 }
                 return;
             }
         }
         if (isHomeHeader(focused)) return;
+
+        if (focused == heroPlay) {
+            initialFocusPlaced = true;
+            homeEntryFocused = true;
+            return;
+        }
 
         if (!initialFocusPlaced && !continueCards.isEmpty()) {
             boolean stillAtStart = !onRealContent
@@ -6614,8 +6760,9 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (homeEntryFocused) return;
 
-        View target = !continueCards.isEmpty() ? continueCards.get(0)
-                : (!shortcuts.isEmpty() ? shortcuts.get(0) : searchBtn);
+        View target = isTelevision() && isUsableFocus(heroPlay) ? heroPlay
+                : (!continueCards.isEmpty() ? continueCards.get(0)
+                : (!shortcuts.isEmpty() ? shortcuts.get(0) : searchBtn));
         if (isUsableFocus(target)) {
             focusOn(target);
             homeEntryFocused = true;
