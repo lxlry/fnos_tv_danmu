@@ -1300,6 +1300,8 @@ public class HomeActivity extends AppCompatActivity {
                     item.releaseDate = detail.releaseDate;
                 }
                 if (detail.airDate != null && !detail.airDate.isEmpty()) item.airDate = detail.airDate;
+                if (detail.poster != null && !detail.poster.isEmpty()) item.poster = detail.poster;
+                if (detail.posters != null && !detail.posters.isEmpty()) item.posters = detail.posters;
                 if (detail.backdrops != null && !detail.backdrops.isEmpty()) item.backdrops = detail.backdrops;
                 if (detail.logos != null) item.logos = detail.logos;
                 if (showingOverview) reloadHeroImage(item);
@@ -1316,7 +1318,11 @@ public class HomeActivity extends AppCompatActivity {
         heroIndex = 0;
         boolean bleed = useImmersiveHero();
         int viewport = getResources().getDisplayMetrics().widthPixels;
-        int cardH = Math.min(Math.round(viewport * 0.56f), dp(340));
+        int contentW = viewport;
+        if (savedMoviesPad != null) contentW -= savedMoviesPad[0] + savedMoviesPad[2];
+        int cardH = Math.round(Math.max(contentW, 0) * 3f / 2f);
+        int cardCap = Math.round(getResources().getDisplayMetrics().heightPixels * 0.72f);
+        if (cardH > cardCap) cardH = cardCap;
 
         if (!bleed) {
             LinearLayout column = new LinearLayout(this);
@@ -1439,7 +1445,18 @@ public class HomeActivity extends AppCompatActivity {
                         : new int[]{0xF0000000, 0x99000000, 0x00000000}));
         frame.addView(bottom);
 
-        LinearLayout info = new LinearLayout(this);
+        LinearLayout info = new LinearLayout(this) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                // 横屏高度不够时按内容真实高度测量，再贴底摆放。
+                // 多出来的从顶部裁掉，开始播放和详情留在媒体库上方。
+                if (bleed && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+                    heightMeasureSpec = MeasureSpec.makeMeasureSpec(
+                            MeasureSpec.getSize(heightMeasureSpec), MeasureSpec.UNSPECIFIED);
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            }
+        };
         FrameLayout.LayoutParams infoLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         infoLp.gravity = Gravity.BOTTOM;
@@ -1601,7 +1618,7 @@ public class HomeActivity extends AppCompatActivity {
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setBackgroundColor(color(R.color.bg_poster));
-        String url = makeImageUrl(item.backdropPath(), 1280);
+        String url = makeImageUrl(heroImagePath(item), useImmersiveHero() ? 1280 : 800);
         if (url != null) {
             image.setTag(url);
             loadHeroStill(image, url);
@@ -1609,10 +1626,17 @@ public class HomeActivity extends AppCompatActivity {
         return image;
     }
 
+    /** 竖屏用海报；没有海报才退回横图。横屏和电视仍用横图，没有横图才退回海报。 */
+    private String heroImagePath(PlayListItem item) {
+        if (item == null) return null;
+        if (useImmersiveHero()) return item.backdropPath();
+        return item.coverPath();
+    }
+
     private void reloadHeroImage(PlayListItem item) {
         int index = cachedCarousel.indexOf(item);
         if (index < 0 || index >= heroImages.size()) return;
-        String url = makeImageUrl(item.backdropPath(), 1280);
+        String url = makeImageUrl(heroImagePath(item), useImmersiveHero() ? 1280 : 800);
         applyHeroStill(heroImages.get(index), url);
         if (index == 0) applyHeroStill(heroCloneFirst, url);
         if (index == heroImages.size() - 1) applyHeroStill(heroCloneLast, url);
@@ -1644,12 +1668,14 @@ public class HomeActivity extends AppCompatActivity {
         SimpleImageLoader.load(url, image, apiManager.getClient());
     }
 
-    /** 竖屏卡片固定 16:9。竖图和横图都铺满裁切，高度不再跟着图片变。 */
+    /** 竖屏卡片按海报 2:3 铺满裁切，最高不超过屏幕的 72%。 */
     private void lockPortraitHeroCard(View card) {
         card.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             int width = v.getWidth();
             if (width <= 0 || v.getLayoutParams() == null) return;
-            int height = Math.round(width * 9f / 16f);
+            int height = Math.round(width * 3f / 2f);
+            int cap = Math.round(getResources().getDisplayMetrics().heightPixels * 0.72f);
+            if (height > cap) height = cap;
             if (v.getLayoutParams().height == height) return;
             v.getLayoutParams().height = height;
             v.requestLayout();
