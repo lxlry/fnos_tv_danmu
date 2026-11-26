@@ -1519,15 +1519,8 @@ public class HomeActivity extends AppCompatActivity {
         heroPlay = makeHeroButton(true, !bleed);
         heroPlay.setText("开始播放");
         heroPlay.setOnClickListener(v -> playHeroItem(currentHeroItem()));
-        heroPlay.setOnKeyListener((v, keyCode, event) -> {
-            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && cachedCarousel.size() > 1) {
-                showHeroIndex(heroIndex - 1, true);
-                syncHeroTimer();
-                return true;
-            }
-            return false;
-        });
+        heroPlay.setOnKeyListener((v, keyCode, event) ->
+                event.getAction() == KeyEvent.ACTION_DOWN && onHeroEdgeKey(v, keyCode));
         heroMore = makeHeroButton(false, !bleed);
         LinearLayout.LayoutParams moreLp = (LinearLayout.LayoutParams) heroMore.getLayoutParams();
         moreLp.leftMargin = dp(bleed ? 12 : 8);
@@ -1536,15 +1529,8 @@ public class HomeActivity extends AppCompatActivity {
             PlayListItem item = currentHeroItem();
             if (item != null) showDetail(item);
         });
-        heroMore.setOnKeyListener((v, keyCode, event) -> {
-            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && cachedCarousel.size() > 1) {
-                showHeroIndex(heroIndex + 1, true);
-                syncHeroTimer();
-                return true;
-            }
-            return false;
-        });
+        heroMore.setOnKeyListener((v, keyCode, event) ->
+                event.getAction() == KeyEvent.ACTION_DOWN && onHeroEdgeKey(v, keyCode));
         View.OnFocusChangeListener focus = (v, hasFocus) -> noteHeroFocus();
         heroPlay.setOnFocusChangeListener(focus);
         heroMore.setOnFocusChangeListener(focus);
@@ -1889,6 +1875,22 @@ public class HomeActivity extends AppCompatActivity {
             if (number < bestNumber) best = episode;
         }
         return best;
+    }
+
+    /** 开始播放的左键、详情的右键翻页。方向键在焦点层就被消化，按钮自己的监听收不到。 */
+    private boolean onHeroEdgeKey(View focused, int keyCode) {
+        if (!showingOverview || currentTab != 0 || cachedCarousel.size() < 2) return false;
+        if (focused == heroPlay && keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            showHeroIndex(heroIndex - 1, true);
+            syncHeroTimer();
+            return true;
+        }
+        if (focused == heroMore && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            showHeroIndex(heroIndex + 1, true);
+            syncHeroTimer();
+            return true;
+        }
+        return false;
     }
 
     private void noteHeroFocus() {
@@ -6700,6 +6702,21 @@ public class HomeActivity extends AppCompatActivity {
         return true;
     }
 
+    /** 电视进首页落在媒体库第一项。没有媒体库时才回到开始播放。 */
+    private View homeEntryFocus(List<View> shortcuts, List<View> continueCards, View searchBtn) {
+        if (isTelevision() && !shortcuts.isEmpty() && isUsableFocus(shortcuts.get(0))) {
+            return shortcuts.get(0);
+        }
+        if (!isTelevision()) {
+            if (!continueCards.isEmpty()) return continueCards.get(0);
+            if (!shortcuts.isEmpty()) return shortcuts.get(0);
+            return searchBtn;
+        }
+        if (isUsableFocus(heroPlay)) return heroPlay;
+        if (!continueCards.isEmpty()) return continueCards.get(0);
+        return searchBtn;
+    }
+
     private void restoreOverviewFocus() {
         if (pendingReturnFocus != null || pendingReturnGuid != null) {
             applyReturnFocus();
@@ -6719,15 +6736,13 @@ public class HomeActivity extends AppCompatActivity {
         List<View> shortcuts = shortcutCards();
         if (isHomeHeader(focused) && headerFocusedByUser) return;
         if (!homeEntryFocused || focused == null || isHomeHeader(focused)) {
-            View play = isTelevision() && isUsableFocus(heroPlay) ? heroPlay : null;
-            View first = play != null ? play
-                    : (!continueCards.isEmpty() ? continueCards.get(0)
-                    : (!shortcuts.isEmpty() ? shortcuts.get(0) : null));
+            View first = homeEntryFocus(shortcuts, continueCards, null);
             if (isUsableFocus(first)) {
                 focusOn(first);
                 if (first.isFocused()) {
                     homeEntryFocused = true;
-                    initialFocusPlaced = first == heroPlay || !continueCards.isEmpty();
+                    boolean onFirstLibrary = !shortcuts.isEmpty() && first == shortcuts.get(0);
+                    initialFocusPlaced = onFirstLibrary || first == heroPlay || !continueCards.isEmpty();
                 }
                 return;
             }
@@ -6741,8 +6756,9 @@ public class HomeActivity extends AppCompatActivity {
         }
 
         if (!initialFocusPlaced && !continueCards.isEmpty()) {
+            // 电视进首页就停在媒体库第一项，不要再被继续观看抢走。
             boolean stillAtStart = !onRealContent
-                    || (!shortcuts.isEmpty() && focused == shortcuts.get(0));
+                    || (!isTelevision() && !shortcuts.isEmpty() && focused == shortcuts.get(0));
             if (stillAtStart) {
                 focusOn(continueCards.get(0));
                 initialFocusPlaced = true;
@@ -6772,9 +6788,7 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (homeEntryFocused) return;
 
-        View target = isTelevision() && isUsableFocus(heroPlay) ? heroPlay
-                : (!continueCards.isEmpty() ? continueCards.get(0)
-                : (!shortcuts.isEmpty() ? shortcuts.get(0) : searchBtn));
+        View target = homeEntryFocus(shortcuts, continueCards, searchBtn);
         if (isUsableFocus(target)) {
             focusOn(target);
             homeEntryFocused = true;
@@ -7612,6 +7626,7 @@ public class HomeActivity extends AppCompatActivity {
                 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
             return false;
         }
+        if (onHeroEdgeKey(focused, keyCode)) return true;
         return moveExplicitFocus(focused, keyCode);
     }
 
