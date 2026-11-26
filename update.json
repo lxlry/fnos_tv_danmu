@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527065,
-    "versionName": "9527.065",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.065/FNTV_release_v9527.065.apk",
-    "changelog": "重新进入播放会按剧名和季保留片头尾。续播如果还在片头里，会跳到片头结束的位置",
+    "versionCode": 9527066,
+    "versionName": "9527.066",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.066/FNTV_release_v9527.066.apk",
+    "changelog": "首页增加海报轮播。电视和手机横屏铺满一屏，顶栏透明；手机竖屏为横滑卡片",
     "forceUpdate": false
 }

@@ -48,6 +48,8 @@ public class PlayListItem {
     public String voteAverage;
 
     public String overview;       // 简介
+    /** 飞牛透明标题图。可能是字符串或数组。 */
+    public Object logos;
 
     @SerializedName("runtime")
     public int runtime;           // 运行时长(分钟)
@@ -120,6 +122,18 @@ public class PlayListItem {
     /** 判断是否为可播放的媒体（Movie: 电影, Video: 视频, Episode: 剧集） */
     public boolean isPlayable() {
         return "Movie".equals(type) || "Video".equals(type) || "Episode".equals(type);
+    }
+
+    /** 横图。没有背景图时退回封面。 */
+    public String backdropPath() {
+        String backdrop = firstImagePath(backdrops);
+        if (backdrop != null) return backdrop;
+        return coverPath();
+    }
+
+    /** 透明标题图路径。 */
+    public String logoPath() {
+        return firstImagePath(logos);
     }
 
     /** 封面路径。本地片用 poster；在线线路卡只有 posters。 */

@@ -15,6 +15,21 @@ public class HomeScrollView extends ScrollView {
     private boolean holdScroll;
     /** 焦点交还给内容时，不要跟着把列表滚走。 */
     private boolean suppressScroll;
+    private ScrollYListener scrollYListener;
+
+    public interface ScrollYListener {
+        void onScrollY(int y);
+    }
+
+    public void setScrollYListener(ScrollYListener listener) {
+        scrollYListener = listener;
+    }
+
+    @Override
+    protected void onScrollChanged(int l, int t, int oldl, int oldt) {
+        super.onScrollChanged(l, t, oldl, oldt);
+        if (scrollYListener != null) scrollYListener.onScrollY(t);
+    }
 
     public HomeScrollView(Context context) {
         this(context, null);

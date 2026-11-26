@@ -50,6 +50,8 @@ public class PlayInfoResponse {
         public String poster;
         public String posters;          // 海报路径
         public String backdrops;        // 背景大图路径
+        /** 透明标题图。可能是字符串或数组。 */
+        public Object logos;
         @SerializedName("still_path")
         public String stillPath;        // 剧照
 

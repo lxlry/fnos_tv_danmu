@@ -20,18 +20,75 @@ DPAD 遥控器友好
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <!-- Tab 1: 影视 -->
-        <LinearLayout
+        <!-- Tab 1: 影视。顶栏浮在内容上，首页海报才能铺到屏幕上沿。 -->
+        <FrameLayout
             android:id="@+id/panelMovies"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="vertical"
             android:visibility="visible">
+
+            <com.fntv.app.HomeSwipeRefresh
+                android:id="@+id/homeSwipeRefresh"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipChildren="false"
+                android:clipToPadding="false">
+
+            <com.fntv.app.HomeScrollView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:fillViewport="true"
+                android:scrollbars="none"
+                android:focusable="false"
+                android:focusableInTouchMode="false"
+                android:descendantFocusability="afterDescendants">
+
+                <LinearLayout
+                    android:id="@+id/moviesGridContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:orientation="vertical"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="8dp">
+
+                    <TextView
+                        android:id="@+id/tvMoviesLoading"
+                        android:layout_width="match_parent"
+                        android:layout_height="120dp"
+                        android:gravity="center"
+                        android:text="加载中..."
+                        android:textColor="@color/text_hint"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/tvMoviesEmpty"
+                        android:layout_width="match_parent"
+                        android:layout_height="120dp"
+                        android:gravity="center"
+                        android:text="请选择媒体库"
+                        android:textColor="@color/text_hint"
+                        android:textSize="14sp"
+                        android:visibility="visible" />
+
+                </LinearLayout>
+
+            </com.fntv.app.HomeScrollView>
+
+            </com.fntv.app.HomeSwipeRefresh>
 
             <RelativeLayout
                 android:id="@+id/moviesHeader"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
+                android:layout_gravity="top"
+                android:background="@color/bg_dark"
                 android:paddingLeft="16dp"
                 android:paddingRight="8dp">
 
@@ -120,57 +177,7 @@ DPAD 遥控器友好
                     android:visibility="gone" />
             </RelativeLayout>
 
-            <com.fntv.app.HomeSwipeRefresh
-                android:id="@+id/homeSwipeRefresh"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent">
-
-            <com.fntv.app.HomeScrollView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:fillViewport="true"
-                android:scrollbars="none"
-                android:focusable="false"
-                android:focusableInTouchMode="false"
-                android:descendantFocusability="afterDescendants">
-
-                <LinearLayout
-                    android:id="@+id/moviesGridContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:paddingLeft="12dp"
-                    android:paddingRight="12dp"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="8dp">
-
-                    <TextView
-                        android:id="@+id/tvMoviesLoading"
-                        android:layout_width="match_parent"
-                        android:layout_height="120dp"
-                        android:gravity="center"
-                        android:text="加载中..."
-                        android:textColor="@color/text_hint"
-                        android:textSize="14sp"
-                        android:visibility="gone" />
-
-                    <TextView
-                        android:id="@+id/tvMoviesEmpty"
-                        android:layout_width="match_parent"
-                        android:layout_height="120dp"
-                        android:gravity="center"
-                        android:text="请选择媒体库"
-                        android:textColor="@color/text_hint"
-                        android:textSize="14sp"
-                        android:visibility="visible" />
-
-                </LinearLayout>
-
-            </com.fntv.app.HomeScrollView>
-
-            </com.fntv.app.HomeSwipeRefresh>
-
-        </LinearLayout>
+        </FrameLayout>
 
         <!-- Tab 2: 媒体库 -->
         <LinearLayout

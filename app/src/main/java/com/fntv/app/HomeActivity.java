@@ -3,7 +3,9 @@ package com.fntv.app;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Outline;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -13,6 +15,7 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewOutlineProvider;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
@@ -97,6 +100,27 @@ public class HomeActivity extends AppCompatActivity {
     private long t0;
     private boolean overviewBuilt = false;
     private List<PlayListItem> cachedContinueWatching;
+    private final List<PlayListItem> cachedCarousel = new ArrayList<>();
+    private int carouselGeneration;
+    private boolean carouselLoaded;
+    private View heroRoot;
+    private HeroPager heroPager;
+    private TextView heroMeta;
+    private TextView heroTitle;
+    private TextView heroOverview;
+    private ImageView heroLogo;
+    private TextView heroPlay;
+    private TextView heroMore;
+    private LinearLayout heroDots;
+    private final List<ImageView> heroImages = new ArrayList<>();
+    private int heroIndex;
+    private String heroBoundStamp;
+    private boolean heroHold;
+    private boolean heroTouchHold;
+    private final Handler heroHandler = new Handler(Looper.getMainLooper());
+    private final Runnable heroTick = new Runnable() {
+        @Override public void run() { advanceHero(); }
+    };
     private List<PlayListItem> cachedLivePreview;
     private int cachedLiveTotal;
     private long backPressedTime = 0;
@@ -267,6 +291,11 @@ public class HomeActivity extends AppCompatActivity {
         panelSettings = findViewById(R.id.panelSettings);
         tvHomeTitle = findViewById(R.id.tvHomeTitle);
         moviesContainer = findViewById(R.id.moviesGridContainer);
+        if (moviesContainer != null && moviesContainer.getParent() instanceof HomeScrollView) {
+            ((HomeScrollView) moviesContainer.getParent()).setScrollYListener(new HomeScrollView.ScrollYListener() {
+                @Override public void onScrollY(int y) { applyHeaderBackdrop(y); }
+            });
+        }
         savedMoviesPad = new int[] {
                 moviesContainer.getPaddingLeft(),
                 moviesContainer.getPaddingTop(),
@@ -303,6 +332,7 @@ public class HomeActivity extends AppCompatActivity {
             homeSwipe.setColorSchemeColors(color(R.color.text_primary));
             homeSwipe.setProgressBackgroundColorSchemeColor(color(R.color.bg_card));
             homeSwipe.setOnRefreshListener(this::refreshCurrentPage);
+            homeSwipe.setProgressViewOffset(false, dp(52), dp(108));
             syncHomeSwipe();
         }
         androidx.swiperefreshlayout.widget.SwipeRefreshLayout librarySwipe = findViewById(R.id.librarySwipeRefresh);
@@ -371,6 +401,7 @@ public class HomeActivity extends AppCompatActivity {
         } else if (updateManager != null) {
             updateManager.showPendingPrompt();
         }
+        syncHeroTimer();
         if (savedDetailItem != null) {
             restoreDetailPage();
         } else if (currentTab == 0 && !mediaLibraries.isEmpty() && overviewBuilt && showingOverview) {
@@ -400,6 +431,7 @@ public class HomeActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
+        heroHandler.removeCallbacks(heroTick);
         if (updateManager != null) updateManager.setInForeground(false);
         super.onPause();
     }
@@ -647,6 +679,8 @@ public class HomeActivity extends AppCompatActivity {
             loadAllPreviews();
             refreshContinueAfterPlayback();
             loadLiveChannels();
+            applyMoviesChrome();
+            syncHeroTimer();
             return;
         }
         loadingPreviews = false;
@@ -676,6 +710,7 @@ public class HomeActivity extends AppCompatActivity {
         // 不依赖媒体库名单，和名单并行请求，回来时能直接画上
         loadContinueWatching();
         loadLiveChannels();
+        loadCarousel();
 
         final int[] retryCount = {1};
         apiManager.getApi().getMediaDbList().enqueue(new Callback<ApiResponse<List<MediaDbItem>>>() {
@@ -791,18 +826,21 @@ public class HomeActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         continueWatchingBox.setOrientation(LinearLayout.VERTICAL);
         continueWatchingBox.setTag("continue_watching");
+        moviesContainer.addView(buildHomeHero());
+        if (useImmersiveHero()) moviesContainer.addView(makeSpacer(dp(52)));
+        if (!useImmersiveHero()) {
+            LinearLayout libRowBox = new LinearLayout(this);
+            libRowBox.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            libRowBox.setOrientation(LinearLayout.VERTICAL);
+            libRowBox.setTag("lib_shortcuts");
+            libRowBox.addView(makeLibShortcutRow(false));
+            moviesContainer.addView(libRowBox);
+        }
         moviesContainer.addView(continueWatchingBox);
         if (cachedContinueWatching != null && !cachedContinueWatching.isEmpty()) {
             addContinueWatchingApi(continueWatchingBox, cachedContinueWatching, 0);
         }
-
-        LinearLayout libRowBox = new LinearLayout(this);
-        libRowBox.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        libRowBox.setOrientation(LinearLayout.VERTICAL);
-        libRowBox.setTag("lib_shortcuts");
-        libRowBox.addView(makeLibShortcutRow());
-        moviesContainer.addView(libRowBox);
 
         for (MediaDbItem lib : mediaLibraries) {
             LinearLayout headerRow = makeLibHeader(lib.guid, lib.title, 0);
@@ -843,6 +881,9 @@ public class HomeActivity extends AppCompatActivity {
         }
         syncHomeSwipe();
         wireOverviewFocus();
+        applyMoviesChrome();
+        if (!cachedCarousel.isEmpty()) bindHeroContent();
+        syncHeroTimer();
         applyPendingHomeScroll();
     }
 
@@ -989,7 +1030,7 @@ public class HomeActivity extends AppCompatActivity {
         return hsv;
     }
 
-    private HorizontalScrollView makeLibShortcutRow() {
+    private HorizontalScrollView makeLibShortcutRow(boolean wide) {
         HorizontalScrollView hsv = makeHsv();
         hsv.setPadding(0, dp(4), 0, dp(8));
 
@@ -997,11 +1038,13 @@ public class HomeActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(dp(4), 0, dp(4), 0);
 
+        int cardW = wide ? dp(210) : dp(168);
+        int cardH = wide ? dp(118) : dp(104);
         for (int i = 0; i < mediaLibraries.size(); i++) {
             MediaDbItem lib = mediaLibraries.get(i);
             View tile = makeLibShortcutCard(lib);
             tile.setId(View.generateViewId());
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), dp(100));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cardW, cardH);
             lp.setMargins(dp(6), 0, dp(6), 0);
             tile.setLayoutParams(lp);
             row.addView(tile);
@@ -1031,17 +1074,19 @@ public class HomeActivity extends AppCompatActivity {
 
         View scrim = new View(this);
         FrameLayout.LayoutParams scrimLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
         scrimLp.gravity = Gravity.BOTTOM;
         scrim.setLayoutParams(scrimLp);
         scrim.setBackgroundResource(R.drawable.bg_scrim);
         tile.addView(scrim);
 
+        String category = lib.category == null ? "" : lib.category.trim();
+        boolean hasCategory = !category.isEmpty();
         TextView name = new TextView(this);
         FrameLayout.LayoutParams nameLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nameLp.gravity = Gravity.BOTTOM;
-        nameLp.setMargins(dp(10), 0, dp(10), dp(8));
+        nameLp.setMargins(dp(10), 0, dp(10), hasCategory ? dp(22) : dp(8));
         name.setLayoutParams(nameLp);
         name.setText(lib.title != null ? lib.title : "");
         name.setTextColor(color(R.color.text_white));
@@ -1050,25 +1095,35 @@ public class HomeActivity extends AppCompatActivity {
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
         tile.addView(name);
+        if (hasCategory) {
+            TextView cat = new TextView(this);
+            FrameLayout.LayoutParams catLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            catLp.gravity = Gravity.BOTTOM;
+            catLp.setMargins(dp(10), 0, dp(10), dp(6));
+            cat.setLayoutParams(catLp);
+            cat.setText(category.toUpperCase(java.util.Locale.US));
+            cat.setTextColor(0x8CFFFFFF);
+            cat.setTextSize(10);
+            cat.setSingleLine(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) cat.setLetterSpacing(0.12f);
+            tile.addView(cat);
+        }
         return tile;
     }
 
     private void updateLibShortcutPoster(String libGuid, PlayListItem first) {
-        if (first == null || first.poster == null || first.poster.isEmpty()) return;
-        String url = makePosterUrl(first.poster);
-        if (url == null) return;
-        String tag = "lib_tile_" + libGuid;
-        for (int i = 0; i < moviesContainer.getChildCount(); i++) {
-            View box = moviesContainer.getChildAt(i);
-            if (!(box instanceof ViewGroup) || !"lib_shortcuts".equals(box.getTag())) continue;
-            View tile = findViewWithTagDeep((ViewGroup) box, tag);
-            if (!(tile instanceof ViewGroup)) return;
-            View img = ((ViewGroup) tile).getChildAt(0);
-            if (img instanceof ImageView && img.getTag() == null) {
-                img.setTag(url);
-                SimpleImageLoader.load(url, (ImageView) img, apiManager.getClient());
-            }
-            return;
+        if (first == null) return;
+        String path = first.backdropPath();
+        if (path == null || path.isEmpty()) return;
+        String url = makeImageUrl(path, 640);
+        if (url == null || moviesContainer == null) return;
+        View tile = findViewWithTagDeep(moviesContainer, "lib_tile_" + libGuid);
+        if (!(tile instanceof ViewGroup)) return;
+        View img = ((ViewGroup) tile).getChildAt(0);
+        if (img instanceof ImageView && !url.equals(img.getTag())) {
+            img.setTag(url);
+            SimpleImageLoader.load(url, (ImageView) img, apiManager.getClient());
         }
     }
 
@@ -1084,6 +1139,546 @@ public class HomeActivity extends AppCompatActivity {
         }
         return null;
     }
+
+
+    /** 电视，以及手机横屏：海报铺满顶栏以下的整屏。手机竖屏用矮卡片。 */
+    private boolean useImmersiveHero() {
+        if (isTelevision()) return true;
+        return getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    private void applyMoviesChrome() {
+        if (moviesContainer == null || savedMoviesPad == null) return;
+        View header = findViewById(R.id.moviesHeader);
+        boolean headerShown = header != null && header.getVisibility() == View.VISIBLE;
+        boolean bleed = headerShown && useImmersiveHero() && showingOverview && currentTab == 0;
+        if (!headerShown) {
+            moviesContainer.setPadding(0, 0, 0, 0);
+        } else if (bleed) {
+            moviesContainer.setPadding(savedMoviesPad[0], 0, savedMoviesPad[2], savedMoviesPad[3]);
+            sizeImmersiveHero();
+        } else {
+            moviesContainer.setPadding(savedMoviesPad[0], savedMoviesPad[1] + dp(52),
+                    savedMoviesPad[2], savedMoviesPad[3]);
+        }
+        ScrollView scroller = moviesScroller();
+        applyHeaderBackdrop(scroller == null ? 0 : scroller.getScrollY());
+    }
+
+    /** 满屏海报时顶栏透明；滚到下面的列表后恢复实心，避免字压在卡片上。 */
+    private void applyHeaderBackdrop(int scrollY) {
+        View header = findViewById(R.id.moviesHeader);
+        if (header == null || header.getVisibility() != View.VISIBLE) return;
+        boolean clear = useImmersiveHero() && showingOverview && currentTab == 0;
+        if (clear) {
+            int span = heroRoot != null && heroRoot.getHeight() > 0
+                    ? heroRoot.getHeight() - dp(72) : dp(48);
+            clear = scrollY < Math.max(dp(48), span);
+        }
+        header.setBackgroundColor(clear ? Color.TRANSPARENT : color(R.color.bg_dark));
+        if (tvHomeTitle != null) {
+            if (clear) tvHomeTitle.setShadowLayer(dp(4), 0, dp(1), 0xCC000000);
+            else tvHomeTitle.setShadowLayer(0, 0, 0, 0);
+        }
+    }
+
+    private void sizeImmersiveHero() {
+        if (!useImmersiveHero() || heroRoot == null || panelMovies == null) return;
+        panelMovies.post(() -> {
+            if (heroRoot == null || !useImmersiveHero()) return;
+            int height = panelMovies.getHeight();
+            if (height <= 0 || heroRoot.getLayoutParams() == null) return;
+            if (heroRoot.getLayoutParams().height != height) {
+                heroRoot.getLayoutParams().height = height;
+                heroRoot.requestLayout();
+            }
+        });
+    }
+
+    private void loadCarousel() {
+        if (apiManager.getApi() == null) return;
+        final int generation = ++carouselGeneration;
+        apiManager.getApi().getItemList(ItemListRequest.carousel())
+                .enqueue(new Callback<ApiResponse<ItemListResponse>>() {
+                    @Override
+                    public void onResponse(Call<ApiResponse<ItemListResponse>> call,
+                                           Response<ApiResponse<ItemListResponse>> response) {
+                        if (generation != carouselGeneration) return;
+                        carouselLoaded = true;
+                        List<PlayListItem> next = new ArrayList<>();
+                        if (response.isSuccessful() && response.body() != null && response.body().code == 0
+                                && response.body().data != null && response.body().data.list != null) {
+                            for (PlayListItem item : response.body().data.list) {
+                                if (item == null || item.guid == null || item.guid.isEmpty()) continue;
+                                if (item.title == null || item.title.isEmpty()) continue;
+                                if (!"Movie".equals(item.type) && !"TV".equals(item.type)) continue;
+                                next.add(item);
+                                if (next.size() >= 8) break;
+                            }
+                        }
+                        cachedCarousel.clear();
+                        cachedCarousel.addAll(next);
+                        heroBoundStamp = null;
+                        if (showingOverview && heroRoot != null) bindHeroContent();
+                        for (PlayListItem item : next) enrichCarouselItem(item);
+                        syncHeroTimer();
+                    }
+
+                    @Override
+                    public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
+                        if (generation != carouselGeneration) return;
+                        carouselLoaded = true;
+                        if (cachedCarousel.isEmpty() && heroRoot != null) {
+                            heroRoot.setVisibility(View.GONE);
+                        }
+                    }
+                });
+    }
+
+    private void enrichCarouselItem(final PlayListItem item) {
+        if (item == null || item.guid == null || apiManager.getApi() == null) return;
+        java.util.Map<String, String> body = new java.util.HashMap<>();
+        body.put("item_guid", item.guid);
+        apiManager.getApi().getPlayInfo(body).enqueue(new Callback<ApiResponse<PlayInfoResponse>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<PlayInfoResponse>> call,
+                                   Response<ApiResponse<PlayInfoResponse>> response) {
+                if (!cachedCarousel.contains(item)) return;
+                if (!response.isSuccessful() || response.body() == null || response.body().code != 0
+                        || response.body().data == null || response.body().data.item == null) return;
+                PlayInfoResponse.ItemInfo detail = response.body().data.item;
+                if (detail.overview != null && !detail.overview.isEmpty()) item.overview = detail.overview;
+                if (detail.voteAverage != null && !detail.voteAverage.isEmpty()) {
+                    item.voteAverage = detail.voteAverage;
+                }
+                if (detail.releaseDate != null && !detail.releaseDate.isEmpty()) {
+                    item.releaseDate = detail.releaseDate;
+                }
+                if (detail.airDate != null && !detail.airDate.isEmpty()) item.airDate = detail.airDate;
+                if (detail.backdrops != null && !detail.backdrops.isEmpty()) item.backdrops = detail.backdrops;
+                if (detail.logos != null) item.logos = detail.logos;
+                if (showingOverview) reloadHeroImage(item);
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<PlayInfoResponse>> call, Throwable t) { }
+        });
+    }
+
+    private View buildHomeHero() {
+        heroImages.clear();
+        heroBoundStamp = null;
+        heroIndex = 0;
+        boolean bleed = useImmersiveHero();
+        int viewport = getResources().getDisplayMetrics().widthPixels;
+        int cardH = Math.min(Math.round(viewport * 0.56f), dp(340));
+
+        if (!bleed) {
+            LinearLayout column = new LinearLayout(this);
+            column.setOrientation(LinearLayout.VERTICAL);
+            column.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            column.setTag("home_hero");
+            FrameLayout card = new FrameLayout(this);
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, cardH);
+            cardLp.topMargin = dp(4);
+            card.setLayoutParams(cardLp);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                card.setOutlineProvider(new ViewOutlineProvider() {
+                    @Override
+                    public void getOutline(View view, Outline outline) {
+                        outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(18));
+                    }
+                });
+                card.setClipToOutline(true);
+            }
+            fillHeroFrame(card, false);
+            column.addView(card);
+            heroDots = new LinearLayout(this);
+            heroDots.setOrientation(LinearLayout.HORIZONTAL);
+            heroDots.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams dotsLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            dotsLp.topMargin = dp(8);
+            dotsLp.bottomMargin = dp(4);
+            heroDots.setLayoutParams(dotsLp);
+            column.addView(heroDots);
+            heroRoot = column;
+            if (carouselLoaded && cachedCarousel.isEmpty()) heroRoot.setVisibility(View.GONE);
+            return column;
+        }
+
+        FrameLayout frame = new FrameLayout(this);
+        int height = panelMovies != null && panelMovies.getHeight() > 0
+                ? panelMovies.getHeight()
+                : getResources().getDisplayMetrics().heightPixels;
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, height);
+        if (savedMoviesPad != null) {
+            lp.leftMargin = -savedMoviesPad[0];
+            lp.rightMargin = -savedMoviesPad[2];
+        }
+        frame.setLayoutParams(lp);
+        frame.setTag("home_hero");
+        fillHeroFrame(frame, true);
+        View strip = makeLibShortcutRow(true);
+        strip.setTag("lib_shortcuts");
+        FrameLayout.LayoutParams stripLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        stripLp.gravity = Gravity.BOTTOM;
+        stripLp.leftMargin = dp(20);
+        stripLp.rightMargin = dp(20);
+        stripLp.bottomMargin = dp(12);
+        frame.addView(strip);
+        heroRoot = frame;
+        heroDots = null;
+        if (carouselLoaded && cachedCarousel.isEmpty()) heroRoot.setVisibility(View.GONE);
+        return frame;
+    }
+
+    private void fillHeroFrame(FrameLayout frame, boolean bleed) {
+        frame.setBackgroundColor(color(R.color.bg_poster));
+        heroPager = new HeroPager(this);
+        heroPager.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        heroPager.setListener(new HeroPager.Listener() {
+            @Override
+            public void onPageSettled(int index) {
+                if (index == heroIndex) return;
+                showHeroIndex(index, false);
+                syncHeroTimer();
+            }
+
+            @Override
+            public void onUserHold(boolean hold) {
+                heroTouchHold = hold;
+                syncHeroTimer();
+            }
+        });
+        frame.addView(heroPager);
+
+        if (bleed) {
+            View top = new View(this);
+            FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(96));
+            topLp.gravity = Gravity.TOP;
+            top.setLayoutParams(topLp);
+            GradientDrawable topShade = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0xB3000000, 0x00000000});
+            top.setBackground(topShade);
+            frame.addView(top);
+
+            View left = new View(this);
+            left.setLayoutParams(new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            left.setBackground(new GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{0x99000000, 0x00000000}));
+            frame.addView(left);
+        }
+
+        View bottom = new View(this);
+        FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, bleed ? dp(280) : ViewGroup.LayoutParams.MATCH_PARENT);
+        bottomLp.gravity = Gravity.BOTTOM;
+        bottom.setLayoutParams(bottomLp);
+        int page = color(R.color.bg_dark);
+        bottom.setBackground(new GradientDrawable(
+                GradientDrawable.Orientation.BOTTOM_TOP,
+                bleed
+                        ? new int[]{page, 0xCC000000, 0x00000000}
+                        : new int[]{0xF0000000, 0x99000000, 0x00000000}));
+        frame.addView(bottom);
+
+        LinearLayout info = new LinearLayout(this);
+        FrameLayout.LayoutParams infoLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        infoLp.gravity = Gravity.BOTTOM;
+        info.setLayoutParams(infoLp);
+        info.setOrientation(LinearLayout.VERTICAL);
+        int bottomPad = bleed ? dp(158) : dp(16);
+        info.setPadding(dp(bleed ? 48 : 16), dp(12), dp(bleed ? 48 : 16), bottomPad);
+
+        heroMeta = new TextView(this);
+        heroMeta.setTextColor(0xBFFFFFFF);
+        heroMeta.setTextSize(bleed ? 13 : 12);
+        heroMeta.setTypeface(Typeface.DEFAULT_BOLD);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) heroMeta.setLetterSpacing(0.08f);
+        info.addView(heroMeta);
+
+        heroLogo = new ImageView(this);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, bleed ? dp(64) : dp(44));
+        logoLp.topMargin = dp(6);
+        heroLogo.setLayoutParams(logoLp);
+        heroLogo.setAdjustViewBounds(true);
+        heroLogo.setScaleType(ImageView.ScaleType.FIT_START);
+        info.addView(heroLogo);
+
+        heroTitle = new TextView(this);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.topMargin = dp(4);
+        heroTitle.setLayoutParams(titleLp);
+        heroTitle.setTextColor(color(R.color.text_white));
+        heroTitle.setTextSize(bleed ? 32 : 22);
+        heroTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        heroTitle.setMaxLines(1);
+        heroTitle.setEllipsize(TextUtils.TruncateAt.END);
+        heroTitle.setShadowLayer(dp(6), 0, dp(2), 0xCC000000);
+        info.addView(heroTitle);
+
+        heroOverview = new TextView(this);
+        LinearLayout.LayoutParams overLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        overLp.topMargin = dp(8);
+        overLp.rightMargin = bleed ? dp(80) : 0;
+        heroOverview.setLayoutParams(overLp);
+        heroOverview.setTextColor(0xD9FFFFFF);
+        heroOverview.setTextSize(bleed ? 14 : 13);
+        heroOverview.setMaxLines(2);
+        heroOverview.setEllipsize(TextUtils.TruncateAt.END);
+        info.addView(heroOverview);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setTag("hero_actions");
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionsLp.topMargin = dp(14);
+        actions.setLayoutParams(actionsLp);
+
+        heroPlay = makeHeroButton(true);
+        heroPlay.setText("开始播放");
+        heroPlay.setOnClickListener(v -> playHeroItem(currentHeroItem()));
+        heroPlay.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && cachedCarousel.size() > 1) {
+                showHeroIndex(heroIndex - 1, true);
+                syncHeroTimer();
+                return true;
+            }
+            return false;
+        });
+        heroMore = makeHeroButton(false);
+        LinearLayout.LayoutParams moreLp = (LinearLayout.LayoutParams) heroMore.getLayoutParams();
+        moreLp.leftMargin = dp(12);
+        heroMore.setText("MORE");
+        heroMore.setOnClickListener(v -> {
+            PlayListItem item = currentHeroItem();
+            if (item != null) showDetail(item);
+        });
+        heroMore.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && cachedCarousel.size() > 1) {
+                showHeroIndex(heroIndex + 1, true);
+                syncHeroTimer();
+                return true;
+            }
+            return false;
+        });
+        View.OnFocusChangeListener focus = (v, hasFocus) -> noteHeroFocus();
+        heroPlay.setOnFocusChangeListener(focus);
+        heroMore.setOnFocusChangeListener(focus);
+        actions.addView(heroPlay);
+        actions.addView(heroMore);
+        info.addView(actions);
+        frame.addView(info);
+    }
+
+    private TextView makeHeroButton(boolean primary) {
+        TextView button = new TextView(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48));
+        button.setLayoutParams(lp);
+        button.setMinWidth(dp(primary ? 132 : 96));
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(22), 0, dp(22), 0);
+        button.setFocusable(true);
+        button.setClickable(true);
+        button.setTextSize(15);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setBackgroundResource(primary ? R.drawable.bg_hero_play : R.drawable.bg_hero_more);
+        button.setTextColor(primary ? 0xFF10141C : color(R.color.text_white));
+        return button;
+    }
+
+    private void bindHeroContent() {
+        if (heroRoot == null) return;
+        if (cachedCarousel.isEmpty()) {
+            heroRoot.setVisibility(View.GONE);
+            heroBoundStamp = "";
+            heroImages.clear();
+            if (heroPager != null) heroPager.setPages(new ArrayList<View>());
+            syncHeroTimer();
+            return;
+        }
+        heroRoot.setVisibility(View.VISIBLE);
+        String stamp = listStamp(cachedCarousel);
+        if (stamp.equals(heroBoundStamp) && heroImages.size() == cachedCarousel.size()) {
+            showHeroIndex(heroIndex, false);
+            return;
+        }
+        heroBoundStamp = stamp;
+        heroIndex = 0;
+        rebuildHeroPages();
+        showHeroIndex(0, false);
+        sizeImmersiveHero();
+        syncHeroTimer();
+    }
+
+    private void rebuildHeroPages() {
+        heroImages.clear();
+        List<View> pages = new ArrayList<>();
+        for (PlayListItem item : cachedCarousel) {
+            ImageView image = new ImageView(this);
+            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            image.setBackgroundColor(color(R.color.bg_poster));
+            String url = makeImageUrl(item.backdropPath(), 1280);
+            if (url != null) {
+                image.setTag(url);
+                SimpleImageLoader.load(url, image, apiManager.getClient());
+            }
+            heroImages.add(image);
+            pages.add(image);
+        }
+        if (heroPager != null) heroPager.setPages(pages);
+    }
+
+    private void reloadHeroImage(PlayListItem item) {
+        int index = cachedCarousel.indexOf(item);
+        if (index < 0 || index >= heroImages.size()) return;
+        ImageView image = heroImages.get(index);
+        String url = makeImageUrl(item.backdropPath(), 1280);
+        if (url != null && !url.equals(image.getTag())) {
+            image.setTag(url);
+            SimpleImageLoader.load(url, image, apiManager.getClient());
+        }
+        if (index == heroIndex) bindHeroTexts(item);
+    }
+
+    private PlayListItem currentHeroItem() {
+        if (heroIndex < 0 || heroIndex >= cachedCarousel.size()) return null;
+        return cachedCarousel.get(heroIndex);
+    }
+
+    private void showHeroIndex(int index, boolean scroll) {
+        int count = cachedCarousel.size();
+        if (count == 0) return;
+        heroIndex = (index % count + count) % count;
+        bindHeroTexts(cachedCarousel.get(heroIndex));
+        updateHeroDots();
+        if (scroll && heroPager != null) heroPager.scrollToPage(heroIndex, true);
+    }
+
+    private void bindHeroTexts(PlayListItem item) {
+        if (item == null || heroMeta == null) return;
+        String year = itemYear(item);
+        String type = "Movie".equals(item.type) ? "电影" : "剧集";
+        String rating = itemRating(item);
+        StringBuilder meta = new StringBuilder();
+        if (!year.isEmpty()) meta.append(year);
+        if (meta.length() > 0) meta.append(" · ");
+        meta.append(type);
+        if (!rating.isEmpty()) meta.append(" · ").append(rating);
+        heroMeta.setText(meta.toString());
+
+        String title = item.tvTitle != null && !item.tvTitle.isEmpty() ? item.tvTitle
+                : (item.title != null ? item.title : "");
+        heroTitle.setText(title);
+        String logo = makeImageUrl(item.logoPath(), 640);
+        if (logo != null) {
+            heroLogo.setVisibility(View.VISIBLE);
+            heroTitle.setVisibility(View.GONE);
+            if (!logo.equals(heroLogo.getTag())) {
+                heroLogo.setTag(logo);
+                heroLogo.setMaxWidth(dp(useImmersiveHero() ? 420 : 220));
+                SimpleImageLoader.load(logo, heroLogo, apiManager.getClient());
+            }
+        } else {
+            heroLogo.setVisibility(View.GONE);
+            heroLogo.setTag(null);
+            heroLogo.setImageDrawable(null);
+            heroTitle.setVisibility(View.VISIBLE);
+        }
+        String overview = item.overview == null ? "" : item.overview.trim();
+        heroOverview.setText(overview);
+        heroOverview.setVisibility(overview.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    private void updateHeroDots() {
+        if (heroDots == null) return;
+        int count = cachedCarousel.size();
+        if (heroDots.getChildCount() != count) {
+            heroDots.removeAllViews();
+            for (int i = 0; i < count; i++) {
+                View dot = new View(this);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(7), dp(7));
+                lp.leftMargin = dp(3);
+                lp.rightMargin = dp(3);
+                dot.setLayoutParams(lp);
+                heroDots.addView(dot);
+            }
+        }
+        for (int i = 0; i < heroDots.getChildCount(); i++) {
+            View dot = heroDots.getChildAt(i);
+            boolean on = i == heroIndex;
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) dot.getLayoutParams();
+            lp.width = on ? dp(18) : dp(7);
+            dot.setLayoutParams(lp);
+            GradientDrawable shape = new GradientDrawable();
+            shape.setCornerRadius(dp(8));
+            shape.setColor(on ? 0xFFFFFFFF : 0x66FFFFFF);
+            dot.setBackground(shape);
+        }
+        heroDots.setVisibility(count > 1 ? View.VISIBLE : View.GONE);
+    }
+
+    private void playHeroItem(PlayListItem item) {
+        if (item == null || item.guid == null) return;
+        if ("Movie".equals(item.type) || "Video".equals(item.type)) {
+            launchPlayer(item.guid, item.title,
+                    item.tvTitle != null ? item.tvTitle : "",
+                    item.episodeNumber,
+                    item.coverPath() != null ? item.coverPath() : "",
+                    item.getCategoryLabel(),
+                    item.ts, item.duration, item.parentGuid);
+            return;
+        }
+        showDetail(item);
+    }
+
+    private void noteHeroFocus() {
+        if (heroRoot == null) return;
+        heroRoot.post(() -> {
+            View focused = getCurrentFocus();
+            boolean hold = focused == heroPlay || focused == heroMore;
+            if (heroHold == hold) return;
+            heroHold = hold;
+            syncHeroTimer();
+        });
+    }
+
+    private void advanceHero() {
+        if (!showingOverview || currentTab != 0 || cachedCarousel.size() < 2
+                || heroHold || heroTouchHold) {
+            return;
+        }
+        showHeroIndex(heroIndex + 1, true);
+        syncHeroTimer();
+    }
+
+    private void syncHeroTimer() {
+        heroHandler.removeCallbacks(heroTick);
+        if (showingOverview && currentTab == 0 && cachedCarousel.size() > 1
+                && !heroHold && !heroTouchHold) {
+            heroHandler.postDelayed(heroTick, 8000);
+        }
+    }
+
 
 
     private String makePosterUrl(String path) {
@@ -1116,13 +1711,7 @@ public class HomeActivity extends AppCompatActivity {
     private void setDetailChrome(boolean detail) {
         View header = findViewById(R.id.moviesHeader);
         if (header != null) header.setVisibility(detail ? View.GONE : View.VISIBLE);
-        if (moviesContainer == null || savedMoviesPad == null) return;
-        if (detail) {
-            moviesContainer.setPadding(0, 0, 0, 0);
-        } else {
-            moviesContainer.setPadding(savedMoviesPad[0], savedMoviesPad[1],
-                    savedMoviesPad[2], savedMoviesPad[3]);
-        }
+        applyMoviesChrome();
     }
 
 
@@ -1575,6 +2164,8 @@ public class HomeActivity extends AppCompatActivity {
                 homeOverviewPark = detachPage(moviesContainer, null);
             }
             showingOverview = false;
+            applyMoviesChrome();
+            syncHeroTimer();
             syncHomeSwipe();
         }
 
@@ -2171,6 +2762,7 @@ public class HomeActivity extends AppCompatActivity {
         revealTab(0);
         syncHomeSwipe();
         setDetailChrome(true);
+        syncHeroTimer();
         moviesContainer.removeAllViews();
         TextView loading = new TextView(this);
         loading.setLayoutParams(new LinearLayout.LayoutParams(
@@ -4867,6 +5459,8 @@ public class HomeActivity extends AppCompatActivity {
         savedDetailInfo = null;
         showingEpisodes = false;
         showingOverview = false;
+        applyMoviesChrome();
+        syncHeroTimer();
         syncHomeSwipe();
         savedLiveChannelTitle = "直播频道";
         if (!samePage) {
@@ -5278,7 +5872,24 @@ public class HomeActivity extends AppCompatActivity {
         for (int i = 0; i < moviesContainer.getChildCount(); i++) {
             View child = moviesContainer.getChildAt(i);
             Object tag = child.getTag();
-            if ("lib_shortcuts".equals(tag)) {
+            if ("home_hero".equals(tag) && child instanceof ViewGroup) {
+                View actions = findViewWithTagDeep((ViewGroup) child, "hero_actions");
+                if (actions != null) {
+                    List<View> btns = TvFocus.collectVisibleFocusables(actions);
+                    if (!btns.isEmpty()) {
+                        TvFocus.bindRow(btns);
+                        lanes.add(btns);
+                    }
+                }
+                View strip = findViewWithTagDeep((ViewGroup) child, "lib_shortcuts");
+                if (strip != null) {
+                    List<View> tiles = TvFocus.collectVisibleFocusables(strip);
+                    if (!tiles.isEmpty()) {
+                        TvFocus.bindRow(tiles);
+                        lanes.add(tiles);
+                    }
+                }
+            } else if ("lib_shortcuts".equals(tag)) {
                 List<View> tiles = TvFocus.collectVisibleFocusables(child);
                 if (!tiles.isEmpty()) {
                     TvFocus.bindRow(tiles);
@@ -5442,6 +6053,7 @@ public class HomeActivity extends AppCompatActivity {
             } else if (!overview && savedBrowseList != null) {
                 revealTab(0);
                 showingOverview = false;
+                applyMoviesChrome();
                 renderGridInContainer(savedBrowseList, savedBrowseTitle, moviesContainer);
                 armReturnFocus(moviesContainer, null, guid);
             } else if (!overview && savedLiveChannelTitle != null) {
@@ -5461,6 +6073,8 @@ public class HomeActivity extends AppCompatActivity {
                 ? page.overview
                 : (page.under != null && page.under.overview);
         if (showingOverview) headerFocusedByUser = false;
+        applyMoviesChrome();
+        syncHeroTimer();
         if (showingOverview && isTelevision()) restoreParkedOverviewFocus(page.focus);
         revealTab(page.tab);
         syncHomeSwipe();

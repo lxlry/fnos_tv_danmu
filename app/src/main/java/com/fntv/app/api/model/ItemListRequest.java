@@ -80,6 +80,15 @@ public class ItemListRequest {
                 false, "sort_title", "ASC", 100);
     }
 
+    /** 首页轮播：全库最近入库的电影和剧集，不限定媒体库。 */
+    public static ItemListRequest carousel() {
+        ItemListRequest req = new ItemListRequest(null,
+                Arrays.asList("Movie", "TV"),
+                true, "create_time", "DESC", 8);
+        req.page = 1;
+        return req;
+    }
+
     /** 直播频道列表（不设 ancestor_guid / exclude_grouped_video） */
     public static ItemListRequest browseLiveChannels() {
         ItemListRequest req = new ItemListRequest(null,
