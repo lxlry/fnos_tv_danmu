@@ -7,7 +7,7 @@ import android.view.View;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 
-/** 一屏一张的横向海报。松手或甩动都停在整页上。 */
+/** 一屏一张的横向海报。松手或甩动都停在整页上；多于一张时首尾循环。 */
 public class HeroPager extends HorizontalScrollView {
 
     public interface Listener {
@@ -18,7 +18,10 @@ public class HeroPager extends HorizontalScrollView {
     private final PageStrip strip;
     private Listener listener;
     private int pageCount;
+    private boolean loop;
     private boolean snapped;
+    private int pendingX = -1;
+    private int pendingJumpX = -1;
     private float downX;
     private float downY;
     private boolean horizontalDrag;
@@ -44,9 +47,16 @@ public class HeroPager extends HorizontalScrollView {
         this.listener = listener;
     }
 
-    public void setPages(java.util.List<View> pages) {
+    /**
+     * @param loop 为 true 时 pages 须在真实页前后各多放一张衔接页：
+     *             [末张副本, 第1张, …, 末张, 第1张副本]
+     */
+    public void setPages(java.util.List<View> pages, boolean loop) {
         strip.removeAllViews();
+        pendingX = -1;
+        pendingJumpX = -1;
         pageCount = pages == null ? 0 : pages.size();
+        this.loop = loop && pageCount > 2;
         if (pages != null) {
             for (View page : pages) {
                 strip.addView(page, new LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT));
@@ -54,6 +64,14 @@ public class HeroPager extends HorizontalScrollView {
         }
         scrollTo(0, 0);
         requestLayout();
+        post(() -> {
+            int width = getWidth();
+            if (width > 0 && this.loop) scrollTo(width, 0);
+        });
+    }
+
+    public void setPages(java.util.List<View> pages) {
+        setPages(pages, false);
     }
 
     public void scrollToPage(int index, boolean smooth) {
@@ -62,17 +80,75 @@ public class HeroPager extends HorizontalScrollView {
             post(() -> scrollToPage(index, smooth));
             return;
         }
-        if (pageCount <= 0) return;
-        int safe = Math.max(0, Math.min(pageCount - 1, index));
-        int x = safe * width;
-        if (smooth) smoothScrollTo(x, 0);
-        else scrollTo(x, 0);
+        int logicalCount = logicalCount();
+        if (logicalCount <= 0) return;
+        int safe = (index % logicalCount + logicalCount) % logicalCount;
+        int physical = loop ? safe + 1 : safe;
+        if (loop && smooth) {
+            int current = toLogical(Math.round(getScrollX() / (float) width));
+            if (current == logicalCount - 1 && safe == 0) physical = pageCount - 1;
+            else if (current == 0 && safe == logicalCount - 1) physical = 0;
+        }
+        scrollPhysical(physical, smooth);
+    }
+
+    private int logicalCount() {
+        if (pageCount <= 0) return 0;
+        return loop ? pageCount - 2 : pageCount;
+    }
+
+    private int toLogical(int physical) {
+        if (!loop) return Math.max(0, Math.min(pageCount - 1, physical));
+        if (physical <= 0) return pageCount - 3;
+        if (physical >= pageCount - 1) return 0;
+        return physical - 1;
+    }
+
+    /** 衔接页和真实页是同一张图，动画结束后跳回真实页，下次还能继续滑。 */
+    private int unwrap(int physical) {
+        if (!loop) return physical;
+        if (physical <= 0) return pageCount - 2;
+        if (physical >= pageCount - 1) return 1;
+        return physical;
+    }
+
+    private void scrollPhysical(int physical, boolean smooth) {
+        int width = getWidth();
+        if (width <= 0 || pageCount <= 0) return;
+        physical = Math.max(0, Math.min(pageCount - 1, physical));
+        int x = physical * width;
+        int jump = unwrap(physical) * width;
+        if (!smooth || jump == x || Math.abs(getScrollX() - x) <= 2) {
+            pendingX = -1;
+            pendingJumpX = -1;
+            scrollTo(jump, 0);
+            return;
+        }
+        pendingX = x;
+        pendingJumpX = jump;
+        smoothScrollTo(x, 0);
+    }
+
+    @Override
+    protected void onScrollChanged(int l, int t, int oldl, int oldt) {
+        super.onScrollChanged(l, t, oldl, oldt);
+        if (pendingX >= 0 && Math.abs(l - pendingX) <= 2) {
+            int jump = pendingJumpX;
+            pendingX = -1;
+            pendingJumpX = -1;
+            if (jump >= 0 && jump != l) scrollTo(jump, 0);
+        }
     }
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        if (w > 0 && w != oldw) strip.requestLayout();
+        if (w > 0 && w != oldw) {
+            strip.requestLayout();
+            int physical = oldw > 0 ? Math.round(getScrollX() / (float) oldw) : (loop ? 1 : 0);
+            int x = unwrap(physical) * w;
+            post(() -> scrollTo(x, 0));
+        }
     }
 
     @Override
@@ -80,6 +156,8 @@ public class HeroPager extends HorizontalScrollView {
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 snapped = false;
+                pendingX = -1;
+                pendingJumpX = -1;
                 if (listener != null) listener.onUserHold(true);
                 break;
             case MotionEvent.ACTION_UP:
@@ -106,8 +184,8 @@ public class HeroPager extends HorizontalScrollView {
         if (velocityX > 600) index++;
         else if (velocityX < -600) index--;
         index = Math.max(0, Math.min(pageCount - 1, index));
-        smoothScrollTo(index * width, 0);
-        if (listener != null) listener.onPageSettled(index);
+        scrollPhysical(index, true);
+        if (listener != null) listener.onPageSettled(toLogical(index));
     }
 
     private void settle() {
@@ -115,8 +193,8 @@ public class HeroPager extends HorizontalScrollView {
         if (width <= 0 || pageCount <= 0) return;
         int index = Math.round(getScrollX() / (float) width);
         index = Math.max(0, Math.min(pageCount - 1, index));
-        smoothScrollTo(index * width, 0);
-        if (listener != null) listener.onPageSettled(index);
+        scrollPhysical(index, true);
+        if (listener != null) listener.onPageSettled(toLogical(index));
     }
 
     @Override

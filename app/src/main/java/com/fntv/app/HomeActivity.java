@@ -113,6 +113,8 @@ public class HomeActivity extends AppCompatActivity {
     private TextView heroMore;
     private LinearLayout heroDots;
     private final List<ImageView> heroImages = new ArrayList<>();
+    private ImageView heroCloneFirst;
+    private ImageView heroCloneLast;
     private int heroIndex;
     private String heroBoundStamp;
     private boolean heroHold;
@@ -1337,6 +1339,7 @@ public class HomeActivity extends AppCompatActivity {
                 card.setClipToOutline(true);
             }
             fillHeroFrame(card, false);
+            lockPortraitHeroCard(card);
             column.addView(card);
             heroDots = new LinearLayout(this);
             heroDots.setOrientation(LinearLayout.HORIZONTAL);
@@ -1576,41 +1579,44 @@ public class HomeActivity extends AppCompatActivity {
 
     private void rebuildHeroPages() {
         heroImages.clear();
+        heroCloneFirst = null;
+        heroCloneLast = null;
         List<View> pages = new ArrayList<>();
-        boolean bleed = useImmersiveHero();
         for (PlayListItem item : cachedCarousel) {
-            ImageView image = new ImageView(this);
-            image.setScaleType(bleed
-                    ? ImageView.ScaleType.CENTER_CROP
-                    : ImageView.ScaleType.FIT_CENTER);
-            image.setBackgroundColor(color(R.color.bg_poster));
-            String url = makeImageUrl(item.backdropPath(), 1280);
-            if (url != null) {
-                image.setTag(url);
-                loadHeroStill(image, url);
-            }
+            ImageView image = makeHeroStill(item);
             heroImages.add(image);
             pages.add(image);
         }
-        if (heroPager != null) heroPager.setPages(pages);
+        boolean loop = pages.size() > 1;
+        if (loop) {
+            heroCloneLast = makeHeroStill(cachedCarousel.get(cachedCarousel.size() - 1));
+            heroCloneFirst = makeHeroStill(cachedCarousel.get(0));
+            pages.add(0, heroCloneLast);
+            pages.add(heroCloneFirst);
+        }
+        if (heroPager != null) heroPager.setPages(pages, loop);
+    }
+
+    private ImageView makeHeroStill(PlayListItem item) {
+        ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setBackgroundColor(color(R.color.bg_poster));
+        String url = makeImageUrl(item.backdropPath(), 1280);
+        if (url != null) {
+            image.setTag(url);
+            loadHeroStill(image, url);
+        }
+        return image;
     }
 
     private void reloadHeroImage(PlayListItem item) {
         int index = cachedCarousel.indexOf(item);
         if (index < 0 || index >= heroImages.size()) return;
-        ImageView image = heroImages.get(index);
         String url = makeImageUrl(item.backdropPath(), 1280);
-        if (url != null && !url.equals(image.getTag())) {
-            image.setTag(url);
-            image.setScaleType(useImmersiveHero()
-                    ? ImageView.ScaleType.CENTER_CROP
-                    : ImageView.ScaleType.FIT_CENTER);
-            loadHeroStill(image, url);
-        }
-        if (index == heroIndex) {
-            bindHeroTexts(item);
-            fitPortraitHeroCard();
-        }
+        applyHeroStill(heroImages.get(index), url);
+        if (index == 0) applyHeroStill(heroCloneFirst, url);
+        if (index == heroImages.size() - 1) applyHeroStill(heroCloneLast, url);
+        if (index == heroIndex) bindHeroTexts(item);
     }
 
     private PlayListItem currentHeroItem() {
@@ -1624,41 +1630,30 @@ public class HomeActivity extends AppCompatActivity {
         heroIndex = (index % count + count) % count;
         bindHeroTexts(cachedCarousel.get(heroIndex));
         updateHeroDots();
-        fitPortraitHeroCard();
         if (scroll && heroPager != null) heroPager.scrollToPage(heroIndex, true);
     }
 
-    private void loadHeroStill(ImageView image, String url) {
-        SimpleImageLoader.load(url, image, apiManager.getClient(), () -> {
-            if (useImmersiveHero() || heroIndex < 0 || heroIndex >= heroImages.size()) return;
-            if (heroImages.get(heroIndex) == image) fitPortraitHeroCard();
-        });
+    private void applyHeroStill(ImageView image, String url) {
+        if (image == null || url == null || url.equals(image.getTag())) return;
+        image.setTag(url);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        loadHeroStill(image, url);
     }
 
-    /** 竖屏卡片按当前这张图的宽高比定高度，完整显示，不再裁切。 */
-    private void fitPortraitHeroCard() {
-        if (useImmersiveHero() || heroPager == null || !(heroPager.getParent() instanceof View)) return;
-        if (heroIndex < 0 || heroIndex >= heroImages.size()) return;
-        View card = (View) heroPager.getParent();
-        android.graphics.drawable.Drawable drawable = heroImages.get(heroIndex).getDrawable();
-        int imageW = drawable == null ? 0 : drawable.getIntrinsicWidth();
-        int imageH = drawable == null ? 0 : drawable.getIntrinsicHeight();
-        if (imageW <= 0 || imageH <= 0) return;
-        int width = card.getWidth();
-        if (width <= 0) {
-            width = getResources().getDisplayMetrics().widthPixels;
-            if (savedMoviesPad != null) width -= savedMoviesPad[0] + savedMoviesPad[2];
-        }
-        if (width <= 0) return;
-        int natural = Math.round(width * (imageH / (float) imageW));
-        int minH = dp(200);
-        int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.62f);
-        int height = Math.max(minH, Math.min(Math.max(minH, maxH), natural));
-        ViewGroup.LayoutParams lp = card.getLayoutParams();
-        if (lp == null || lp.height == height) return;
-        lp.height = height;
-        card.requestLayout();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) card.invalidateOutline();
+    private void loadHeroStill(ImageView image, String url) {
+        SimpleImageLoader.load(url, image, apiManager.getClient());
+    }
+
+    /** 竖屏卡片固定 16:9。竖图和横图都铺满裁切，高度不再跟着图片变。 */
+    private void lockPortraitHeroCard(View card) {
+        card.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            int width = v.getWidth();
+            if (width <= 0 || v.getLayoutParams() == null) return;
+            int height = Math.round(width * 9f / 16f);
+            if (v.getLayoutParams().height == height) return;
+            v.getLayoutParams().height = height;
+            v.requestLayout();
+        });
     }
 
     private void bindHeroTexts(PlayListItem item) {
