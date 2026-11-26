@@ -1320,9 +1320,7 @@ public class HomeActivity extends AppCompatActivity {
         int viewport = getResources().getDisplayMetrics().widthPixels;
         int contentW = viewport;
         if (savedMoviesPad != null) contentW -= savedMoviesPad[0] + savedMoviesPad[2];
-        int cardH = Math.round(Math.max(contentW, 0) * 3f / 2f);
-        int cardCap = Math.round(getResources().getDisplayMetrics().heightPixels * 0.72f);
-        if (cardH > cardCap) cardH = cardCap;
+        int cardH = Math.round(Math.max(contentW, 0) * 9f / 16f);
 
         if (!bleed) {
             LinearLayout column = new LinearLayout(this);
@@ -1347,15 +1345,6 @@ public class HomeActivity extends AppCompatActivity {
             fillHeroFrame(card, false);
             lockPortraitHeroCard(card);
             column.addView(card);
-            heroDots = new LinearLayout(this);
-            heroDots.setOrientation(LinearLayout.HORIZONTAL);
-            heroDots.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams dotsLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            dotsLp.topMargin = dp(8);
-            dotsLp.bottomMargin = dp(4);
-            heroDots.setLayoutParams(dotsLp);
-            column.addView(heroDots);
             heroRoot = column;
             if (carouselLoaded && cachedCarousel.isEmpty()) heroRoot.setVisibility(View.GONE);
             return column;
@@ -1549,6 +1538,15 @@ public class HomeActivity extends AppCompatActivity {
         heroMore.setOnFocusChangeListener(focus);
         actions.addView(heroPlay);
         actions.addView(heroMore);
+        if (!bleed) {
+            View spacer = new View(this);
+            spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 0, 1f));
+            actions.addView(spacer);
+            heroDots = new LinearLayout(this);
+            heroDots.setOrientation(LinearLayout.HORIZONTAL);
+            heroDots.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+            actions.addView(heroDots);
+        }
         info.addView(actions);
         frame.addView(info);
     }
@@ -1618,7 +1616,7 @@ public class HomeActivity extends AppCompatActivity {
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setBackgroundColor(color(R.color.bg_poster));
-        String url = makeImageUrl(heroImagePath(item), useImmersiveHero() ? 1280 : 800);
+        String url = makeImageUrl(item.backdropPath(), 1280);
         if (url != null) {
             image.setTag(url);
             loadHeroStill(image, url);
@@ -1626,17 +1624,10 @@ public class HomeActivity extends AppCompatActivity {
         return image;
     }
 
-    /** 竖屏用海报；没有海报才退回横图。横屏和电视仍用横图，没有横图才退回海报。 */
-    private String heroImagePath(PlayListItem item) {
-        if (item == null) return null;
-        if (useImmersiveHero()) return item.backdropPath();
-        return item.coverPath();
-    }
-
     private void reloadHeroImage(PlayListItem item) {
         int index = cachedCarousel.indexOf(item);
         if (index < 0 || index >= heroImages.size()) return;
-        String url = makeImageUrl(heroImagePath(item), useImmersiveHero() ? 1280 : 800);
+        String url = makeImageUrl(item.backdropPath(), 1280);
         applyHeroStill(heroImages.get(index), url);
         if (index == 0) applyHeroStill(heroCloneFirst, url);
         if (index == heroImages.size() - 1) applyHeroStill(heroCloneLast, url);
@@ -1668,14 +1659,12 @@ public class HomeActivity extends AppCompatActivity {
         SimpleImageLoader.load(url, image, apiManager.getClient());
     }
 
-    /** 竖屏卡片按海报 2:3 铺满裁切，最高不超过屏幕的 72%。 */
+    /** 竖屏卡片固定 16:9，和横图一样铺满裁切。 */
     private void lockPortraitHeroCard(View card) {
         card.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             int width = v.getWidth();
             if (width <= 0 || v.getLayoutParams() == null) return;
-            int height = Math.round(width * 3f / 2f);
-            int cap = Math.round(getResources().getDisplayMetrics().heightPixels * 0.72f);
-            if (height > cap) height = cap;
+            int height = Math.round(width * 9f / 16f);
             if (v.getLayoutParams().height == height) return;
             v.getLayoutParams().height = height;
             v.requestLayout();
