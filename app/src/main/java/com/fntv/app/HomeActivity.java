@@ -296,6 +296,16 @@ public class HomeActivity extends AppCompatActivity {
                 @Override public void onScrollY(int y) { applyHeaderBackdrop(y); }
             });
         }
+        if (panelMovies != null) {
+            panelMovies.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                if (!useImmersiveHero() || heroRoot == null || heroRoot.getLayoutParams() == null) return;
+                int height = bottom - top;
+                if (height > 0 && heroRoot.getLayoutParams().height != height) {
+                    heroRoot.getLayoutParams().height = height;
+                    heroRoot.requestLayout();
+                }
+            });
+        }
         savedMoviesPad = new int[] {
                 moviesContainer.getPaddingLeft(),
                 moviesContainer.getPaddingTop(),
@@ -885,6 +895,10 @@ public class HomeActivity extends AppCompatActivity {
         if (!cachedCarousel.isEmpty()) bindHeroContent();
         syncHeroTimer();
         applyPendingHomeScroll();
+        ScrollView overviewScroller = moviesScroller();
+        if (overviewScroller != null && pendingHomeAnchor < 0) {
+            overviewScroller.post(() -> overviewScroller.scrollTo(0, 0));
+        }
     }
 
     /** 加载各媒体库预览 */
@@ -910,7 +924,7 @@ public class HomeActivity extends AppCompatActivity {
                     // 取前6个填到预览容器
                     List<PlayListItem> items = response.body().data.list;
                     if (items.size() > 20) items = items.subList(0, 20);
-                    updateLibShortcutPoster(guid, items.get(0));
+                    fillLibShortcutFallback(guid, items.get(0));
                     fillPreview(guid, items);
                     applyPendingHomeScroll();
                 }
@@ -1065,11 +1079,11 @@ public class HomeActivity extends AppCompatActivity {
         RoundedImageView img = new RoundedImageView(this);
         img.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
         img.setCornerRadius(14);
         img.setBackgroundColor(color(R.color.bg_poster));
         String poster = makePosterUrl(lib.getFirstPoster());
-        if (poster != null) img.setTag(poster);
+        if (poster != null) loadLibCover(img, poster);
         tile.addView(img);
 
         View scrim = new View(this);
@@ -1112,19 +1126,47 @@ public class HomeActivity extends AppCompatActivity {
         return tile;
     }
 
-    private void updateLibShortcutPoster(String libGuid, PlayListItem first) {
-        if (first == null) return;
-        String path = first.backdropPath();
-        if (path == null || path.isEmpty()) return;
-        String url = makeImageUrl(path, 640);
-        if (url == null || moviesContainer == null) return;
-        View tile = findViewWithTagDeep(moviesContainer, "lib_tile_" + libGuid);
-        if (!(tile instanceof ViewGroup)) return;
-        View img = ((ViewGroup) tile).getChildAt(0);
-        if (img instanceof ImageView && !url.equals(img.getTag())) {
-            img.setTag(url);
-            SimpleImageLoader.load(url, (ImageView) img, apiManager.getClient());
+    /** 媒体库没设封面时，用该库第一条片子的图。已有封面则不动。 */
+    private void fillLibShortcutFallback(String libGuid, PlayListItem first) {
+        if (libGuid == null || first == null || moviesContainer == null) return;
+        for (MediaDbItem lib : mediaLibraries) {
+            if (libGuid.equals(lib.guid) && lib.getFirstPoster() != null) return;
         }
+        String url = makeImageUrl(first.backdropPath(), 640);
+        if (url == null) return;
+        View tile = findViewWithTagDeep(moviesContainer, "lib_tile_" + libGuid);
+        if (!(tile instanceof ViewGroup) || ((ViewGroup) tile).getChildCount() == 0) return;
+        View img = ((ViewGroup) tile).getChildAt(0);
+        if (!(img instanceof ImageView)) return;
+        Object tag = img.getTag();
+        if (tag instanceof String && ((String) tag).startsWith("http")) return;
+        loadLibCover((ImageView) img, url);
+    }
+
+    private void loadLibCover(ImageView img, String url) {
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        img.setTag(url);
+        SimpleImageLoader.load(url, img, apiManager.getClient(), () -> fitLibCoverTile(img));
+    }
+
+    /** 卡片高度不变，宽度跟着图片比例走，整张图都留在卡片里。 */
+    private void fitLibCoverTile(ImageView img) {
+        if (!(img.getParent() instanceof View)) return;
+        View tile = (View) img.getParent();
+        if (!(tile.getLayoutParams() instanceof LinearLayout.LayoutParams)) return;
+        android.graphics.drawable.Drawable drawable = img.getDrawable();
+        int imageW = drawable == null ? 0 : drawable.getIntrinsicWidth();
+        int imageH = drawable == null ? 0 : drawable.getIntrinsicHeight();
+        if (imageW <= 0 || imageH <= 0) return;
+        int innerH = tile.getLayoutParams().height - tile.getPaddingTop() - tile.getPaddingBottom();
+        if (innerH <= 0) return;
+        int width = Math.round(innerH * (imageW / (float) imageH))
+                + tile.getPaddingLeft() + tile.getPaddingRight();
+        width = Math.max(dp(96), Math.min(dp(280), width));
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) tile.getLayoutParams();
+        if (lp.width == width) return;
+        lp.width = width;
+        tile.requestLayout();
     }
 
     private View findViewWithTagDeep(ViewGroup root, Object tag) {
@@ -1331,6 +1373,7 @@ public class HomeActivity extends AppCompatActivity {
         stripLp.leftMargin = dp(20);
         stripLp.rightMargin = dp(20);
         stripLp.bottomMargin = dp(12);
+        strip.setLayoutParams(stripLp);
         frame.addView(strip);
         heroRoot = frame;
         heroDots = null;
@@ -1449,10 +1492,10 @@ public class HomeActivity extends AppCompatActivity {
         actions.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actionsLp.topMargin = dp(14);
+        actionsLp.topMargin = dp(bleed ? 14 : 8);
         actions.setLayoutParams(actionsLp);
 
-        heroPlay = makeHeroButton(true);
+        heroPlay = makeHeroButton(true, !bleed);
         heroPlay.setText("开始播放");
         heroPlay.setOnClickListener(v -> playHeroItem(currentHeroItem()));
         heroPlay.setOnKeyListener((v, keyCode, event) -> {
@@ -1464,10 +1507,10 @@ public class HomeActivity extends AppCompatActivity {
             }
             return false;
         });
-        heroMore = makeHeroButton(false);
+        heroMore = makeHeroButton(false, !bleed);
         LinearLayout.LayoutParams moreLp = (LinearLayout.LayoutParams) heroMore.getLayoutParams();
-        moreLp.leftMargin = dp(12);
-        heroMore.setText("MORE");
+        moreLp.leftMargin = dp(bleed ? 12 : 8);
+        heroMore.setText("详情");
         heroMore.setOnClickListener(v -> {
             PlayListItem item = currentHeroItem();
             if (item != null) showDetail(item);
@@ -1490,16 +1533,17 @@ public class HomeActivity extends AppCompatActivity {
         frame.addView(info);
     }
 
-    private TextView makeHeroButton(boolean primary) {
+    private TextView makeHeroButton(boolean primary, boolean compact) {
         TextView button = new TextView(this);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(compact ? 36 : 48));
         button.setLayoutParams(lp);
-        button.setMinWidth(dp(primary ? 132 : 96));
+        button.setMinWidth(dp(compact ? (primary ? 96 : 72) : (primary ? 132 : 96)));
         button.setGravity(Gravity.CENTER);
-        button.setPadding(dp(22), 0, dp(22), 0);
+        button.setPadding(dp(compact ? 14 : 22), 0, dp(compact ? 14 : 22), 0);
         button.setFocusable(true);
         button.setClickable(true);
-        button.setTextSize(15);
+        button.setTextSize(compact ? 13 : 15);
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setBackgroundResource(primary ? R.drawable.bg_hero_play : R.drawable.bg_hero_more);
         button.setTextColor(primary ? 0xFF10141C : color(R.color.text_white));
@@ -1533,14 +1577,17 @@ public class HomeActivity extends AppCompatActivity {
     private void rebuildHeroPages() {
         heroImages.clear();
         List<View> pages = new ArrayList<>();
+        boolean bleed = useImmersiveHero();
         for (PlayListItem item : cachedCarousel) {
             ImageView image = new ImageView(this);
-            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            image.setScaleType(bleed
+                    ? ImageView.ScaleType.CENTER_CROP
+                    : ImageView.ScaleType.FIT_CENTER);
             image.setBackgroundColor(color(R.color.bg_poster));
             String url = makeImageUrl(item.backdropPath(), 1280);
             if (url != null) {
                 image.setTag(url);
-                SimpleImageLoader.load(url, image, apiManager.getClient());
+                loadHeroStill(image, url);
             }
             heroImages.add(image);
             pages.add(image);
@@ -1555,9 +1602,15 @@ public class HomeActivity extends AppCompatActivity {
         String url = makeImageUrl(item.backdropPath(), 1280);
         if (url != null && !url.equals(image.getTag())) {
             image.setTag(url);
-            SimpleImageLoader.load(url, image, apiManager.getClient());
+            image.setScaleType(useImmersiveHero()
+                    ? ImageView.ScaleType.CENTER_CROP
+                    : ImageView.ScaleType.FIT_CENTER);
+            loadHeroStill(image, url);
         }
-        if (index == heroIndex) bindHeroTexts(item);
+        if (index == heroIndex) {
+            bindHeroTexts(item);
+            fitPortraitHeroCard();
+        }
     }
 
     private PlayListItem currentHeroItem() {
@@ -1571,7 +1624,41 @@ public class HomeActivity extends AppCompatActivity {
         heroIndex = (index % count + count) % count;
         bindHeroTexts(cachedCarousel.get(heroIndex));
         updateHeroDots();
+        fitPortraitHeroCard();
         if (scroll && heroPager != null) heroPager.scrollToPage(heroIndex, true);
+    }
+
+    private void loadHeroStill(ImageView image, String url) {
+        SimpleImageLoader.load(url, image, apiManager.getClient(), () -> {
+            if (useImmersiveHero() || heroIndex < 0 || heroIndex >= heroImages.size()) return;
+            if (heroImages.get(heroIndex) == image) fitPortraitHeroCard();
+        });
+    }
+
+    /** 竖屏卡片按当前这张图的宽高比定高度，完整显示，不再裁切。 */
+    private void fitPortraitHeroCard() {
+        if (useImmersiveHero() || heroPager == null || !(heroPager.getParent() instanceof View)) return;
+        if (heroIndex < 0 || heroIndex >= heroImages.size()) return;
+        View card = (View) heroPager.getParent();
+        android.graphics.drawable.Drawable drawable = heroImages.get(heroIndex).getDrawable();
+        int imageW = drawable == null ? 0 : drawable.getIntrinsicWidth();
+        int imageH = drawable == null ? 0 : drawable.getIntrinsicHeight();
+        if (imageW <= 0 || imageH <= 0) return;
+        int width = card.getWidth();
+        if (width <= 0) {
+            width = getResources().getDisplayMetrics().widthPixels;
+            if (savedMoviesPad != null) width -= savedMoviesPad[0] + savedMoviesPad[2];
+        }
+        if (width <= 0) return;
+        int natural = Math.round(width * (imageH / (float) imageW));
+        int minH = dp(200);
+        int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.62f);
+        int height = Math.max(minH, Math.min(Math.max(minH, maxH), natural));
+        ViewGroup.LayoutParams lp = card.getLayoutParams();
+        if (lp == null || lp.height == height) return;
+        lp.height = height;
+        card.requestLayout();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) card.invalidateOutline();
     }
 
     private void bindHeroTexts(PlayListItem item) {

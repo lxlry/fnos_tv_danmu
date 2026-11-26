@@ -19,6 +19,10 @@ public class HeroPager extends HorizontalScrollView {
     private Listener listener;
     private int pageCount;
     private boolean snapped;
+    private float downX;
+    private float downY;
+    private boolean horizontalDrag;
+    private final int touchSlop;
 
     public HeroPager(Context context) {
         this(context, null);
@@ -31,6 +35,7 @@ public class HeroPager extends HorizontalScrollView {
         setFillViewport(true);
         setFocusable(false);
         setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS);
+        touchSlop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
         strip = new PageStrip(context);
         addView(strip, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT));
     }
@@ -116,9 +121,31 @@ public class HeroPager extends HorizontalScrollView {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
-            getParent().requestDisallowInterceptTouchEvent(true);
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                downX = ev.getX();
+                downY = ev.getY();
+                horizontalDrag = false;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                float dx = Math.abs(ev.getX() - downX);
+                float dy = Math.abs(ev.getY() - downY);
+                if (dy > touchSlop && dy > dx) {
+                    return false;
+                }
+                if (dx > touchSlop && dx >= dy) {
+                    horizontalDrag = true;
+                    if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                horizontalDrag = false;
+                break;
+            default:
+                break;
         }
+        if (!horizontalDrag && ev.getActionMasked() == MotionEvent.ACTION_MOVE) return false;
         return super.onInterceptTouchEvent(ev);
     }
 

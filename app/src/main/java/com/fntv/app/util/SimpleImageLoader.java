@@ -51,6 +51,11 @@ public class SimpleImageLoader {
 
     /** 加载图片（使用 OkHttpClient，自动携带认证头） */
     public static void load(String url, ImageView view, OkHttpClient client) {
+        load(url, view, client, null);
+    }
+
+    /** 图片已经画上之后回调。缓存命中时也在当前线程立刻回调。 */
+    public static void load(String url, ImageView view, OkHttpClient client, Runnable done) {
         if (url == null || url.isEmpty()) {
             view.setImageBitmap(null);
             view.setBackgroundColor(ContextCompat.getColor(view.getContext(), R.color.bg_poster));
@@ -60,12 +65,13 @@ public class SimpleImageLoader {
         Bitmap cached = cache.get(url);
         if (cached != null) {
             view.setImageBitmap(cached);
+            if (done != null) done.run();
             return;
         }
 
         File dir = new File(view.getContext().getCacheDir(), "posters");
         synchronized (pending) {
-            pending.add(new ImageLoadTask(view, client, url, dir));
+            pending.add(new ImageLoadTask(view, client, url, dir, done));
             pump();
         }
     }
@@ -93,12 +99,14 @@ public class SimpleImageLoader {
         private final OkHttpClient client;
         private final String url;
         private final File dir;
+        private final Runnable done;
 
-        ImageLoadTask(ImageView imageView, OkHttpClient client, String url, File dir) {
+        ImageLoadTask(ImageView imageView, OkHttpClient client, String url, File dir, Runnable done) {
             this.imageView = imageView;
             this.client = client;
             this.url = url;
             this.dir = dir;
+            this.done = done;
         }
 
         @Override
@@ -161,6 +169,7 @@ public class SimpleImageLoader {
             if (tag instanceof String && ((String) tag).startsWith("http") && !url.equals(tag)) return;
             if (bitmap != null) {
                 imageView.setImageBitmap(bitmap);
+                if (done != null) done.run();
             } else {
                 imageView.setBackgroundColor(ContextCompat.getColor(imageView.getContext(), R.color.bg_poster));
             }
