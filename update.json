@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527069,
-    "versionName": "9527.069",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.069/FNTV_release_v9527.069.apk",
-    "changelog": "竖屏轮播改用海报，横屏和电视仍用横图。横屏空间不够时保留开始播放和详情按钮",
+    "versionCode": 9527070,
+    "versionName": "9527.070",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.070/FNTV_release_v9527.070.apk",
+    "changelog": "竖屏轮播改回横图，卡片固定 16:9。进度点移到详情按钮右侧",
     "forceUpdate": false
 }
