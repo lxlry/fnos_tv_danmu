@@ -681,7 +681,7 @@ DPAD 遥控器友好
     <LinearLayout
         android:id="@+id/tabBar"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="54dp"
         android:background="@color/bg_chrome"
         android:gravity="center"
         android:orientation="horizontal"
@@ -702,8 +702,8 @@ DPAD 遥控器友好
             android:orientation="vertical">
 
             <androidx.appcompat.widget.AppCompatImageView
-                android:layout_width="26dp"
-                android:layout_height="26dp"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
                 android:duplicateParentState="true"
                 app:srcCompat="@drawable/tab_ic_home"
                 app:tint="@color/tab_icon" />
@@ -733,8 +733,8 @@ DPAD 遥控器友好
             android:orientation="vertical">
 
             <androidx.appcompat.widget.AppCompatImageView
-                android:layout_width="26dp"
-                android:layout_height="26dp"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
                 android:duplicateParentState="true"
                 app:srcCompat="@drawable/tab_ic_library"
                 app:tint="@color/tab_icon" />
@@ -763,8 +763,8 @@ DPAD 遥控器友好
             android:orientation="vertical">
 
             <androidx.appcompat.widget.AppCompatImageView
-                android:layout_width="26dp"
-                android:layout_height="26dp"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
                 android:duplicateParentState="true"
                 app:srcCompat="@drawable/tab_ic_settings"
                 app:tint="@color/tab_icon" />

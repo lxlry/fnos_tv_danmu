@@ -13,6 +13,7 @@ import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewOutlineProvider;
@@ -477,8 +478,19 @@ public class HomeActivity extends AppCompatActivity {
             else if (fromClick && index == 1) loadMediaLibraries();
             return;
         }
+        if (fromClick) tickTabSwitch(index);
         switchTab(index);
         if (index == 1) loadMediaLibraries();
+    }
+
+    /** 点到底栏另一个栏目时轻震一下。 */
+    private void tickTabSwitch(int index) {
+        View tab = index == 1 ? tabLibrary : index == 2 ? tabSettings : tabMovies;
+        if (tab == null) return;
+        int effect = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                ? HapticFeedbackConstants.CONTEXT_CLICK
+                : HapticFeedbackConstants.KEYBOARD_TAP;
+        tab.performHapticFeedback(effect);
     }
 
 
