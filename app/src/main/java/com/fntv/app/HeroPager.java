@@ -13,6 +13,7 @@ public class HeroPager extends HorizontalScrollView {
     public interface Listener {
         void onPageSettled(int index);
         void onUserHold(boolean hold);
+        void onTap();
     }
 
     private final PageStrip strip;
@@ -25,6 +26,7 @@ public class HeroPager extends HorizontalScrollView {
     private float downX;
     private float downY;
     private boolean horizontalDrag;
+    private boolean tapCandidate;
     private final int touchSlop;
 
     public HeroPager(Context context) {
@@ -158,13 +160,24 @@ public class HeroPager extends HorizontalScrollView {
                 snapped = false;
                 pendingX = -1;
                 pendingJumpX = -1;
+                tapCandidate = true;
+                downX = ev.getX();
+                downY = ev.getY();
                 if (listener != null) listener.onUserHold(true);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                if (Math.abs(ev.getX() - downX) > touchSlop || Math.abs(ev.getY() - downY) > touchSlop) {
+                    tapCandidate = false;
+                }
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                boolean tap = ev.getActionMasked() == MotionEvent.ACTION_UP && tapCandidate;
+                tapCandidate = false;
                 boolean handled = super.onTouchEvent(ev);
                 if (!snapped) settle();
                 if (listener != null) listener.onUserHold(false);
+                if (tap && listener != null) listener.onTap();
                 return handled;
             default:
                 break;

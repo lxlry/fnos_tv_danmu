@@ -6,19 +6,18 @@
 设置: 用户配置
 DPAD 遥控器友好
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/pageRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_dark"
-    android:orientation="vertical">
+    android:background="@color/bg_dark">
 
     <!-- ========== 内容区域 ========== -->
     <FrameLayout
         android:id="@+id/contentContainer"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_height="match_parent">
 
         <!-- Tab 1: 影视。顶栏浮在内容上，首页海报才能铺到屏幕上沿。 -->
         <FrameLayout
@@ -55,7 +54,7 @@ DPAD 遥控器友好
                     android:paddingLeft="12dp"
                     android:paddingRight="12dp"
                     android:paddingTop="10dp"
-                    android:paddingBottom="8dp">
+                    android:paddingBottom="88dp">
 
                     <TextView
                         android:id="@+id/tvMoviesLoading"
@@ -310,7 +309,7 @@ DPAD 遥控器友好
                     android:paddingLeft="16dp"
                     android:paddingRight="16dp"
                     android:paddingTop="4dp"
-                    android:paddingBottom="12dp">
+                    android:paddingBottom="88dp">
 
                     <TextView
                         android:id="@+id/tvLibraryLoading"
@@ -384,7 +383,10 @@ DPAD 遥控器友好
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:paddingLeft="16dp"
+                    android:paddingTop="16dp"
+                    android:paddingRight="16dp"
+                    android:paddingBottom="88dp">
 
                     <!-- 账户信息 -->
                     <LinearLayout
@@ -671,28 +673,24 @@ DPAD 遥控器友好
 
     </FrameLayout>
 
-    <View
-        android:id="@+id/tabDivider"
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider" />
-
-    <!-- ========== 底部 Tab 栏 ========== -->
+    <!-- ========== 底部悬浮胶囊 ========== -->
     <LinearLayout
         android:id="@+id/tabBar"
-        android:layout_width="match_parent"
-        android:layout_height="54dp"
-        android:background="@color/bg_chrome"
+        android:layout_width="wrap_content"
+        android:layout_height="62dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="14dp"
+        android:background="@drawable/bg_tab_capsule"
+        android:elevation="12dp"
         android:gravity="center"
         android:orientation="horizontal"
-        android:paddingLeft="12dp"
-        android:paddingRight="12dp">
+        android:paddingLeft="6dp"
+        android:paddingRight="6dp">
 
         <LinearLayout
             android:id="@+id/tabMovies"
-            android:layout_width="0dp"
+            android:layout_width="84dp"
             android:layout_height="match_parent"
-            android:layout_weight="1"
             android:background="@drawable/selector_tab_cell"
             android:clickable="true"
             android:focusable="true"
@@ -720,9 +718,8 @@ DPAD 遥控器友好
 
         <LinearLayout
             android:id="@+id/tabLibrary"
-            android:layout_width="0dp"
+            android:layout_width="84dp"
             android:layout_height="match_parent"
-            android:layout_weight="1"
             android:background="@drawable/selector_tab_cell"
             android:clickable="true"
             android:focusable="true"
@@ -751,9 +748,8 @@ DPAD 遥控器友好
 
         <LinearLayout
             android:id="@+id/tabSettings"
-            android:layout_width="0dp"
+            android:layout_width="84dp"
             android:layout_height="match_parent"
-            android:layout_weight="1"
             android:background="@drawable/selector_tab_cell"
             android:clickable="true"
             android:focusable="true"
@@ -781,4 +777,4 @@ DPAD 遥控器友好
 
     </LinearLayout>
 
-</LinearLayout>
+</FrameLayout>

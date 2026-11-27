@@ -93,6 +93,9 @@ public class PlayListItem {
     @SerializedName("release_date")
     public String releaseDate;
 
+    /** 详情接口返回的类型编号。只在客户端使用，列表反序列化不读这个字段。 */
+    public transient java.util.List<Integer> genreIds;
+
     @SerializedName("number_of_seasons")
     public int numberOfSeasons;
 

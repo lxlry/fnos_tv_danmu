@@ -2,10 +2,15 @@ package com.fntv.app;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -113,6 +118,10 @@ public class HomeActivity extends AppCompatActivity {
     private TextView heroPlay;
     private TextView heroMore;
     private LinearLayout heroDots;
+    private View bannerShade;
+    private int bannerCanvasColor;
+    private final Map<String, String> genreNames = new HashMap<>();
+    private boolean genreNamesRequested;
     private final List<ImageView> heroImages = new ArrayList<>();
     private ImageView heroCloneFirst;
     private ImageView heroCloneLast;
@@ -127,6 +136,39 @@ public class HomeActivity extends AppCompatActivity {
     private List<PlayListItem> cachedLivePreview;
     private int cachedLiveTotal;
     private long backPressedTime = 0;
+
+    private int statusBarHeight() {
+        int res = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (res > 0) return getResources().getDimensionPixelSize(res);
+        return 0;
+    }
+
+    private void liftTopBars() {
+        int inset = statusBarHeight();
+        if (inset <= 0) return;
+        growTopBar(R.id.moviesHeader, 52, inset);
+        growTopBar(R.id.tvLibraryPageTitle, 56, inset);
+        growTopBar(R.id.settingsHeader, 56, inset);
+        growTopBar(R.id.libBrowseBar, 52, inset);
+    }
+
+    private void growTopBar(int id, int baseDp, int inset) {
+        View bar = findViewById(id);
+        if (bar == null || bar.getLayoutParams() == null) return;
+        bar.setPadding(bar.getPaddingLeft(), inset, bar.getPaddingRight(), bar.getPaddingBottom());
+        bar.getLayoutParams().height = dp(baseDp) + inset;
+    }
+
+    private static String clock(long seconds) {
+        if (seconds < 0) seconds = 0;
+        long hours = seconds / 3600;
+        long minutes = (seconds % 3600) / 60;
+        long secs = seconds % 60;
+        if (hours > 0) {
+            return String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, secs);
+        }
+        return String.format(java.util.Locale.US, "%d:%02d", minutes, secs);
+    }
 
     private int color(int resId) {
         return ContextCompat.getColor(this, resId);
@@ -242,6 +284,8 @@ public class HomeActivity extends AppCompatActivity {
         SessionGuard.attach(this);
         setContentView(R.layout.activity_home);
 
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(Color.TRANSPARENT);
             getWindow().setNavigationBarColor(color(R.color.bg_dark));
@@ -269,6 +313,7 @@ public class HomeActivity extends AppCompatActivity {
             prefs.edit().putString("last_host", baseUrl).apply();
         }
         initViews();
+        liftTopBars();
         setupTabs();
         setupSettings();
         setupLogout();
@@ -301,8 +346,8 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (panelMovies != null) {
             panelMovies.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                if (!useImmersiveHero() || heroRoot == null || heroRoot.getLayoutParams() == null) return;
-                int height = bottom - top;
+                if (heroRoot == null || heroRoot.getLayoutParams() == null) return;
+                int height = bannerHeight();
                 if (height > 0 && heroRoot.getLayoutParams().height != height) {
                     heroRoot.getLayoutParams().height = height;
                     heroRoot.requestLayout();
@@ -345,7 +390,7 @@ public class HomeActivity extends AppCompatActivity {
             homeSwipe.setColorSchemeColors(color(R.color.text_primary));
             homeSwipe.setProgressBackgroundColorSchemeColor(color(R.color.bg_card));
             homeSwipe.setOnRefreshListener(this::refreshCurrentPage);
-            homeSwipe.setProgressViewOffset(false, dp(52), dp(108));
+            homeSwipe.setProgressViewOffset(false, dp(72), dp(128));
             syncHomeSwipe();
         }
         androidx.swiperefreshlayout.widget.SwipeRefreshLayout librarySwipe = findViewById(R.id.librarySwipeRefresh);
@@ -520,20 +565,17 @@ public class HomeActivity extends AppCompatActivity {
         refreshTabFocusTargets();
         syncHomeSwipe();
         if (isTelevision()) placeTvTabFocus(index);
+        applyHomeCanvas();
         } finally {
             tabSwitching = false;
         }
     }
 
-    /** 电视没有底栏，设置和刷新在标题栏右侧；手机不显示刷新按钮。 */
+    /** 电视把设置和刷新放在标题栏右侧；底栏胶囊三端都在。 */}
     private void applyTvHomeChrome() {
         if (!isTelevision()) return;
         View refresh = findViewById(R.id.btnHomeRefresh);
         if (refresh != null) refresh.setVisibility(View.VISIBLE);
-        View tabBar = findViewById(R.id.tabBar);
-        View divider = findViewById(R.id.tabDivider);
-        if (tabBar != null) tabBar.setVisibility(View.GONE);
-        if (divider != null) divider.setVisibility(View.GONE);
         View settings = findViewById(R.id.btnHomeSettings);
         View search = findViewById(R.id.btnHomeSearch);
         if (settings != null) {
@@ -851,20 +893,18 @@ public class HomeActivity extends AppCompatActivity {
         continueWatchingBox.setOrientation(LinearLayout.VERTICAL);
         continueWatchingBox.setTag("continue_watching");
         moviesContainer.addView(buildHomeHero());
-        if (useImmersiveHero()) moviesContainer.addView(makeSpacer(dp(52)));
-        if (!useImmersiveHero()) {
-            LinearLayout libRowBox = new LinearLayout(this);
-            libRowBox.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            libRowBox.setOrientation(LinearLayout.VERTICAL);
-            libRowBox.setTag("lib_shortcuts");
-            libRowBox.addView(makeLibShortcutRow(false));
-            moviesContainer.addView(libRowBox);
-        }
         moviesContainer.addView(continueWatchingBox);
         if (cachedContinueWatching != null && !cachedContinueWatching.isEmpty()) {
             addContinueWatchingApi(continueWatchingBox, cachedContinueWatching, 0);
         }
+        LinearLayout libRowBox = new LinearLayout(this);
+        libRowBox.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        libRowBox.setOrientation(LinearLayout.VERTICAL);
+        libRowBox.setTag("lib_shortcuts");
+        libRowBox.addView(makeLibShortcutRow(isTelevision()));
+        moviesContainer.addView(libRowBox);
+        ensureGenreNames();
 
         for (MediaDbItem lib : mediaLibraries) {
             LinearLayout headerRow = makeLibHeader(lib.guid, lib.title, 0);
@@ -1197,42 +1237,55 @@ public class HomeActivity extends AppCompatActivity {
     }
 
 
-    /** 电视，以及手机横屏：海报铺满顶栏以下的整屏。手机竖屏用矮卡片。 */
+    /** 三端 banner 都贴到屏幕上沿，高度约半屏。 */
     private boolean useImmersiveHero() {
-        if (isTelevision()) return true;
-        return getResources().getConfiguration().orientation
-                == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        return true;
+    }
+
+    private int bannerHeight() {
+        int space = panelMovies != null && panelMovies.getHeight() > 0
+                ? panelMovies.getHeight()
+                : getResources().getDisplayMetrics().heightPixels;
+        return Math.max(dp(180), Math.round(space * 0.5f));
+    }
+
+    private int topBarHeight() {
+        View header = findViewById(R.id.moviesHeader);
+        if (header != null && header.getHeight() > 0) return header.getHeight();
+        return dp(52) + statusBarHeight();
     }
 
     private void applyMoviesChrome() {
         if (moviesContainer == null || savedMoviesPad == null) return;
         View header = findViewById(R.id.moviesHeader);
         boolean headerShown = header != null && header.getVisibility() == View.VISIBLE;
-        boolean bleed = headerShown && useImmersiveHero() && showingOverview && currentTab == 0;
+        boolean bleed = headerShown && showingOverview && currentTab == 0;
         if (!headerShown) {
-            moviesContainer.setPadding(0, 0, 0, 0);
+            moviesContainer.setPadding(0, 0, 0, savedMoviesPad[3]);
         } else if (bleed) {
             moviesContainer.setPadding(savedMoviesPad[0], 0, savedMoviesPad[2], savedMoviesPad[3]);
             sizeImmersiveHero();
         } else {
-            moviesContainer.setPadding(savedMoviesPad[0], savedMoviesPad[1] + dp(52),
+            moviesContainer.setPadding(savedMoviesPad[0], topBarHeight(),
                     savedMoviesPad[2], savedMoviesPad[3]);
         }
         ScrollView scroller = moviesScroller();
         applyHeaderBackdrop(scroller == null ? 0 : scroller.getScrollY());
+        applyHomeCanvas();
     }
 
-    /** 满屏海报时顶栏透明；滚到下面的列表后恢复实心，避免字压在卡片上。 */
+    /** banner 在顶栏后面时顶栏透明；滚到列表后用当前 banner 色垫底。 */
     private void applyHeaderBackdrop(int scrollY) {
         View header = findViewById(R.id.moviesHeader);
         if (header == null || header.getVisibility() != View.VISIBLE) return;
-        boolean clear = useImmersiveHero() && showingOverview && currentTab == 0;
+        boolean clear = showingOverview && currentTab == 0;
         if (clear) {
             int span = heroRoot != null && heroRoot.getHeight() > 0
                     ? heroRoot.getHeight() - dp(72) : dp(48);
             clear = scrollY < Math.max(dp(48), span);
         }
-        header.setBackgroundColor(clear ? Color.TRANSPARENT : color(R.color.bg_dark));
+        int solid = homeCanvasColor();
+        header.setBackgroundColor(clear ? Color.TRANSPARENT : solid);
         if (tvHomeTitle != null) {
             if (clear) tvHomeTitle.setShadowLayer(dp(4), 0, dp(1), 0xCC000000);
             else tvHomeTitle.setShadowLayer(0, 0, 0, 0);
@@ -1240,16 +1293,86 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void sizeImmersiveHero() {
-        if (!useImmersiveHero() || heroRoot == null || panelMovies == null) return;
+        if (heroRoot == null || panelMovies == null) return;
         panelMovies.post(() -> {
-            if (heroRoot == null || !useImmersiveHero()) return;
-            int height = panelMovies.getHeight();
+            if (heroRoot == null) return;
+            int height = bannerHeight();
             if (height <= 0 || heroRoot.getLayoutParams() == null) return;
             if (heroRoot.getLayoutParams().height != height) {
                 heroRoot.getLayoutParams().height = height;
                 heroRoot.requestLayout();
             }
         });
+    }
+
+    private int homeCanvasColor() {
+        if (currentTab == 0 && showingOverview && savedDetailItem == null && bannerCanvasColor != 0) {
+            return bannerCanvasColor;
+        }
+        return color(R.color.bg_dark);
+    }
+
+    private void applyHomeCanvas() {
+        View root = findViewById(R.id.pageRoot);
+        if (root != null) root.setBackgroundColor(homeCanvasColor());
+        paintBannerShade();
+    }
+
+    private void paintBannerShade() {
+        if (bannerShade == null) return;
+        int page = homeCanvasColor();
+        bannerShade.setBackground(new GradientDrawable(
+                GradientDrawable.Orientation.BOTTOM_TOP,
+                new int[]{page, withAlpha(page, 0xCC), 0x00000000}));
+    }
+
+    private static int withAlpha(int color, int alpha) {
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    private void publishBannerCanvas(int sampled) {
+        bannerCanvasColor = sampled;
+        applyHomeCanvas();
+        ScrollView scroller = moviesScroller();
+        applyHeaderBackdrop(scroller == null ? 0 : scroller.getScrollY());
+    }
+
+    /** 取画面靠下一段的平均色，再压暗，保证白字能读。 */
+    private int sampleBannerColor(Bitmap bitmap) {
+        int w = bitmap.getWidth();
+        int h = bitmap.getHeight();
+        if (w <= 0 || h <= 0) return color(R.color.bg_dark);
+        int y0 = (int) (h * 0.72f);
+        int step = Math.max(1, Math.min(w, h) / 32);
+        long r = 0;
+        long g = 0;
+        long b = 0;
+        long n = 0;
+        for (int y = y0; y < h; y += step) {
+            for (int x = 0; x < w; x += step) {
+                int pixel = bitmap.getPixel(x, y);
+                r += Color.red(pixel);
+                g += Color.green(pixel);
+                b += Color.blue(pixel);
+                n++;
+            }
+        }
+        if (n == 0) return color(R.color.bg_dark);
+        int rr = (int) (r / n);
+        int gg = (int) (g / n);
+        int bb = (int) (b / n);
+        double lum = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
+        float damp = lum > 140 ? 0.42f : 0.72f;
+        return Color.rgb(Math.round(rr * damp), Math.round(gg * damp), Math.round(bb * damp));
+    }
+
+    private void sampleCurrentBanner() {
+        if (heroIndex < 0 || heroIndex >= heroImages.size()) return;
+        ImageView image = heroImages.get(heroIndex);
+        if (image == null || !(image.getDrawable() instanceof BitmapDrawable)) return;
+        Bitmap bitmap = ((BitmapDrawable) image.getDrawable()).getBitmap();
+        if (bitmap == null || bitmap.isRecycled()) return;
+        publishBannerCanvas(sampleBannerColor(bitmap));
     }
 
     private void loadCarousel() {
@@ -1316,6 +1439,7 @@ public class HomeActivity extends AppCompatActivity {
                 if (detail.posters != null && !detail.posters.isEmpty()) item.posters = detail.posters;
                 if (detail.backdrops != null && !detail.backdrops.isEmpty()) item.backdrops = detail.backdrops;
                 if (detail.logos != null) item.logos = detail.logos;
+                if (detail.genres != null && !detail.genres.isEmpty()) item.genreIds = detail.genres;
                 if (showingOverview) reloadHeroImage(item);
             }
 
@@ -1328,70 +1452,28 @@ public class HomeActivity extends AppCompatActivity {
         heroImages.clear();
         heroBoundStamp = null;
         heroIndex = 0;
-        boolean bleed = useImmersiveHero();
-        int viewport = getResources().getDisplayMetrics().widthPixels;
-        int contentW = viewport;
-        if (savedMoviesPad != null) contentW -= savedMoviesPad[0] + savedMoviesPad[2];
-        int cardH = Math.round(Math.max(contentW, 0) * 9f / 16f);
-
-        if (!bleed) {
-            LinearLayout column = new LinearLayout(this);
-            column.setOrientation(LinearLayout.VERTICAL);
-            column.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            column.setTag("home_hero");
-            FrameLayout card = new FrameLayout(this);
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, cardH);
-            cardLp.topMargin = dp(4);
-            card.setLayoutParams(cardLp);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                card.setOutlineProvider(new ViewOutlineProvider() {
-                    @Override
-                    public void getOutline(View view, Outline outline) {
-                        outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(18));
-                    }
-                });
-                card.setClipToOutline(true);
-            }
-            fillHeroFrame(card, false);
-            lockPortraitHeroCard(card);
-            column.addView(card);
-            heroRoot = column;
-            if (carouselLoaded && cachedCarousel.isEmpty()) heroRoot.setVisibility(View.GONE);
-            return column;
-        }
+        heroPlay = null;
+        heroMore = null;
 
         FrameLayout frame = new FrameLayout(this);
-        int height = panelMovies != null && panelMovies.getHeight() > 0
-                ? panelMovies.getHeight()
-                : getResources().getDisplayMetrics().heightPixels;
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, height);
+                ViewGroup.LayoutParams.MATCH_PARENT, bannerHeight());
         if (savedMoviesPad != null) {
             lp.leftMargin = -savedMoviesPad[0];
             lp.rightMargin = -savedMoviesPad[2];
         }
         frame.setLayoutParams(lp);
         frame.setTag("home_hero");
-        fillHeroFrame(frame, true);
-        View strip = makeLibShortcutRow(true);
-        strip.setTag("lib_shortcuts");
-        FrameLayout.LayoutParams stripLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        stripLp.gravity = Gravity.BOTTOM;
-        stripLp.leftMargin = dp(20);
-        stripLp.rightMargin = dp(20);
-        stripLp.bottomMargin = dp(12);
-        strip.setLayoutParams(stripLp);
-        frame.addView(strip);
+        frame.setFocusable(true);
+        frame.setClickable(true);
+        frame.setOnClickListener(v -> openHeroDetail());
+        fillHeroFrame(frame);
         heroRoot = frame;
-        heroDots = null;
         if (carouselLoaded && cachedCarousel.isEmpty()) heroRoot.setVisibility(View.GONE);
         return frame;
     }
 
-    private void fillHeroFrame(FrameLayout frame, boolean bleed) {
+    private void fillHeroFrame(FrameLayout frame) {
         frame.setBackgroundColor(color(R.color.bg_poster));
         heroPager = new HeroPager(this);
         heroPager.setLayoutParams(new FrameLayout.LayoutParams(
@@ -1409,77 +1491,49 @@ public class HomeActivity extends AppCompatActivity {
                 heroTouchHold = hold;
                 syncHeroTimer();
             }
+
+            @Override
+            public void onTap() {
+                openHeroDetail();
+            }
         });
         frame.addView(heroPager);
 
-        if (bleed) {
-            View top = new View(this);
-            FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(96));
-            topLp.gravity = Gravity.TOP;
-            top.setLayoutParams(topLp);
-            GradientDrawable topShade = new GradientDrawable(
-                    GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{0xB3000000, 0x00000000});
-            top.setBackground(topShade);
-            frame.addView(top);
+        View top = new View(this);
+        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(96));
+        topLp.gravity = Gravity.TOP;
+        top.setLayoutParams(topLp);
+        top.setBackground(new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x99000000, 0x00000000}));
+        frame.addView(top);
 
-            View left = new View(this);
-            left.setLayoutParams(new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            left.setBackground(new GradientDrawable(
-                    GradientDrawable.Orientation.LEFT_RIGHT,
-                    new int[]{0x99000000, 0x00000000}));
-            frame.addView(left);
-        }
-
-        View bottom = new View(this);
+        bannerShade = new View(this);
         FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, bleed ? dp(280) : ViewGroup.LayoutParams.MATCH_PARENT);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(220));
         bottomLp.gravity = Gravity.BOTTOM;
-        bottom.setLayoutParams(bottomLp);
-        int page = color(R.color.bg_dark);
-        bottom.setBackground(new GradientDrawable(
-                GradientDrawable.Orientation.BOTTOM_TOP,
-                bleed
-                        ? new int[]{page, 0xCC000000, 0x00000000}
-                        : new int[]{0xF0000000, 0x99000000, 0x00000000}));
-        frame.addView(bottom);
+        bannerShade.setLayoutParams(bottomLp);
+        frame.addView(bannerShade);
+        paintBannerShade();
 
-        LinearLayout info = new LinearLayout(this) {
-            @Override
-            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                // 横屏高度不够时按内容真实高度测量，再贴底摆放。
-                // 多出来的从顶部裁掉，开始播放和详情留在媒体库上方。
-                if (bleed && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
-                    heightMeasureSpec = MeasureSpec.makeMeasureSpec(
-                            MeasureSpec.getSize(heightMeasureSpec), MeasureSpec.UNSPECIFIED);
-                }
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-            }
-        };
+        LinearLayout info = new LinearLayout(this);
         FrameLayout.LayoutParams infoLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         infoLp.gravity = Gravity.BOTTOM;
         info.setLayoutParams(infoLp);
         info.setOrientation(LinearLayout.VERTICAL);
-        int bottomPad = bleed ? dp(158) : dp(16);
-        info.setPadding(dp(bleed ? 48 : 16), dp(12), dp(bleed ? 48 : 16), bottomPad);
-
-        heroMeta = new TextView(this);
-        heroMeta.setTextColor(0xBFFFFFFF);
-        heroMeta.setTextSize(bleed ? 13 : 12);
-        heroMeta.setTypeface(Typeface.DEFAULT_BOLD);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) heroMeta.setLetterSpacing(0.08f);
-        info.addView(heroMeta);
+        info.setGravity(Gravity.CENTER_HORIZONTAL);
+        info.setPadding(dp(28), dp(12), dp(28), dp(20));
 
         heroLogo = new ImageView(this);
         LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, bleed ? dp(64) : dp(44));
-        logoLp.topMargin = dp(6);
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(56));
+        logoLp.gravity = Gravity.CENTER_HORIZONTAL;
         heroLogo.setLayoutParams(logoLp);
         heroLogo.setAdjustViewBounds(true);
-        heroLogo.setScaleType(ImageView.ScaleType.FIT_START);
+        heroLogo.setMaxWidth(dp(280));
+        heroLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         info.addView(heroLogo);
 
         heroTitle = new TextView(this);
@@ -1487,66 +1541,64 @@ public class HomeActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         titleLp.topMargin = dp(4);
         heroTitle.setLayoutParams(titleLp);
+        heroTitle.setGravity(Gravity.CENTER);
         heroTitle.setTextColor(color(R.color.text_white));
-        heroTitle.setTextSize(bleed ? 32 : 22);
+        heroTitle.setTextSize(26);
         heroTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        heroTitle.setMaxLines(1);
+        heroTitle.setMaxLines(2);
         heroTitle.setEllipsize(TextUtils.TruncateAt.END);
         heroTitle.setShadowLayer(dp(6), 0, dp(2), 0xCC000000);
         info.addView(heroTitle);
+
+        heroMeta = new TextView(this);
+        LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        metaLp.topMargin = dp(8);
+        heroMeta.setLayoutParams(metaLp);
+        heroMeta.setGravity(Gravity.CENTER);
+        heroMeta.setTextColor(0xE6FFFFFF);
+        heroMeta.setTextSize(13);
+        info.addView(heroMeta);
 
         heroOverview = new TextView(this);
         LinearLayout.LayoutParams overLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         overLp.topMargin = dp(8);
-        overLp.rightMargin = bleed ? dp(80) : 0;
         heroOverview.setLayoutParams(overLp);
-        heroOverview.setTextColor(0xD9FFFFFF);
-        heroOverview.setTextSize(bleed ? 14 : 13);
-        heroOverview.setMaxLines(2);
+        heroOverview.setGravity(Gravity.CENTER);
+        heroOverview.setTextColor(0xB3FFFFFF);
+        heroOverview.setTextSize(13);
+        heroOverview.setMaxLines(3);
         heroOverview.setEllipsize(TextUtils.TruncateAt.END);
         info.addView(heroOverview);
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setTag("hero_actions");
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actionsLp.topMargin = dp(bleed ? 14 : 8);
-        actions.setLayoutParams(actionsLp);
+        heroDots = new LinearLayout(this);
+        LinearLayout.LayoutParams dotsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dotsLp.topMargin = dp(12);
+        dotsLp.gravity = Gravity.CENTER_HORIZONTAL;
+        heroDots.setLayoutParams(dotsLp);
+        heroDots.setOrientation(LinearLayout.HORIZONTAL);
+        heroDots.setGravity(Gravity.CENTER);
+        info.addView(heroDots);
 
-        heroPlay = makeHeroButton(true, !bleed);
-        heroPlay.setText("开始播放");
-        heroPlay.setOnClickListener(v -> playHeroItem(currentHeroItem()));
-        heroPlay.setOnKeyListener((v, keyCode, event) ->
-                event.getAction() == KeyEvent.ACTION_DOWN && onHeroEdgeKey(v, keyCode));
-        heroMore = makeHeroButton(false, !bleed);
-        LinearLayout.LayoutParams moreLp = (LinearLayout.LayoutParams) heroMore.getLayoutParams();
-        moreLp.leftMargin = dp(bleed ? 12 : 8);
-        heroMore.setText("详情");
-        heroMore.setOnClickListener(v -> {
-            PlayListItem item = currentHeroItem();
-            if (item != null) showDetail(item);
-        });
-        heroMore.setOnKeyListener((v, keyCode, event) ->
-                event.getAction() == KeyEvent.ACTION_DOWN && onHeroEdgeKey(v, keyCode));
-        View.OnFocusChangeListener focus = (v, hasFocus) -> noteHeroFocus();
-        heroPlay.setOnFocusChangeListener(focus);
-        heroMore.setOnFocusChangeListener(focus);
-        actions.addView(heroPlay);
-        actions.addView(heroMore);
-        if (!bleed) {
-            View spacer = new View(this);
-            spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 0, 1f));
-            actions.addView(spacer);
-            heroDots = new LinearLayout(this);
-            heroDots.setOrientation(LinearLayout.HORIZONTAL);
-            heroDots.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-            actions.addView(heroDots);
-        }
-        info.addView(actions);
         frame.addView(info);
+
+        View ring = new View(this);
+        ring.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        ring.setBackgroundResource(R.drawable.bg_hero_focus);
+        ring.setVisibility(View.INVISIBLE);
+        frame.setOnFocusChangeListener((v, hasFocus) -> {
+            ring.setVisibility(hasFocus ? View.VISIBLE : View.INVISIBLE);
+            noteHeroFocus();
+        });
+        frame.addView(ring);
+    }
+
+    private void openHeroDetail() {
+        PlayListItem item = currentHeroItem();
+        if (item != null) showDetail(item);
     }
 
     private TextView makeHeroButton(boolean primary, boolean compact) {
@@ -1643,6 +1695,7 @@ public class HomeActivity extends AppCompatActivity {
         heroIndex = (index % count + count) % count;
         bindHeroTexts(cachedCarousel.get(heroIndex));
         updateHeroDots();
+        sampleCurrentBanner();
         if (scroll && heroPager != null) heroPager.scrollToPage(heroIndex, true);
     }
 
@@ -1654,7 +1707,11 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void loadHeroStill(ImageView image, String url) {
-        SimpleImageLoader.load(url, image, apiManager.getClient());
+        SimpleImageLoader.load(url, image, apiManager.getClient(), () -> {
+            if (heroIndex >= 0 && heroIndex < heroImages.size() && heroImages.get(heroIndex) == image) {
+                sampleCurrentBanner();
+            }
+        });
     }
 
     /** 竖屏卡片固定 16:9，和横图一样铺满裁切。 */
@@ -1672,14 +1729,20 @@ public class HomeActivity extends AppCompatActivity {
     private void bindHeroTexts(PlayListItem item) {
         if (item == null || heroMeta == null) return;
         String year = itemYear(item);
-        String type = "Movie".equals(item.type) ? "电影" : "剧集";
         String rating = itemRating(item);
-        StringBuilder meta = new StringBuilder();
-        if (!year.isEmpty()) meta.append(year);
-        if (meta.length() > 0) meta.append(" · ");
-        meta.append(type);
-        if (!rating.isEmpty()) meta.append(" · ").append(rating);
-        heroMeta.setText(meta.toString());
+        String genres = genreLine(item);
+        SpannableStringBuilder meta = new SpannableStringBuilder();
+        if (!rating.isEmpty()) {
+            meta.append("★ ");
+            int start = meta.length();
+            meta.append(rating);
+            meta.setSpan(new ForegroundColorSpan(0xFF3DDC97), start, meta.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        appendHeroMeta(meta, year);
+        appendHeroMeta(meta, genres);
+        heroMeta.setText(meta);
+        heroMeta.setVisibility(meta.length() == 0 ? View.GONE : View.VISIBLE);
 
         String title = item.tvTitle != null && !item.tvTitle.isEmpty() ? item.tvTitle
                 : (item.title != null ? item.title : "");
@@ -1690,7 +1753,7 @@ public class HomeActivity extends AppCompatActivity {
             heroTitle.setVisibility(View.GONE);
             if (!logo.equals(heroLogo.getTag())) {
                 heroLogo.setTag(logo);
-                heroLogo.setMaxWidth(dp(useImmersiveHero() ? 420 : 220));
+                heroLogo.setMaxWidth(dp(280));
                 SimpleImageLoader.load(logo, heroLogo, apiManager.getClient());
             }
         } else {
@@ -1702,6 +1765,60 @@ public class HomeActivity extends AppCompatActivity {
         String overview = item.overview == null ? "" : item.overview.trim();
         heroOverview.setText(overview);
         heroOverview.setVisibility(overview.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    private void appendHeroMeta(SpannableStringBuilder meta, String part) {
+        if (part == null || part.isEmpty()) return;
+        if (meta.length() > 0) meta.append("  |  ");
+        meta.append(part);
+    }
+
+    private String genreLine(PlayListItem item) {
+        if (item.genreIds == null || item.genreIds.isEmpty() || genreNames.isEmpty()) return "";
+        StringBuilder line = new StringBuilder();
+        for (Integer id : item.genreIds) {
+            if (id == null) continue;
+            String name = genreNames.get(String.valueOf(id));
+            if (name == null || name.isEmpty()) continue;
+            if (line.length() > 0) line.append(',');
+            line.append(name);
+        }
+        return line.toString();
+    }
+
+    /** 类型名称走现有 tag 接口。对不上或接口没有，banner 上就留空。 */
+    private void ensureGenreNames() {
+        if (genreNamesRequested || apiManager.getApi() == null) return;
+        genreNamesRequested = true;
+        requestGenreTag("genre", true);
+    }
+
+    private void requestGenreTag(final String name, final boolean allowFallback) {
+        apiManager.getApi().getTag(name, "zh-CN").enqueue(new Callback<ApiResponse<List<TagEntry>>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<List<TagEntry>>> call,
+                                   Response<ApiResponse<List<TagEntry>>> response) {
+                boolean got = response.isSuccessful() && response.body() != null
+                        && response.body().code == 0 && response.body().data != null
+                        && !response.body().data.isEmpty();
+                if (got) {
+                    readTagMap(response.body().data, genreNames);
+                    refreshHeroTexts();
+                    return;
+                }
+                if (allowFallback) requestGenreTag("genres", false);
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<List<TagEntry>>> call, Throwable t) {
+                if (allowFallback) requestGenreTag("genres", false);
+            }
+        });
+    }
+
+    private void refreshHeroTexts() {
+        PlayListItem item = currentHeroItem();
+        if (item != null && showingOverview && heroMeta != null) bindHeroTexts(item);
     }
 
     private void updateHeroDots() {
@@ -1877,15 +1994,16 @@ public class HomeActivity extends AppCompatActivity {
         return best;
     }
 
-    /** 开始播放的左键、详情的右键翻页。方向键在焦点层就被消化，按钮自己的监听收不到。 */
+    /** 焦点在 banner 上时，左右键切页。方向键在焦点层就被消化。 */
     private boolean onHeroEdgeKey(View focused, int keyCode) {
         if (!showingOverview || currentTab != 0 || cachedCarousel.size() < 2) return false;
-        if (focused == heroPlay && keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+        if (focused != heroRoot) return false;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
             showHeroIndex(heroIndex - 1, true);
             syncHeroTimer();
             return true;
         }
-        if (focused == heroMore && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
             showHeroIndex(heroIndex + 1, true);
             syncHeroTimer();
             return true;
@@ -1897,7 +2015,7 @@ public class HomeActivity extends AppCompatActivity {
         if (heroRoot == null) return;
         heroRoot.post(() -> {
             View focused = getCurrentFocus();
-            boolean hold = focused == heroPlay || focused == heroMore;
+            boolean hold = focused == heroRoot;
             if (heroHold == hold) return;
             heroHold = hold;
             syncHeroTimer();
@@ -1986,9 +2104,11 @@ public class HomeActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(dp(4), 0, dp(4), dp(8));
 
+        int cardW = Math.round(getResources().getDisplayMetrics().widthPixels * 0.46f);
+        cardW = Math.max(dp(220), Math.min(dp(360), cardW));
         for (PlayListItem item : items) {
-            View card = makeContinueCard(item);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), ViewGroup.LayoutParams.WRAP_CONTENT);
+            View card = makeContinueCard(item, cardW);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(dp(6), 0, dp(6), 0);
             card.setLayoutParams(lp);
             row.addView(card);
@@ -2022,7 +2142,7 @@ public class HomeActivity extends AppCompatActivity {
         return sb.toString();
     }
 
-    private View makeContinueCard(PlayListItem item) {
+    private View makeContinueCard(PlayListItem item, int cardW) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.bg_poster_card);
@@ -2031,20 +2151,44 @@ public class HomeActivity extends AppCompatActivity {
 
         FrameLayout shot = new FrameLayout(this);
         shot.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(100)));
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.round(cardW * 9f / 16f)));
 
         RoundedImageView poster = new RoundedImageView(this);
         poster.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        poster.setCornerRadius(10);
+        poster.setCornerRadius(12);
         poster.setBackgroundColor(color(R.color.bg_poster));
         String imgUrl = makePosterUrl(item.coverPath());
         if (imgUrl != null) poster.setTag(imgUrl);
         shot.addView(poster);
 
-        int pct = item.duration > 0 ? Math.max(0, Math.min(100, (int) (item.ts * 100 / item.duration))) : 0;
-        if (pct > 0) {
+        AppCompatImageView play = new AppCompatImageView(this);
+        FrameLayout.LayoutParams playLp = new FrameLayout.LayoutParams(dp(40), dp(40));
+        playLp.gravity = Gravity.CENTER;
+        play.setLayoutParams(playLp);
+        play.setImageResource(R.drawable.ic_player_play);
+        play.setPadding(dp(10), dp(10), dp(10), dp(10));
+        GradientDrawable playBg = new GradientDrawable();
+        playBg.setShape(GradientDrawable.OVAL);
+        playBg.setColor(0xB3000000);
+        play.setBackground(playBg);
+        shot.addView(play);
+
+        if (item.duration > 0) {
+            TextView time = new TextView(this);
+            FrameLayout.LayoutParams timeLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            timeLp.gravity = Gravity.BOTTOM | Gravity.LEFT;
+            timeLp.setMargins(dp(8), 0, dp(8), dp(10));
+            time.setLayoutParams(timeLp);
+            time.setText(clock(item.ts) + " / " + clock(item.duration));
+            time.setTextColor(color(R.color.text_white));
+            time.setTextSize(11);
+            time.setShadowLayer(dp(3), 0, dp(1), 0xCC000000);
+            shot.addView(time);
+
+            int pct = Math.max(0, Math.min(100, (int) (item.ts * 100 / item.duration)));
             LinearLayout pBar = new LinearLayout(this);
             FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(3));
@@ -2054,11 +2198,11 @@ public class HomeActivity extends AppCompatActivity {
             pBar.setWeightSum(100);
             View fill = new View(this);
             fill.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, pct));
-            fill.setBackgroundColor(color(R.color.colorPrimary));
+            fill.setBackgroundColor(0xFFFFFFFF);
             pBar.addView(fill);
             View rest = new View(this);
             rest.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 100 - pct));
-            rest.setBackgroundColor(color(R.color.progress_track));
+            rest.setBackgroundColor(0x66FFFFFF);
             pBar.addView(rest);
             shot.addView(pBar);
         }
@@ -6121,23 +6265,8 @@ public class HomeActivity extends AppCompatActivity {
         for (int i = 0; i < moviesContainer.getChildCount(); i++) {
             View child = moviesContainer.getChildAt(i);
             Object tag = child.getTag();
-            if ("home_hero".equals(tag) && child instanceof ViewGroup) {
-                View actions = findViewWithTagDeep((ViewGroup) child, "hero_actions");
-                if (actions != null) {
-                    List<View> btns = TvFocus.collectVisibleFocusables(actions);
-                    if (!btns.isEmpty()) {
-                        TvFocus.bindRow(btns);
-                        lanes.add(btns);
-                    }
-                }
-                View strip = findViewWithTagDeep((ViewGroup) child, "lib_shortcuts");
-                if (strip != null) {
-                    List<View> tiles = TvFocus.collectVisibleFocusables(strip);
-                    if (!tiles.isEmpty()) {
-                        TvFocus.bindRow(tiles);
-                        lanes.add(tiles);
-                    }
-                }
+            if ("home_hero".equals(tag) && child.isFocusable() && child.getVisibility() == View.VISIBLE) {
+                lanes.add(Collections.singletonList(child));
             } else if ("lib_shortcuts".equals(tag)) {
                 List<View> tiles = TvFocus.collectVisibleFocusables(child);
                 if (!tiles.isEmpty()) {
@@ -6710,10 +6839,11 @@ public class HomeActivity extends AppCompatActivity {
         if (!isTelevision()) {
             if (!continueCards.isEmpty()) return continueCards.get(0);
             if (!shortcuts.isEmpty()) return shortcuts.get(0);
+            if (isUsableFocus(heroRoot)) return heroRoot;
             return searchBtn;
         }
-        if (isUsableFocus(heroPlay)) return heroPlay;
         if (!continueCards.isEmpty()) return continueCards.get(0);
+        if (isUsableFocus(heroRoot)) return heroRoot;
         return searchBtn;
     }
 
@@ -6742,14 +6872,14 @@ public class HomeActivity extends AppCompatActivity {
                 if (first.isFocused()) {
                     homeEntryFocused = true;
                     boolean onFirstLibrary = !shortcuts.isEmpty() && first == shortcuts.get(0);
-                    initialFocusPlaced = onFirstLibrary || first == heroPlay || !continueCards.isEmpty();
+                    initialFocusPlaced = onFirstLibrary || first == heroRoot || !continueCards.isEmpty();
                 }
                 return;
             }
         }
         if (isHomeHeader(focused)) return;
 
-        if (focused == heroPlay) {
+        if (focused == heroRoot) {
             initialFocusPlaced = true;
             homeEntryFocused = true;
             return;
