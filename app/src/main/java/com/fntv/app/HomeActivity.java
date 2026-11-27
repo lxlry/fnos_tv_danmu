@@ -143,13 +143,28 @@ public class HomeActivity extends AppCompatActivity {
         return 0;
     }
 
+    private int appliedTopInset = -1;
+
     private void liftTopBars() {
-        int inset = statusBarHeight();
-        if (inset <= 0) return;
+        applyTopInset(Math.max(statusBarHeight(), dp(24)));
+        View root = findViewById(R.id.pageRoot);
+        if (root == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT_WATCH) return;
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int top = insets.getSystemWindowInsetTop();
+            if (top > 0) applyTopInset(top);
+            return insets;
+        });
+        root.requestApplyInsets();
+    }
+
+    private void applyTopInset(int inset) {
+        if (inset < 0 || inset == appliedTopInset) return;
+        appliedTopInset = inset;
         growTopBar(R.id.moviesHeader, 52, inset);
         growTopBar(R.id.tvLibraryPageTitle, 56, inset);
         growTopBar(R.id.settingsHeader, 56, inset);
         growTopBar(R.id.libBrowseBar, 52, inset);
+        sizeImmersiveHero();
     }
 
     private void growTopBar(int id, int baseDp, int inset) {
@@ -571,9 +586,16 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
-    /** 电视把设置和刷新放在标题栏右侧；底栏胶囊三端都在。 */
+    /** 电视把设置和刷新放在标题栏右侧，不显示底部胶囊。 */
     private void applyTvHomeChrome() {
         if (!isTelevision()) return;
+        View tabBar = findViewById(R.id.tabBar);
+        if (tabBar != null) tabBar.setVisibility(View.GONE);
+        if (savedMoviesPad != null) savedMoviesPad[3] = dp(16);
+        if (libraryContainer != null) {
+            libraryContainer.setPadding(libraryContainer.getPaddingLeft(),
+                    libraryContainer.getPaddingTop(), libraryContainer.getPaddingRight(), dp(16));
+        }
         View refresh = findViewById(R.id.btnHomeRefresh);
         if (refresh != null) refresh.setVisibility(View.VISIBLE);
         View settings = findViewById(R.id.btnHomeSettings);
@@ -1242,11 +1264,18 @@ public class HomeActivity extends AppCompatActivity {
         return true;
     }
 
+    /** 顶栏以下放一张完整的 16:9，避免海报被顶栏挡住或只露出一半。 */
     private int bannerHeight() {
         int space = panelMovies != null && panelMovies.getHeight() > 0
                 ? panelMovies.getHeight()
                 : getResources().getDisplayMetrics().heightPixels;
-        return Math.max(dp(180), Math.round(space * 0.5f));
+        int width = getResources().getDisplayMetrics().widthPixels;
+        if (savedMoviesPad != null) width -= savedMoviesPad[0] + savedMoviesPad[2];
+        int image = Math.round(Math.max(width, 0) * 9f / 16f);
+        int height = topBarHeight() + image;
+        int cap = Math.round(space * 0.72f);
+        if (cap > 0 && height > cap) height = cap;
+        return Math.max(topBarHeight() + dp(120), height);
     }
 
     private int topBarHeight() {
@@ -1301,6 +1330,14 @@ public class HomeActivity extends AppCompatActivity {
             if (heroRoot.getLayoutParams().height != height) {
                 heroRoot.getLayoutParams().height = height;
                 heroRoot.requestLayout();
+            }
+            if (heroPager != null && heroPager.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+                FrameLayout.LayoutParams pagerLp = (FrameLayout.LayoutParams) heroPager.getLayoutParams();
+                int top = topBarHeight();
+                if (pagerLp.topMargin != top) {
+                    pagerLp.topMargin = top;
+                    heroPager.requestLayout();
+                }
             }
         });
     }
@@ -1476,8 +1513,10 @@ public class HomeActivity extends AppCompatActivity {
     private void fillHeroFrame(FrameLayout frame) {
         frame.setBackgroundColor(color(R.color.bg_poster));
         heroPager = new HeroPager(this);
-        heroPager.setLayoutParams(new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout.LayoutParams pagerLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        pagerLp.topMargin = topBarHeight();
+        heroPager.setLayoutParams(pagerLp);
         heroPager.setListener(new HeroPager.Listener() {
             @Override
             public void onPageSettled(int index) {
@@ -1499,19 +1538,9 @@ public class HomeActivity extends AppCompatActivity {
         });
         frame.addView(heroPager);
 
-        View top = new View(this);
-        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(96));
-        topLp.gravity = Gravity.TOP;
-        top.setLayoutParams(topLp);
-        top.setBackground(new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x99000000, 0x00000000}));
-        frame.addView(top);
-
         bannerShade = new View(this);
         FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(220));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(132));
         bottomLp.gravity = Gravity.BOTTOM;
         bannerShade.setLayoutParams(bottomLp);
         frame.addView(bannerShade);
@@ -1664,7 +1693,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private ImageView makeHeroStill(PlayListItem item) {
         ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setBackgroundColor(color(R.color.bg_poster));
         String url = makeImageUrl(item.backdropPath(), 1280);
         if (url != null) {
@@ -1702,7 +1731,7 @@ public class HomeActivity extends AppCompatActivity {
     private void applyHeroStill(ImageView image, String url) {
         if (image == null || url == null || url.equals(image.getTag())) return;
         image.setTag(url);
-        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loadHeroStill(image, url);
     }
 
@@ -2104,8 +2133,8 @@ public class HomeActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(dp(4), 0, dp(4), dp(8));
 
-        int cardW = Math.round(getResources().getDisplayMetrics().widthPixels * 0.46f);
-        cardW = Math.max(dp(220), Math.min(dp(360), cardW));
+        int cardW = Math.round(getResources().getDisplayMetrics().widthPixels * 0.34f);
+        cardW = Math.max(dp(148), Math.min(dp(210), cardW));
         for (PlayListItem item : items) {
             View card = makeContinueCard(item, cardW);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2164,11 +2193,11 @@ public class HomeActivity extends AppCompatActivity {
         shot.addView(poster);
 
         AppCompatImageView play = new AppCompatImageView(this);
-        FrameLayout.LayoutParams playLp = new FrameLayout.LayoutParams(dp(40), dp(40));
+        FrameLayout.LayoutParams playLp = new FrameLayout.LayoutParams(dp(32), dp(32));
         playLp.gravity = Gravity.CENTER;
         play.setLayoutParams(playLp);
         play.setImageResource(R.drawable.ic_player_play);
-        play.setPadding(dp(10), dp(10), dp(10), dp(10));
+        play.setPadding(dp(8), dp(8), dp(8), dp(8));
         GradientDrawable playBg = new GradientDrawable();
         playBg.setShape(GradientDrawable.OVAL);
         playBg.setColor(0xB3000000);
@@ -6831,18 +6860,10 @@ public class HomeActivity extends AppCompatActivity {
         return true;
     }
 
-    /** 电视进首页落在媒体库第一项。没有媒体库时才回到开始播放。 */
+    /** 进首页落在继续观看第一张。还没记录时再落到我的媒体、banner。 */
     private View homeEntryFocus(List<View> shortcuts, List<View> continueCards, View searchBtn) {
-        if (isTelevision() && !shortcuts.isEmpty() && isUsableFocus(shortcuts.get(0))) {
-            return shortcuts.get(0);
-        }
-        if (!isTelevision()) {
-            if (!continueCards.isEmpty()) return continueCards.get(0);
-            if (!shortcuts.isEmpty()) return shortcuts.get(0);
-            if (isUsableFocus(heroRoot)) return heroRoot;
-            return searchBtn;
-        }
         if (!continueCards.isEmpty()) return continueCards.get(0);
+        if (!shortcuts.isEmpty() && isUsableFocus(shortcuts.get(0))) return shortcuts.get(0);
         if (isUsableFocus(heroRoot)) return heroRoot;
         return searchBtn;
     }
@@ -6871,8 +6892,9 @@ public class HomeActivity extends AppCompatActivity {
                 focusOn(first);
                 if (first.isFocused()) {
                     homeEntryFocused = true;
-                    boolean onFirstLibrary = !shortcuts.isEmpty() && first == shortcuts.get(0);
-                    initialFocusPlaced = onFirstLibrary || first == heroRoot || !continueCards.isEmpty();
+                    boolean waitingContinue = continueCards.isEmpty()
+                            && !shortcuts.isEmpty() && first == shortcuts.get(0);
+                    initialFocusPlaced = !waitingContinue;
                 }
                 return;
             }
@@ -6886,9 +6908,8 @@ public class HomeActivity extends AppCompatActivity {
         }
 
         if (!initialFocusPlaced && !continueCards.isEmpty()) {
-            // 电视进首页就停在媒体库第一项，不要再被继续观看抢走。
-            boolean stillAtStart = !onRealContent
-                    || (!isTelevision() && !shortcuts.isEmpty() && focused == shortcuts.get(0));
+            boolean onEntryShortcut = !shortcuts.isEmpty() && focused == shortcuts.get(0);
+            boolean stillAtStart = !onRealContent || onEntryShortcut || focused == heroRoot;
             if (stillAtStart) {
                 focusOn(continueCards.get(0));
                 initialFocusPlaced = true;
