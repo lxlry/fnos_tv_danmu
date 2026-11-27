@@ -436,10 +436,10 @@ public class DanmuManager {
         addDanmuSlider(items, dialog, R.id.dm_fontsize);
         addDanmuFocus(items, dialog.findViewById(R.id.dm_matchBtn));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_listBtn));
+        addDanmuFocus(items, dialog.findViewById(R.id.dm_block_row));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_show_scroll));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_show_top));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_show_bottom));
-        addDanmuFocus(items, dialog.findViewById(R.id.dm_block_row));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_time_scale));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_outline));
         addDanmuSlider(items, dialog, R.id.dm_density);
