@@ -52,8 +52,8 @@ public class HomeScrollView extends ScrollView {
     public void requestChildFocus(android.view.View child, android.view.View focused) {
         if (!holdScroll) {
             super.requestChildFocus(child, focused);
-            // 系统只会把按钮滚进屏幕。满屏海报要整张回到顶部。
-            snapHeroTop(focused);
+            // 系统只会把按钮滚进屏幕。满屏海报、排序行要整段回到顶部。
+            snapFocusedTop(focused);
             return;
         }
         // 仍然把窗口焦点交出去。只拦住随之而来的滚动，否则海报会亮、方向键还停在刷新上。
@@ -81,7 +81,15 @@ public class HomeScrollView extends ScrollView {
             return;
         }
         View focused = findFocus();
-        if (focused != null && focused != this) snapHeroTop(focused);
+        if (focused != null && focused != this) snapFocusedTop(focused);
+    }
+
+    /** 焦点在排序行时，把媒体库滚回内容顶部，而不是只露出「按添加日期」。 */
+    private boolean snapFocusedTop(android.view.View from) {
+        if (snapHeroTop(from)) return true;
+        if (taggedAncestor(from, "lib_sort_bar") == null || getChildCount() == 0) return false;
+        if (getScrollY() != 0) scrollTo(getScrollX(), 0);
+        return true;
     }
 
     /**

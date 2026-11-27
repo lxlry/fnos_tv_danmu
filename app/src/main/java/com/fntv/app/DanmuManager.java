@@ -364,8 +364,7 @@ public class DanmuManager {
             showDanmuList();
         });
 
-        TextView blockCount = dialog.findViewById(R.id.dm_block_count);
-        if (blockCount != null) blockCount.setText(readBlockWords().size() + "个");
+        refreshBlockCount(dialog);
         View blockRow = dialog.findViewById(R.id.dm_block_row);
         if (blockRow != null) {
             blockRow.setOnClickListener(v -> showBlockWords(dialog));
@@ -1053,32 +1052,40 @@ public class DanmuManager {
                     TextView empty = new TextView(activity);
                     empty.setText("还没有屏蔽词");
                     empty.setTextColor(0xFF888888);
-                    empty.setTextSize(14);
+                    empty.setTextSize(13);
+                    empty.setGravity(android.view.Gravity.CENTER);
                     empty.setPadding(0, dpBlock(8), 0, 0);
+                    empty.setLayoutParams(new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                     list.addView(empty);
                 }
                 for (int i = 0; i < words.size(); i++) {
                     final String word = words.get(i);
-                    LinearLayout row = new LinearLayout(activity);
-                    row.setOrientation(LinearLayout.HORIZONTAL);
-                    row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    android.widget.FrameLayout row = new android.widget.FrameLayout(activity);
                     LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                     rowLp.topMargin = dpBlock(6);
                     row.setLayoutParams(rowLp);
 
                     TextView label = new TextView(activity);
-                    LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
-                            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+                    android.widget.FrameLayout.LayoutParams labelLp = new android.widget.FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    labelLp.gravity = android.view.Gravity.CENTER;
                     label.setLayoutParams(labelLp);
                     label.setText(word);
                     label.setTextColor(0xFFEEEEEE);
-                    label.setTextSize(15);
+                    label.setTextSize(13);
+                    label.setGravity(android.view.Gravity.CENTER);
                     label.setSingleLine(true);
                     label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    label.setPadding(dpBlock(72), dpBlock(8), dpBlock(72), dpBlock(8));
                     row.addView(label);
 
                     TextView remove = new TextView(activity);
+                    android.widget.FrameLayout.LayoutParams removeLp = new android.widget.FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    removeLp.gravity = android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL;
+                    remove.setLayoutParams(removeLp);
                     remove.setText("删除");
                     remove.setTextColor(0xFFFFFFFF);
                     remove.setTextSize(13);

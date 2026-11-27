@@ -8185,6 +8185,11 @@ public class HomeActivity extends AppCompatActivity {
             target.post(() -> revealInVerticalScroll(target));
             return;
         }
+        if (ancestorTagged(target, "lib_sort_bar") != null) {
+            revealInVerticalScroll(target);
+            target.post(() -> revealInVerticalScroll(target));
+            return;
+        }
         target.requestRectangleOnScreen(
                 new android.graphics.Rect(0, 0,
                         Math.max(target.getWidth(), 1),
@@ -8197,6 +8202,10 @@ public class HomeActivity extends AppCompatActivity {
     private void revealInVerticalScroll(View target) {
         ScrollView scroller = findVerticalScroller(target);
         if (scroller == null || scroller.getChildCount() == 0) return;
+        if (ancestorTagged(target, "lib_sort_bar") != null) {
+            if (scroller.getScrollY() != 0) scroller.scrollTo(0, 0);
+            return;
+        }
         View hero = ancestorTagged(target, "home_hero");
         if (hero != null && useImmersiveHero()) {
             int viewport = scroller.getHeight();
