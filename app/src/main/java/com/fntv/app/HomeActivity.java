@@ -2280,42 +2280,30 @@ public class HomeActivity extends AppCompatActivity {
             wireBrowseGrid(moviesContainer);
             return;
         }
-        float density = getResources().getDisplayMetrics().density;
-        int cols = Math.max(3, (int) (getResources().getDisplayMetrics().widthPixels / (120 * density)));
-        int posterH = (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2;
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int contentW = screenW;
+        if (savedMoviesPad != null) contentW -= savedMoviesPad[0] + savedMoviesPad[2];
+        int cardW = Math.round(screenW * 0.34f);
+        cardW = Math.max(dp(148), Math.min(dp(210), cardW));
+        int cols = Math.max(1, contentW / (cardW + dp(12)));
         for (int idx = 0; idx < list.size(); idx += cols) {
             LinearLayout row = new LinearLayout(this);
             row.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(dp(4), 0, dp(4), 0);
             int inRow = Math.min(cols, list.size() - idx);
             for (int c = 0; c < inRow; c++) {
-                final PlayListItem item = list.get(idx + c);
-                View card = makeLibraryPoster(item, posterH);
-                if (card instanceof LinearLayout && ((LinearLayout) card).getChildCount() > 1) {
-                    View title = ((LinearLayout) card).getChildAt(1);
-                    if (title instanceof TextView) {
-                        ((TextView) title).setText(continueMainTitle(item));
-                    }
-                }
-                card.setOnClickListener(v -> launchPlayer(item.guid, item.title,
-                        item.tvTitle != null ? item.tvTitle : "",
-                        item.episodeNumber, item.poster, item.getCategoryLabel(),
-                        item.ts, item.duration, item.parentGuid));
+                PlayListItem item = list.get(idx + c);
+                View card = makeContinueCard(item, cardW);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-                lp.leftMargin = dp(4);
-                lp.rightMargin = dp(4);
+                        cardW, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.setMargins(dp(6), 0, dp(6), 0);
                 card.setLayoutParams(lp);
                 row.addView(card);
             }
-            for (int e = inRow; e < cols; e++) {
-                View spacer = new View(this);
-                spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1));
-                row.addView(spacer);
-            }
             moviesContainer.addView(row);
-            moviesContainer.addView(makeSpacer(dp(14)));
+            moviesContainer.addView(makeSpacer(dp(12)));
         }
         new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(moviesContainer, 0));
         wireBrowseGrid(moviesContainer);
