@@ -436,6 +436,7 @@ public class SwitchAccountActivity extends AppCompatActivity {
         else editor.putString(formKey, pendingAccessCode);
         // 同步写入，避免立刻打开首页时还读到上一个账号
         editor.commit();
+        HomeActivity.clearSessionCarousel();
         AccountStore.get(prefs).remember(mode, endpoint, server, user, pass, pendingAccessCode, true);
         AppToast.show(this, "登录成功");
         openHome();

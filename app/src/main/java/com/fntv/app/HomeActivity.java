@@ -1502,9 +1502,16 @@ public class HomeActivity extends AppCompatActivity {
         publishBannerCanvas(sampleBannerColor(bitmap));
     }
 
-    /** 这次进程里抽定的 8 部。刷新不重抽，进程被杀掉后才清空。 */
+    /** 这次进程里抽定的 8 部。刷新不重抽，进程被杀掉或切换账号后才清空。 */
     private static List<PlayListItem> sessionCarousel;
     private static boolean sessionCarouselLoading;
+    private static int sessionCarouselEpoch;
+
+    public static void clearSessionCarousel() {
+        sessionCarouselEpoch++;
+        sessionCarousel = null;
+        sessionCarouselLoading = false;
+    }
 
     private void loadCarousel() {
         if (apiManager.getApi() == null) return;
@@ -1514,11 +1521,13 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (sessionCarouselLoading) return;
         sessionCarouselLoading = true;
+        final int epoch = sessionCarouselEpoch;
         apiManager.getApi().getItemList(ItemListRequest.carouselSample(1, 1))
                 .enqueue(new Callback<ApiResponse<ItemListResponse>>() {
                     @Override
                     public void onResponse(Call<ApiResponse<ItemListResponse>> call,
                                            Response<ApiResponse<ItemListResponse>> response) {
+                        if (epoch != sessionCarouselEpoch) return;
                         int total = 0;
                         if (response.isSuccessful() && response.body() != null && response.body().code == 0
                                 && response.body().data != null) {
@@ -1532,14 +1541,15 @@ public class HomeActivity extends AppCompatActivity {
                             return;
                         }
                         if (total <= 8) {
-                            fetchCarouselPage(1, total);
+                            fetchCarouselPage(epoch, 1, total);
                             return;
                         }
-                        fetchCarouselPages(pickCarouselPages(total, 8));
+                        fetchCarouselPages(epoch, pickCarouselPages(total, 8));
                     }
 
                     @Override
                     public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
+                        if (epoch != sessionCarouselEpoch) return;
                         sessionCarouselLoading = false;
                         carouselLoaded = true;
                         if (cachedCarousel.isEmpty() && heroRoot != null) {
@@ -1559,24 +1569,26 @@ public class HomeActivity extends AppCompatActivity {
         return pages;
     }
 
-    private void fetchCarouselPage(int page, int pageSize) {
+    private void fetchCarouselPage(final int epoch, int page, int pageSize) {
         apiManager.getApi().getItemList(ItemListRequest.carouselSample(page, pageSize))
                 .enqueue(new Callback<ApiResponse<ItemListResponse>>() {
                     @Override
                     public void onResponse(Call<ApiResponse<ItemListResponse>> call,
                                            Response<ApiResponse<ItemListResponse>> response) {
+                        if (epoch != sessionCarouselEpoch) return;
                         finishSessionCarousel(takeCarouselItems(response, 8));
                     }
 
                     @Override
                     public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
+                        if (epoch != sessionCarouselEpoch) return;
                         sessionCarouselLoading = false;
                         carouselLoaded = true;
                     }
                 });
     }
 
-    private void fetchCarouselPages(int[] pages) {
+    private void fetchCarouselPages(final int epoch, int[] pages) {
         final List<PlayListItem> gathered = new ArrayList<>();
         final int[] left = {pages.length};
         for (int page : pages) {
@@ -1585,6 +1597,7 @@ public class HomeActivity extends AppCompatActivity {
                         @Override
                         public void onResponse(Call<ApiResponse<ItemListResponse>> call,
                                                Response<ApiResponse<ItemListResponse>> response) {
+                            if (epoch != sessionCarouselEpoch) return;
                             for (PlayListItem item : takeCarouselItems(response, 1)) {
                                 if (!carouselContains(gathered, item.guid)) gathered.add(item);
                             }
@@ -1593,6 +1606,7 @@ public class HomeActivity extends AppCompatActivity {
 
                         @Override
                         public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
+                            if (epoch != sessionCarouselEpoch) return;
                             if (--left[0] == 0) {
                                 if (gathered.isEmpty()) {
                                     sessionCarouselLoading = false;
@@ -5892,6 +5906,7 @@ public class HomeActivity extends AppCompatActivity {
 
 
     private void logout() {
+        clearSessionCarousel();
         apiManager.setToken(null);
         apiManager.setAccessCode("");
         prefs.edit().remove("auth_token").remove("access_code").apply();
