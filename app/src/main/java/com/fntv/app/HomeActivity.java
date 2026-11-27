@@ -571,7 +571,7 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
-    /** 电视把设置和刷新放在标题栏右侧；底栏胶囊三端都在。 */}
+    /** 电视把设置和刷新放在标题栏右侧；底栏胶囊三端都在。 */
     private void applyTvHomeChrome() {
         if (!isTelevision()) return;
         View refresh = findViewById(R.id.btnHomeRefresh);
