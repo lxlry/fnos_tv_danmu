@@ -146,19 +146,44 @@ public class HomeActivity extends AppCompatActivity {
     private int appliedTopInset = -1;
 
     private void liftTopBars() {
-        applyTopInset(Math.max(statusBarHeight(), dp(24)));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        }
+        applyTopInset(measureTopInset());
         View root = findViewById(R.id.pageRoot);
-        if (root == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT_WATCH) return;
-        root.setOnApplyWindowInsetsListener((v, insets) -> {
-            int top = insets.getSystemWindowInsetTop();
-            if (top > 0) applyTopInset(top);
+        if (root == null) return;
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            int top = insets.getInsets(
+                    androidx.core.view.WindowInsetsCompat.Type.statusBars()
+                            | androidx.core.view.WindowInsetsCompat.Type.displayCutout()).top;
+            if (top <= 0) top = insets.getSystemWindowInsetTop();
+            applyTopInset(Math.max(top, measureTopInset()));
             return insets;
         });
-        root.requestApplyInsets();
+        androidx.core.view.ViewCompat.requestApplyInsets(root);
+        root.post(() -> applyTopInset(measureTopInset()));
+    }
+
+    /** 状态栏和挖孔里取更大的那个，避免顶栏还被压住一截。 */
+    private int measureTopInset() {
+        int top = Math.max(statusBarHeight(), dp(28));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            android.view.WindowInsets insets = getWindow().getDecorView().getRootWindowInsets();
+            if (insets != null) {
+                top = Math.max(top, insets.getSystemWindowInsetTop());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && insets.getDisplayCutout() != null) {
+                    top = Math.max(top, insets.getDisplayCutout().getSafeInsetTop());
+                }
+            }
+        }
+        android.graphics.Rect frame = new android.graphics.Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        if (frame.top > 0 && frame.top <= dp(96)) top = Math.max(top, frame.top);
+        return top;
     }
 
     private void applyTopInset(int inset) {
-        if (inset < 0 || inset == appliedTopInset) return;
+        if (inset <= 0 || inset <= appliedTopInset) return;
         appliedTopInset = inset;
         growTopBar(R.id.moviesHeader, 52, inset);
         growTopBar(R.id.tvLibraryPageTitle, 56, inset);
@@ -202,6 +227,7 @@ public class HomeActivity extends AppCompatActivity {
     private PlayInfoResponse savedDetailInfo;
     private boolean browseFromLibrary;
     private String savedLiveChannelTitle;
+    private boolean showingHistory;
     private int[] savedMoviesPad;
     private View lastContentFocus;
     private boolean homeEntryFocused;
@@ -281,6 +307,8 @@ public class HomeActivity extends AppCompatActivity {
         } else if (currentTab == 1 && savedBrowseGuid != null) {
             browseItemsInContainer(savedBrowseGuid, savedBrowseTitle,
                     libraryContainer, tvLibraryLoading);
+        } else if (showingHistory) {
+            showWatchHistory();
         } else if (currentTab == 0) {
             loadingPreviews = false;
             overviewBuilt = false;
@@ -289,6 +317,12 @@ public class HomeActivity extends AppCompatActivity {
             refreshContinueAfterPlayback();
             loadLiveChannels();
         }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applyTopInset(measureTopInset());
     }
 
     @Override
@@ -432,6 +466,10 @@ public class HomeActivity extends AppCompatActivity {
         View btnHomeRefresh = findViewById(R.id.btnHomeRefresh);
         if (btnHomeRefresh != null) {
             btnHomeRefresh.setOnClickListener(v -> refreshCurrentPage());
+        }
+        View btnHomeHistory = findViewById(R.id.btnHomeHistory);
+        if (btnHomeHistory != null) {
+            btnHomeHistory.setOnClickListener(v -> openWatchHistory());
         }
         View btnHomeSearch = findViewById(R.id.btnHomeSearch);
         if (btnHomeSearch != null) {
@@ -613,7 +651,7 @@ public class HomeActivity extends AppCompatActivity {
         }
         if (tvHomeTitle != null) {
             RelativeLayout.LayoutParams lp = (RelativeLayout.LayoutParams) tvHomeTitle.getLayoutParams();
-            lp.rightMargin = dp(148);
+            lp.rightMargin = dp(196);
             tvHomeTitle.setLayoutParams(lp);
         }
     }
@@ -661,7 +699,8 @@ public class HomeActivity extends AppCompatActivity {
     private void syncHomeSwipe() {
         boolean phone = !isTelevision();
         boolean movies = phone && currentTab == 0 && savedDetailItem == null
-                && (showingOverview || savedBrowseGuid != null || savedLiveChannelTitle != null);
+                && (showingOverview || savedBrowseGuid != null || savedLiveChannelTitle != null
+                || showingHistory);
         if (homeSwipeRefresh != null) {
             homeSwipeRefresh.setEnabled(movies);
             if (!movies) homeSwipeRefresh.setRefreshing(false);
@@ -726,6 +765,11 @@ public class HomeActivity extends AppCompatActivity {
         if (!showingOverview && savedLiveChannelTitle != null) {
             markPageRefresh();
             browseLiveChannels();
+            return;
+        }
+        if (showingHistory) {
+            markPageRefresh();
+            showWatchHistory();
             return;
         }
         refreshHome();
@@ -880,6 +924,7 @@ public class HomeActivity extends AppCompatActivity {
         setDetailChrome(false);
         clearLibraryBrowseHeader();
         savedLiveChannelTitle = null;
+        showingHistory = false;
         showingEpisodes = false;
         parkFocusOutside(moviesContainer);
         homeOverviewPark = null;
@@ -1333,9 +1378,8 @@ public class HomeActivity extends AppCompatActivity {
             }
             if (heroPager != null && heroPager.getLayoutParams() instanceof FrameLayout.LayoutParams) {
                 FrameLayout.LayoutParams pagerLp = (FrameLayout.LayoutParams) heroPager.getLayoutParams();
-                int top = topBarHeight();
-                if (pagerLp.topMargin != top) {
-                    pagerLp.topMargin = top;
+                if (pagerLp.topMargin != 0) {
+                    pagerLp.topMargin = 0;
                     heroPager.requestLayout();
                 }
             }
@@ -1515,7 +1559,7 @@ public class HomeActivity extends AppCompatActivity {
         heroPager = new HeroPager(this);
         FrameLayout.LayoutParams pagerLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        pagerLp.topMargin = topBarHeight();
+        pagerLp.topMargin = 0;
         heroPager.setLayoutParams(pagerLp);
         heroPager.setListener(new HeroPager.Listener() {
             @Override
@@ -1693,7 +1737,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private ImageView makeHeroStill(PlayListItem item) {
         ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setBackgroundColor(color(R.color.bg_poster));
         String url = makeImageUrl(item.backdropPath(), 1280);
         if (url != null) {
@@ -1731,7 +1775,7 @@ public class HomeActivity extends AppCompatActivity {
     private void applyHeroStill(ImageView image, String url) {
         if (image == null || url == null || url.equals(image.getTag())) return;
         image.setTag(url);
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         loadHeroStill(image, url);
     }
 
@@ -2121,7 +2165,7 @@ public class HomeActivity extends AppCompatActivity {
         TextView h = new TextView(this);
         h.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        h.setPadding(dp(4), dp(12), dp(4), dp(8));
+        h.setPadding(dp(4), dp(2), dp(4), dp(8));
         h.setText("继续观看");
         h.setTextColor(color(R.color.text_secondary));
         h.setTextSize(14);
@@ -2148,6 +2192,133 @@ public class HomeActivity extends AppCompatActivity {
 
         new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(hsv, 0));
         if (showingOverview) wireOverviewFocus();
+    }
+
+    /** 顶栏时钟：离开首页，把全部播放记录排成海报墙。 */
+    private void openWatchHistory() {
+        if (moviesContainer == null) return;
+        if (!showingHistory) {
+            savedDetailItem = null;
+            savedDetailInfo = null;
+            showingEpisodes = false;
+            showingSeasonEpisodes = false;
+            if (showingOverview) {
+                captureHomeScroll();
+                homeOverviewPark = detachPage(moviesContainer, null);
+            } else {
+                parkFocusOutside(moviesContainer);
+                moviesContainer.removeAllViews();
+            }
+            showingOverview = false;
+            showingHistory = true;
+            savedBrowseGuid = null;
+            savedBrowseList = null;
+            savedBrowseTitle = null;
+            savedLiveChannelTitle = null;
+            applyMoviesChrome();
+            syncHeroTimer();
+            syncHomeSwipe();
+        }
+        showWatchHistory();
+    }
+
+    private void showWatchHistory() {
+        if (moviesContainer == null || apiManager.getApi() == null) return;
+        showingHistory = true;
+        showingOverview = false;
+        showLibraryBrowseHeader(moviesContainer, "观看历史");
+        moviesContainer.removeAllViews();
+        TextView loading = new TextView(this);
+        loading.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(120)));
+        loading.setGravity(Gravity.CENTER);
+        loading.setText("加载观看历史...");
+        loading.setTextColor(color(R.color.text_hint));
+        loading.setTextSize(14);
+        moviesContainer.addView(loading);
+        apiManager.getApi().getPlayList().enqueue(new Callback<ApiResponse<List<PlayListItem>>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<List<PlayListItem>>> call,
+                                   Response<ApiResponse<List<PlayListItem>>> response) {
+                if (!showingHistory || showingOverview || savedDetailItem != null) {
+                    abandonPageRefresh();
+                    return;
+                }
+                boolean ok = response.isSuccessful() && response.body() != null && response.body().code == 0;
+                List<PlayListItem> list = ok && response.body().data != null
+                        ? response.body().data : null;
+                if (list != null) cachedContinueWatching = new ArrayList<>(list);
+                renderWatchHistoryGrid(list);
+                noteListRefreshDone(ok);
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<List<PlayListItem>>> call, Throwable t) {
+                if (!showingHistory || showingOverview || savedDetailItem != null) {
+                    abandonPageRefresh();
+                    return;
+                }
+                renderWatchHistoryGrid(cachedContinueWatching);
+                noteListRefreshDone(false);
+            }
+        });
+    }
+
+    private void renderWatchHistoryGrid(List<PlayListItem> list) {
+        if (moviesContainer == null || !showingHistory) return;
+        moviesContainer.removeAllViews();
+        showLibraryBrowseHeader(moviesContainer, "观看历史");
+        if (list == null || list.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(120)));
+            empty.setGravity(Gravity.CENTER);
+            empty.setText("暂无观看历史");
+            empty.setTextColor(color(R.color.text_hint));
+            empty.setTextSize(14);
+            moviesContainer.addView(empty);
+            wireBrowseGrid(moviesContainer);
+            return;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        int cols = Math.max(3, (int) (getResources().getDisplayMetrics().widthPixels / (120 * density)));
+        int posterH = (getResources().getDisplayMetrics().widthPixels / cols) * 3 / 2;
+        for (int idx = 0; idx < list.size(); idx += cols) {
+            LinearLayout row = new LinearLayout(this);
+            row.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            int inRow = Math.min(cols, list.size() - idx);
+            for (int c = 0; c < inRow; c++) {
+                final PlayListItem item = list.get(idx + c);
+                View card = makeLibraryPoster(item, posterH);
+                if (card instanceof LinearLayout && ((LinearLayout) card).getChildCount() > 1) {
+                    View title = ((LinearLayout) card).getChildAt(1);
+                    if (title instanceof TextView) {
+                        ((TextView) title).setText(continueMainTitle(item));
+                    }
+                }
+                card.setOnClickListener(v -> launchPlayer(item.guid, item.title,
+                        item.tvTitle != null ? item.tvTitle : "",
+                        item.episodeNumber, item.poster, item.getCategoryLabel(),
+                        item.ts, item.duration, item.parentGuid));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+                lp.leftMargin = dp(4);
+                lp.rightMargin = dp(4);
+                card.setLayoutParams(lp);
+                row.addView(card);
+            }
+            for (int e = inRow; e < cols; e++) {
+                View spacer = new View(this);
+                spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1));
+                row.addView(spacer);
+            }
+            moviesContainer.addView(row);
+            moviesContainer.addView(makeSpacer(dp(14)));
+        }
+        new Handler(Looper.getMainLooper()).post(() -> loadImagesLazily(moviesContainer, 0));
+        wireBrowseGrid(moviesContainer);
     }
 
     private String continueMainTitle(PlayListItem item) {
@@ -2693,8 +2864,10 @@ public class HomeActivity extends AppCompatActivity {
         if (container == moviesContainer) {
             View back = findViewById(R.id.btnLibBack);
             View refresh = findViewById(R.id.btnHomeRefresh);
+            View history = findViewById(R.id.btnHomeHistory);
             if (back != null) back.setVisibility(View.VISIBLE);
             if (refresh != null) refresh.setVisibility(View.GONE);
+            if (history != null) history.setVisibility(View.GONE);
             View logo = findViewById(R.id.ivHomeLogo);
             if (logo != null) logo.setVisibility(View.GONE);
             if (tvHomeTitle != null) {
@@ -2704,8 +2877,11 @@ public class HomeActivity extends AppCompatActivity {
                         (android.widget.RelativeLayout.LayoutParams) tvHomeTitle.getLayoutParams();
                 lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
                 lp.leftMargin = dp(48);
+                lp.rightMargin = dp(isTelevision() ? 104 : 56);
                 lp.addRule(android.widget.RelativeLayout.RIGHT_OF, 0);
-                lp.addRule(android.widget.RelativeLayout.CENTER_VERTICAL);
+                lp.addRule(android.widget.RelativeLayout.CENTER_VERTICAL, 0);
+                lp.addRule(android.widget.RelativeLayout.ALIGN_PARENT_BOTTOM);
+                lp.bottomMargin = dp(13);
                 tvHomeTitle.setLayoutParams(lp);
             }
             return;
@@ -2719,8 +2895,10 @@ public class HomeActivity extends AppCompatActivity {
     private void clearLibraryBrowseHeader() {
         View back = findViewById(R.id.btnLibBack);
         View refresh = findViewById(R.id.btnHomeRefresh);
+        View history = findViewById(R.id.btnHomeHistory);
         if (back != null) back.setVisibility(View.GONE);
         if (refresh != null) refresh.setVisibility(isTelevision() ? View.VISIBLE : View.GONE);
+        if (history != null) history.setVisibility(View.VISIBLE);
         View logo = findViewById(R.id.ivHomeLogo);
         if (logo != null) logo.setVisibility(View.VISIBLE);
         if (tvHomeTitle != null) {
@@ -2730,6 +2908,10 @@ public class HomeActivity extends AppCompatActivity {
                     (android.widget.RelativeLayout.LayoutParams) tvHomeTitle.getLayoutParams();
             lp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
             lp.leftMargin = dp(8);
+            lp.rightMargin = dp(isTelevision() ? 196 : 108);
+            lp.bottomMargin = dp(13);
+            lp.addRule(android.widget.RelativeLayout.CENTER_VERTICAL, 0);
+            lp.addRule(android.widget.RelativeLayout.ALIGN_PARENT_BOTTOM);
             lp.addRule(android.widget.RelativeLayout.RIGHT_OF, R.id.ivHomeLogo);
             tvHomeTitle.setLayoutParams(lp);
         }
@@ -6023,7 +6205,7 @@ public class HomeActivity extends AppCompatActivity {
     private boolean isHomeHeader(View v) {
         if (v == null) return false;
         int id = v.getId();
-        return id == R.id.btnHomeRefresh || id == R.id.btnHomeSearch
+        return id == R.id.btnHomeRefresh || id == R.id.btnHomeHistory || id == R.id.btnHomeSearch
                 || id == R.id.btnHomeSettings || id == R.id.btnLibBack;
     }
 
@@ -6031,10 +6213,12 @@ public class HomeActivity extends AppCompatActivity {
         List<View> row = new ArrayList<>();
         View back = findViewById(R.id.btnLibBack);
         View refresh = findViewById(R.id.btnHomeRefresh);
+        View history = findViewById(R.id.btnHomeHistory);
         View search = findViewById(R.id.btnHomeSearch);
         View settings = findViewById(R.id.btnHomeSettings);
         if (back != null && back.getVisibility() == View.VISIBLE) row.add(back);
         if (refresh != null && refresh.getVisibility() == View.VISIBLE) row.add(refresh);
+        if (history != null && history.getVisibility() == View.VISIBLE) row.add(history);
         if (search != null && search.getVisibility() == View.VISIBLE) row.add(search);
         if (settings != null && settings.getVisibility() == View.VISIBLE) row.add(settings);
         return row;
@@ -6514,6 +6698,7 @@ public class HomeActivity extends AppCompatActivity {
         savedBrowseList = null;
         savedBrowseTitle = null;
         savedLiveChannelTitle = null;
+        showingHistory = false;
         setDetailChrome(false);
         clearLibraryBrowseHeader();
         showingOverview = true;
