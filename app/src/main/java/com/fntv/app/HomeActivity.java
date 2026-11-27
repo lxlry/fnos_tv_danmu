@@ -8180,30 +8180,25 @@ public class HomeActivity extends AppCompatActivity {
         if (target == null) return;
         target.requestFocus();
         if (!isTelevision()) return;
-        if (ancestorTagged(target, "home_hero") != null && useImmersiveHero()) {
-            revealInVerticalScroll(target);
-            target.post(() -> revealInVerticalScroll(target));
-            return;
-        }
-        if (ancestorTagged(target, "lib_sort_bar") != null) {
-            revealInVerticalScroll(target);
-            target.post(() -> revealInVerticalScroll(target));
-            return;
-        }
-        target.requestRectangleOnScreen(
-                new android.graphics.Rect(0, 0,
-                        Math.max(target.getWidth(), 1),
-                        Math.max(target.getHeight(), 1)),
-                true);
-        target.post(() -> revealInVerticalScroll(target));
+        revealAroundFocus(target);
+        target.post(() -> revealAroundFocus(target));
+    }
+
+    /** 把刚获得焦点的那一项拉进真正看得见的区域，含顶栏下方和横向海报行。 */
+    private void revealAroundFocus(View target) {
+        if (target == null) return;
+        revealInHorizontalScroll(target);
+        revealInVerticalScroll(target);
     }
 
     /** 滚回上方时把整行拉进可视区域，避免焦点落在屏幕外看起来像这一栏消失了。 */
     private void revealInVerticalScroll(View target) {
         ScrollView scroller = findVerticalScroller(target);
         if (scroller == null || scroller.getChildCount() == 0) return;
-        if (ancestorTagged(target, "lib_sort_bar") != null) {
-            if (scroller.getScrollY() != 0) scroller.scrollTo(0, 0);
+        if (!target.isLaidOut() || target.getHeight() <= 0 || scroller.getHeight() <= 0) {
+            target.post(() -> {
+                if (target.isLaidOut() && target.getHeight() > 0) revealInVerticalScroll(target);
+            });
             return;
         }
         View hero = ancestorTagged(target, "home_hero");
@@ -8217,20 +8212,113 @@ public class HomeActivity extends AppCompatActivity {
                 return;
             }
         }
-        View block = ancestorTagged(target, "continue_watching");
-        View shown = block != null ? block : target;
-        if (!shown.isLaidOut()) {
-            shown.post(() -> revealInVerticalScroll(target));
-            return;
+        int[] scrollLoc = new int[2];
+        int[] targetLoc = new int[2];
+        scroller.getLocationOnScreen(scrollLoc);
+        target.getLocationOnScreen(targetLoc);
+        int margin = dp(12);
+        int visibleTop = scrollLoc[1] + coveredTop(scroller) + margin;
+        int visibleBottom = scrollLoc[1] + scroller.getHeight() - coveredBottom(scroller) - margin;
+        if (visibleBottom - visibleTop < dp(48)) {
+            visibleTop = scrollLoc[1] + coveredTop(scroller);
+            visibleBottom = scrollLoc[1] + scroller.getHeight() - coveredBottom(scroller);
         }
-        int top = topWithinContent(shown, scroller);
-        int height = Math.max(shown.getHeight(), 1);
-        int scrollY = scroller.getScrollY();
-        int viewport = scroller.getHeight();
-        if (viewport <= 0) return;
-        if (top >= scrollY && top + height <= scrollY + viewport) return;
-        int dest = height >= viewport || top < scrollY ? top : top + height - viewport;
-        scroller.scrollTo(0, Math.max(0, dest));
+        if (visibleBottom <= visibleTop) return;
+        int viewTop = targetLoc[1];
+        int viewBottom = targetLoc[1] + target.getHeight();
+        View lead = leadInView(target, scroller);
+        if (lead != null && lead != target && lead.getHeight() > 0) {
+            int[] leadLoc = new int[2];
+            lead.getLocationOnScreen(leadLoc);
+            if (leadLoc[1] < viewTop && viewBottom - leadLoc[1] <= visibleBottom - visibleTop) {
+                viewTop = leadLoc[1];
+            }
+        }
+        int delta = 0;
+        if (viewTop < visibleTop) {
+            delta = viewTop - visibleTop;
+        } else if (viewBottom > visibleBottom) {
+            delta = viewBottom - visibleBottom;
+            if (viewTop - delta < visibleTop) delta = viewTop - visibleTop;
+        }
+        if (delta == 0) return;
+        int dest = Math.max(0, Math.min(maxScroll(scroller), scroller.getScrollY() + delta));
+        if (scroller.getScrollY() != dest) scroller.scrollTo(0, dest);
+    }
+
+    /** 顶栏浮在首页内容上时，滚动视口最上沿其实被挡住了。 */
+    private int coveredTop(ScrollView scroller) {
+        View header = findViewById(R.id.moviesHeader);
+        if (header == null || !header.isShown() || verticalScroller(moviesContainer) != scroller) return 0;
+        int[] headerLoc = new int[2];
+        int[] scrollLoc = new int[2];
+        header.getLocationOnScreen(headerLoc);
+        scroller.getLocationOnScreen(scrollLoc);
+        return Math.max(0, headerLoc[1] + header.getHeight() - scrollLoc[1]);
+    }
+
+    /** 底部胶囊浮在内容上时，最下沿同样不能算进可视区域。 */
+    private int coveredBottom(ScrollView scroller) {
+        View tabBar = findViewById(R.id.tabBar);
+        if (tabBar == null || !tabBar.isShown()) return 0;
+        int[] tabLoc = new int[2];
+        int[] scrollLoc = new int[2];
+        tabBar.getLocationOnScreen(tabLoc);
+        scroller.getLocationOnScreen(scrollLoc);
+        return Math.max(0, scrollLoc[1] + scroller.getHeight() - tabLoc[1]);
+    }
+
+    /** 往上翻时尽量把这一栏的标题一起带出来，但不要把焦点本身挤出屏幕。 */
+    private View leadInView(View target, ScrollView scroller) {
+        View block = ancestorTagged(target, "continue_watching");
+        if (block != null) return block;
+        View content = scroller.getChildAt(0);
+        View child = target;
+        ViewParent parent = child.getParent();
+        while (parent instanceof View && parent != content && parent != scroller) {
+            child = (View) parent;
+            parent = child.getParent();
+        }
+        if (!(parent instanceof ViewGroup)) return null;
+        ViewGroup group = (ViewGroup) parent;
+        int index = group.indexOfChild(child);
+        if (index <= 0) return null;
+        View prev = group.getChildAt(index - 1);
+        if (prev != null && prev.getVisibility() == View.VISIBLE && "lib_header".equals(prev.getTag())) {
+            return prev;
+        }
+        return null;
+    }
+
+    /** 横向海报行记住的那一张可能在屏幕左右之外，焦点过去时要跟着滚出来。 */
+    private void revealInHorizontalScroll(View target) {
+        if (target == null || !target.isLaidOut() || target.getWidth() <= 0) return;
+        ViewParent parent = target.getParent();
+        while (parent instanceof View) {
+            if (parent instanceof android.widget.HorizontalScrollView) {
+                android.widget.HorizontalScrollView hsv = (android.widget.HorizontalScrollView) parent;
+                if (hsv.getWidth() <= 0) return;
+                int[] host = new int[2];
+                int[] item = new int[2];
+                hsv.getLocationOnScreen(host);
+                target.getLocationOnScreen(item);
+                int margin = dp(12);
+                int visibleLeft = host[0] + margin;
+                int visibleRight = host[0] + hsv.getWidth() - margin;
+                int left = item[0];
+                int right = item[0] + target.getWidth();
+                int delta = 0;
+                if (left < visibleLeft) delta = left - visibleLeft;
+                else if (right > visibleRight) delta = right - visibleRight;
+                if (delta == 0) return;
+                int max = Math.max(0, hsv.getChildCount() == 0 ? 0
+                        : hsv.getChildAt(0).getWidth() - hsv.getWidth());
+                int dest = Math.max(0, Math.min(max, hsv.getScrollX() + delta));
+                if (hsv.getScrollX() != dest) hsv.scrollTo(dest, 0);
+                return;
+            }
+            parent = parent.getParent();
+        }
     }
 
     private ScrollView findVerticalScroller(View target) {
