@@ -199,6 +199,36 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/dm_block_row"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_chip"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="屏蔽词"
+                    android:textColor="#EEE"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/dm_block_count"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0个"
+                    android:textColor="#AAA"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"

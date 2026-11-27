@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF1A1A1A"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/dm_block_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="屏蔽词"
+        android:textColor="#FFF"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/dm_block_scope"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="12dp"
+        android:textColor="#AAA"
+        android:textSize="13sp" />
+
+    <EditText
+        android:id="@+id/dm_block_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_input"
+        android:hint="输入屏蔽词，多个用逗号或换行"
+        android:imeOptions="actionDone"
+        android:inputType="textMultiLine"
+        android:maxLines="3"
+        android:minHeight="44dp"
+        android:padding="10dp"
+        android:textColor="#FFF"
+        android:textColorHint="#88FFFFFF"
+        android:textSize="14sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/dm_block_add"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_chip"
+            android:focusable="true"
+            android:text="添加"
+            android:textColor="#FFF" />
+
+        <Button
+            android:id="@+id/dm_block_clear"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginLeft="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_chip"
+            android:focusable="true"
+            android:text="清空"
+            android:textColor="#FFF" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/dm_block_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+</LinearLayout>

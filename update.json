@@ -1,7 +1,7 @@
 {
-    "versionCode": 9527078,
-    "versionName": "9527.078",
-    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.078/FNTV_release_v9527.078.apk",
-    "changelog": "首页 banner 改为半屏轮播，背景色跟随当前海报。继续观看移到 banner 下方，底栏改为悬浮胶囊",
+    "versionCode": 9527079,
+    "versionName": "9527.079",
+    "apkUrl": "https://ghfast.top/https://github.com/lxlry/fnos_tv_danmu/releases/download/9527.079/FNTV_release_v9527.079.apk",
+    "changelog": "首页增加观看历史，按继续观看的样式排列。弹幕支持按影片屏蔽关键字，并减轻电视端卡帧",
     "forceUpdate": false
 }

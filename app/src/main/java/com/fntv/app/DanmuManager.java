@@ -364,6 +364,13 @@ public class DanmuManager {
             showDanmuList();
         });
 
+        TextView blockCount = dialog.findViewById(R.id.dm_block_count);
+        if (blockCount != null) blockCount.setText(readBlockWords().size() + "个");
+        View blockRow = dialog.findViewById(R.id.dm_block_row);
+        if (blockRow != null) {
+            blockRow.setOnClickListener(v -> showBlockWords(dialog));
+        }
+
         final boolean[] suppressLive = {false};
         Runnable applyLive = () -> {
             if (!suppressLive[0]) applyDanmuSettings(dialog);
@@ -432,6 +439,7 @@ public class DanmuManager {
         addDanmuFocus(items, dialog.findViewById(R.id.dm_show_scroll));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_show_top));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_show_bottom));
+        addDanmuFocus(items, dialog.findViewById(R.id.dm_block_row));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_time_scale));
         addDanmuFocus(items, dialog.findViewById(R.id.dm_outline));
         addDanmuSlider(items, dialog, R.id.dm_density);
@@ -545,37 +553,10 @@ public class DanmuManager {
                 danmuView.setCustomFps(customFps);
                 danmuView.setTargetFps(ft);
                 danmuView.setDanmuOffset(of);
-                danmuView.stop();
-                danmuView.start();
-                if (danmuItemsOriginal != null) {
-                    // 从原始数据重新应用时间缩放和偏移
-                    danmuItems = new java.util.ArrayList<>(danmuItemsOriginal);
-                    if (timeScaleOn) {
-                        long videoDur = 0;
-                        Player player = data.getPlayer();
-                        if (player != null && player.getDuration() > 0)
-                            videoDur = player.getDuration() / 1000;
-                        else if (data.getItemDuration() > 0)
-                            videoDur = data.getItemDuration();
-                        if (videoDur > 0 && !danmuItems.isEmpty()) {
-                            float maxDanmuTime = danmuItems.get(danmuItems.size() - 1).time;
-                            if (maxDanmuTime > 0) {
-                                float ratio = (float) videoDur / maxDanmuTime;
-                                for (DanmuView.DanmuComment dc : danmuItems) {
-                                    dc.time *= ratio;
-                                }
-                            }
-                        }
-                    }
-                    int offsetSec = prefs.getInt("danmu_offset", 0);
-                    if (offsetSec != 0) {
-                        for (DanmuView.DanmuComment dc : danmuItems) {
-                            dc.time += offsetSec;
-                        }
-                    }
-                    danmuView.loadDanmu(danmuItems);
-                } else if (danmuItems != null) {
-                    danmuView.loadDanmu(danmuItems);
+                if (danmuItemsOriginal != null) publishDanmu(false);
+                else {
+                    danmuView.stop();
+                    danmuView.start();
                 }
                 // 从关闭→打开时，触发一次匹配
                 if (wasOff && pendingDanmuTitle != null) loadDanmu(pendingDanmuTitle, pendingDanmuGuid);
@@ -899,6 +880,272 @@ public class DanmuManager {
                 }
             }).start();
         });
+    }
+
+    /** 电影按这一部记，剧集整部共用，和倍速记忆用同一套键。 */
+    private String blockScopeKey() {
+        String tv = data.getItemTV();
+        String parent = data.getParentGuid();
+        String guid = data.getItemGuid();
+        if (tv != null && !tv.isEmpty() && parent != null && !parent.isEmpty()) return "tv:" + tv;
+        if (parent != null && !parent.isEmpty()) return "p:" + parent;
+        if (guid != null && !guid.isEmpty()) return "i:" + guid;
+        return "unknown";
+    }
+
+    private String blockPrefKey() {
+        return "danmu_block_words:" + blockScopeKey();
+    }
+
+    private String blockScopeName() {
+        String tv = data.getItemTV();
+        if (tv != null && !tv.isEmpty()) return tv;
+        String title = data.getItemTitle();
+        if (title != null && !title.isEmpty()) return title;
+        return "当前影片";
+    }
+
+    private boolean blockScopeIsSeries() {
+        String parent = data.getParentGuid();
+        return parent != null && !parent.isEmpty();
+    }
+
+    private java.util.List<String> readBlockWords() {
+        String raw = prefs.getString(blockPrefKey(), "");
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        if (raw == null || raw.isEmpty()) return out;
+        for (String part : raw.split("[,\\n，]")) {
+            String word = part.trim();
+            if (word.isEmpty() || hasBlockWord(out, word)) continue;
+            out.add(word);
+        }
+        return out;
+    }
+
+    private boolean hasBlockWord(java.util.List<String> words, String word) {
+        for (String existing : words) {
+            if (existing.equalsIgnoreCase(word)) return true;
+        }
+        return false;
+    }
+
+    private void writeBlockWords(java.util.List<String> words) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < words.size(); i++) {
+            if (i > 0) sb.append('\n');
+            sb.append(words.get(i));
+        }
+        prefs.edit().putString(blockPrefKey(), sb.toString()).apply();
+    }
+
+    private boolean textBlocked(String text, java.util.List<String> words) {
+        if (text == null || text.isEmpty() || words.isEmpty()) return false;
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
+        for (String word : words) {
+            if (word.isEmpty()) continue;
+            if (lower.contains(word.toLowerCase(java.util.Locale.ROOT))) return true;
+        }
+        return false;
+    }
+
+    private DanmuView.DanmuComment copyComment(DanmuView.DanmuComment src) {
+        DanmuView.DanmuComment copy = new DanmuView.DanmuComment();
+        copy.text = src.text;
+        copy.time = src.time;
+        copy.color = src.color;
+        copy.type = src.type;
+        copy.fontSize = src.fontSize;
+        return copy;
+    }
+
+    /** 用原始弹幕套上屏蔽词、时间缩放和偏移，再按当前进度重画。返回被屏蔽的条数。 */
+    private int publishDanmu(boolean announceScale) {
+        if (danmuView == null || danmuItemsOriginal == null) return 0;
+        java.util.List<String> words = readBlockWords();
+        java.util.ArrayList<DanmuView.DanmuComment> next = new java.util.ArrayList<>();
+        int blocked = 0;
+        for (DanmuView.DanmuComment src : danmuItemsOriginal) {
+            if (textBlocked(src.text, words)) {
+                blocked++;
+                continue;
+            }
+            next.add(copyComment(src));
+        }
+        if (prefs.getBoolean("danmu_time_scale", false) && !next.isEmpty()) {
+            long videoDur = 0;
+            Player player = data.getPlayer();
+            if (player != null && player.getDuration() > 0) videoDur = player.getDuration() / 1000;
+            else if (data.getItemDuration() > 0) videoDur = data.getItemDuration();
+            float maxDanmuTime = 0;
+            for (DanmuView.DanmuComment src : danmuItemsOriginal) {
+                if (src.time > maxDanmuTime) maxDanmuTime = src.time;
+            }
+            if (videoDur > 0 && maxDanmuTime > 0) {
+                float ratio = (float) videoDur / maxDanmuTime;
+                for (DanmuView.DanmuComment dc : next) dc.time *= ratio;
+                Log.d(TAG, "[弹幕] 时间匹配 " + maxDanmuTime + "s → " + videoDur + "s ratio=" + String.format("%.3f", ratio));
+                if (announceScale && (ratio < 0.95f || ratio > 1.05f)) {
+                    float diffPct = Math.abs((1f - ratio) * 100f);
+                    String direction = ratio < 1f ? "弹幕偏长" : "弹幕偏短";
+                    showDanmuStatus(direction
+                            + " 弹幕=" + (int) maxDanmuTime + "s"
+                            + " 视频=" + (int) videoDur + "s"
+                            + " 差距=" + String.format("%.1f", diffPct) + "%");
+                }
+            }
+        }
+        int offsetSec = prefs.getInt("danmu_offset", 0);
+        if (offsetSec != 0) {
+            for (DanmuView.DanmuComment dc : next) dc.time += offsetSec;
+        }
+        java.util.Collections.sort(next, (a, b) -> Float.compare(a.time, b.time));
+        danmuItems = next;
+        long position = 0;
+        Player player = data.getPlayer();
+        if (player != null) position = player.getCurrentPosition();
+        danmuView.stop();
+        danmuView.loadDanmu(next);
+        danmuView.seekToTime(position);
+        if (danmuOn) danmuView.start();
+        return blocked;
+    }
+
+    private void refreshBlockCount(android.app.Dialog settings) {
+        if (settings == null) return;
+        TextView count = settings.findViewById(R.id.dm_block_count);
+        if (count != null) count.setText(readBlockWords().size() + "个");
+    }
+
+    private void showBlockWords(android.app.Dialog settings) {
+        final android.app.Dialog dialog = new android.app.Dialog(activity, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        dialog.setContentView(R.layout.dialog_danmu_block);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xDD1A1A1A));
+            int screenH = activity.getResources().getDisplayMetrics().heightPixels;
+            dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (int) (screenH * 0.9f));
+        }
+        TextView title = dialog.findViewById(R.id.dm_block_title);
+        TextView scope = dialog.findViewById(R.id.dm_block_scope);
+        final EditText input = dialog.findViewById(R.id.dm_block_input);
+        Button add = dialog.findViewById(R.id.dm_block_add);
+        Button clear = dialog.findViewById(R.id.dm_block_clear);
+        final LinearLayout list = dialog.findViewById(R.id.dm_block_list);
+        if (list != null && list.getParent() instanceof View) {
+            View scroller = (View) list.getParent();
+            scroller.setFocusable(false);
+            scroller.setFocusableInTouchMode(false);
+        }
+        if (title != null) title.setText("屏蔽词 · " + blockScopeName());
+        if (scope != null) {
+            scope.setText(blockScopeIsSeries() ? "整部剧共用，换集仍然有效" : "只对这一部影片生效");
+        }
+        final java.util.List<String> words = new java.util.ArrayList<>(readBlockWords());
+        final Runnable render = new Runnable() {
+            @Override
+            public void run() {
+                if (list == null) return;
+                list.removeAllViews();
+                java.util.ArrayList<View> focusables = new java.util.ArrayList<>();
+                if (input != null) focusables.add(input);
+                if (add != null) focusables.add(add);
+                if (clear != null) focusables.add(clear);
+                if (words.isEmpty()) {
+                    TextView empty = new TextView(activity);
+                    empty.setText("还没有屏蔽词");
+                    empty.setTextColor(0xFF888888);
+                    empty.setTextSize(14);
+                    empty.setPadding(0, dpBlock(8), 0, 0);
+                    list.addView(empty);
+                }
+                for (int i = 0; i < words.size(); i++) {
+                    final String word = words.get(i);
+                    LinearLayout row = new LinearLayout(activity);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    rowLp.topMargin = dpBlock(6);
+                    row.setLayoutParams(rowLp);
+
+                    TextView label = new TextView(activity);
+                    LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+                    label.setLayoutParams(labelLp);
+                    label.setText(word);
+                    label.setTextColor(0xFFEEEEEE);
+                    label.setTextSize(15);
+                    label.setSingleLine(true);
+                    label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    row.addView(label);
+
+                    TextView remove = new TextView(activity);
+                    remove.setText("删除");
+                    remove.setTextColor(0xFFFFFFFF);
+                    remove.setTextSize(13);
+                    remove.setGravity(android.view.Gravity.CENTER);
+                    remove.setBackgroundResource(R.drawable.bg_chip);
+                    remove.setFocusable(true);
+                    remove.setClickable(true);
+                    remove.setPadding(dpBlock(14), dpBlock(8), dpBlock(14), dpBlock(8));
+                    remove.setOnClickListener(v -> {
+                        words.remove(word);
+                        writeBlockWords(words);
+                        int blocked = danmuOn ? publishDanmu(false) : 0;
+                        refreshBlockCount(settings);
+                        if (danmuOn && danmuItemsOriginal != null) {
+                            showDanmuStatus("屏蔽词已更新，屏蔽" + blocked + "条");
+                        }
+                        run();
+                        if (add != null) add.requestFocus();
+                    });
+                    row.addView(remove);
+                    list.addView(row);
+                    focusables.add(remove);
+                }
+                TvFocus.bindChain(focusables);
+            }
+        };
+        if (add != null) {
+            add.setOnClickListener(v -> {
+                String raw = input == null ? "" : input.getText().toString();
+                int before = words.size();
+                for (String part : raw.split("[,\\n，]")) {
+                    String word = part.trim();
+                    if (word.isEmpty() || hasBlockWord(words, word)) continue;
+                    words.add(word);
+                }
+                if (words.size() == before) return;
+                if (input != null) input.setText("");
+                writeBlockWords(words);
+                int blocked = danmuOn ? publishDanmu(false) : 0;
+                refreshBlockCount(settings);
+                if (danmuOn && danmuItemsOriginal != null) {
+                    showDanmuStatus("屏蔽词已更新，屏蔽" + blocked + "条");
+                }
+                render.run();
+                add.requestFocus();
+            });
+        }
+        if (clear != null) {
+            clear.setOnClickListener(v -> {
+                if (words.isEmpty()) return;
+                words.clear();
+                writeBlockWords(words);
+                if (danmuOn) publishDanmu(false);
+                refreshBlockCount(settings);
+                if (danmuOn && danmuItemsOriginal != null) showDanmuStatus("已清空这部片子的屏蔽词");
+                render.run();
+                clear.requestFocus();
+            });
+        }
+        render.run();
+        SideSheet.place(dialog);
+        dialog.show();
+        if (input != null) input.requestFocus();
+    }
+
+    private int dpBlock(int v) {
+        return Math.round(v * activity.getResources().getDisplayMetrics().density);
     }
 
     private void showDanmuList() {
@@ -1261,56 +1508,13 @@ public class DanmuManager {
 
                 final int loaded = list.size();
                 activity.runOnUiThread(() -> {
-                    danmuItemsOriginal = new java.util.ArrayList<>(list);
-                    danmuItems = list;
-                    // 弹幕时间戳压缩匹配视频时长（可选）
-                    boolean timeScale = prefs.getBoolean("danmu_time_scale", false);
-                    if (timeScale) {
-                        long videoDur = 0;
-                        Player p = data.getPlayer();
-                        if (p != null && p.getDuration() > 0)
-                            videoDur = p.getDuration() / 1000;
-                        else if (data.getItemDuration() > 0)
-                            videoDur = data.getItemDuration();
-                        if (videoDur > 0 && !list.isEmpty()) {
-                            float maxDanmuTime = list.get(list.size() - 1).time;
-                            if (maxDanmuTime > 0) {
-                                float ratio = (float) videoDur / maxDanmuTime;
-                                for (DanmuView.DanmuComment dc2 : list) {
-                                    dc2.time *= ratio;
-                                }
-                                Log.d(TAG, "[弹幕] 时间匹配 " + maxDanmuTime + "s → " + videoDur + "s ratio=" + String.format("%.3f", ratio));
-
-                                // 差距超过 ±5% 时警告
-                                if (ratio < 0.95f || ratio > 1.05f) {
-                                    float diffPct = Math.abs((1f - ratio) * 100f);
-                                    String direction = ratio < 1f ? "弹幕偏长" : "弹幕偏短";
-                                    showDanmuStatus(direction
-                                            + " 弹幕=" + (int) maxDanmuTime + "s"
-                                            + " 视频=" + (int) videoDur + "s"
-                                            + " 差距=" + String.format("%.1f", diffPct) + "%");
-                                }
-                            }
-                        }
-                    }
-
-                    // 应用时间偏移
-                    int offsetSec = prefs.getInt("danmu_offset", 0);
-                    if (offsetSec != 0) {
-                        for (DanmuView.DanmuComment dc3 : list) {
-                            dc3.time += offsetSec;
-                        }
-                        Log.d(TAG, "[弹幕] 时间偏移 " + offsetSec + "s");
-                    }
-
-                    if (danmuView != null) {
-                        danmuView.loadDanmu(list);
-                        if (danmuOn) {
-                            danmuView.start();
-                        }
-                    }
+                    java.util.ArrayList<DanmuView.DanmuComment> original = new java.util.ArrayList<>(list.size());
+                    for (DanmuView.DanmuComment src : list) original.add(copyComment(src));
+                    danmuItemsOriginal = original;
+                    int blocked = publishDanmu(true);
                     String msg = (epName != null ? epName + " " : "") + "弹幕加载完成·共" + total + "条";
                     if (loaded < total) msg += "（显示前" + loaded + "条）";
+                    if (blocked > 0) msg += "，屏蔽" + blocked + "条";
                     showDanmuStatus(msg);
                 });
             } catch (Exception e) {
