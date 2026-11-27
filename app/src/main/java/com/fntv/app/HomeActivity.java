@@ -107,7 +107,6 @@ public class HomeActivity extends AppCompatActivity {
     private boolean overviewBuilt = false;
     private List<PlayListItem> cachedContinueWatching;
     private final List<PlayListItem> cachedCarousel = new ArrayList<>();
-    private int carouselGeneration;
     private boolean carouselLoaded;
     private View heroRoot;
     private HeroPager heroPager;
@@ -120,6 +119,9 @@ public class HomeActivity extends AppCompatActivity {
     private LinearLayout heroDots;
     private View bannerShade;
     private int bannerCanvasColor;
+    private int detailCanvasColor;
+    private View detailFade;
+    private final List<View> detailTinted = new ArrayList<>();
     private final Map<String, String> genreNames = new HashMap<>();
     private boolean genreNamesRequested;
     private final List<ImageView> heroImages = new ArrayList<>();
@@ -1387,6 +1389,7 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private int homeCanvasColor() {
+        if (savedDetailItem != null && detailCanvasColor != 0) return detailCanvasColor;
         if (currentTab == 0 && showingOverview && savedDetailItem == null && bannerCanvasColor != 0) {
             return bannerCanvasColor;
         }
@@ -1396,7 +1399,50 @@ public class HomeActivity extends AppCompatActivity {
     private void applyHomeCanvas() {
         View root = findViewById(R.id.pageRoot);
         if (root != null) root.setBackgroundColor(homeCanvasColor());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            int nav = savedDetailItem != null && detailCanvasColor != 0
+                    ? detailCanvasColor : color(R.color.bg_dark);
+            getWindow().setNavigationBarColor(nav);
+        }
         paintBannerShade();
+    }
+
+    /** 详情页用背景图取样色铺满下半页，并让海报底部渐变接到这个颜色。 */
+    private void beginDetailCanvas(View fade) {
+        detailCanvasColor = 0;
+        detailFade = fade;
+        detailTinted.clear();
+        applyHomeCanvas();
+    }
+
+    private void trackDetailSurface(View surface) {
+        if (surface == null) return;
+        detailTinted.add(surface);
+        surface.setBackgroundColor(detailCanvasColor != 0 ? detailCanvasColor : color(R.color.bg_dark));
+    }
+
+    private void paintDetailCanvas() {
+        int color = detailCanvasColor != 0 ? detailCanvasColor : color(R.color.bg_dark);
+        if (detailFade != null) {
+            detailFade.setBackground(new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0x00000000, withAlpha(color, 0x99), color}));
+        }
+        for (View surface : detailTinted) {
+            if (surface != null) surface.setBackgroundColor(color);
+        }
+        applyHomeCanvas();
+    }
+
+    private void loadDetailBackdrop(ImageView image, String url) {
+        if (image == null || url == null) return;
+        SimpleImageLoader.load(url, image, apiManager.getClient(), () -> {
+            if (savedDetailItem == null || !(image.getDrawable() instanceof BitmapDrawable)) return;
+            Bitmap bitmap = ((BitmapDrawable) image.getDrawable()).getBitmap();
+            if (bitmap == null || bitmap.isRecycled()) return;
+            detailCanvasColor = sampleBannerColor(bitmap);
+            paintDetailCanvas();
+        });
     }
 
     private void paintBannerShade() {
@@ -1456,44 +1502,151 @@ public class HomeActivity extends AppCompatActivity {
         publishBannerCanvas(sampleBannerColor(bitmap));
     }
 
+    /** 这次进程里抽定的 8 部。刷新不重抽，进程被杀掉后才清空。 */
+    private static List<PlayListItem> sessionCarousel;
+    private static boolean sessionCarouselLoading;
+
     private void loadCarousel() {
         if (apiManager.getApi() == null) return;
-        final int generation = ++carouselGeneration;
-        apiManager.getApi().getItemList(ItemListRequest.carousel())
+        if (sessionCarousel != null) {
+            showCarousel(sessionCarousel, false);
+            return;
+        }
+        if (sessionCarouselLoading) return;
+        sessionCarouselLoading = true;
+        apiManager.getApi().getItemList(ItemListRequest.carouselSample(1, 1))
                 .enqueue(new Callback<ApiResponse<ItemListResponse>>() {
                     @Override
                     public void onResponse(Call<ApiResponse<ItemListResponse>> call,
                                            Response<ApiResponse<ItemListResponse>> response) {
-                        if (generation != carouselGeneration) return;
-                        carouselLoaded = true;
-                        List<PlayListItem> next = new ArrayList<>();
+                        int total = 0;
                         if (response.isSuccessful() && response.body() != null && response.body().code == 0
-                                && response.body().data != null && response.body().data.list != null) {
-                            for (PlayListItem item : response.body().data.list) {
-                                if (item == null || item.guid == null || item.guid.isEmpty()) continue;
-                                if (item.title == null || item.title.isEmpty()) continue;
-                                if (!"Movie".equals(item.type) && !"TV".equals(item.type)) continue;
-                                next.add(item);
-                                if (next.size() >= 8) break;
+                                && response.body().data != null) {
+                            total = response.body().data.total;
+                            if (total <= 0 && response.body().data.list != null) {
+                                total = response.body().data.list.size();
                             }
                         }
-                        cachedCarousel.clear();
-                        cachedCarousel.addAll(next);
-                        heroBoundStamp = null;
-                        if (showingOverview && heroRoot != null) bindHeroContent();
-                        for (PlayListItem item : next) enrichCarouselItem(item);
-                        syncHeroTimer();
+                        if (total <= 0) {
+                            finishSessionCarousel(new ArrayList<PlayListItem>());
+                            return;
+                        }
+                        if (total <= 8) {
+                            fetchCarouselPage(1, total, null);
+                            return;
+                        }
+                        fetchCarouselPages(pickCarouselPages(total, 8));
                     }
 
                     @Override
                     public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
-                        if (generation != carouselGeneration) return;
+                        sessionCarouselLoading = false;
                         carouselLoaded = true;
                         if (cachedCarousel.isEmpty() && heroRoot != null) {
                             heroRoot.setVisibility(View.GONE);
                         }
                     }
                 });
+    }
+
+    private int[] pickCarouselPages(int total, int count) {
+        java.util.LinkedHashSet<Integer> chosen = new java.util.LinkedHashSet<>();
+        java.util.Random random = new java.util.Random();
+        while (chosen.size() < count) chosen.add(1 + random.nextInt(total));
+        int[] pages = new int[count];
+        int i = 0;
+        for (int page : chosen) pages[i++] = page;
+        return pages;
+    }
+
+    private void fetchCarouselPage(int page, int pageSize) {
+        apiManager.getApi().getItemList(ItemListRequest.carouselSample(page, pageSize))
+                .enqueue(new Callback<ApiResponse<ItemListResponse>>() {
+                    @Override
+                    public void onResponse(Call<ApiResponse<ItemListResponse>> call,
+                                           Response<ApiResponse<ItemListResponse>> response) {
+                        finishSessionCarousel(takeCarouselItems(response, 8));
+                    }
+
+                    @Override
+                    public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
+                        sessionCarouselLoading = false;
+                        carouselLoaded = true;
+                    }
+                });
+    }
+
+    private void fetchCarouselPages(int[] pages) {
+        final List<PlayListItem> gathered = new ArrayList<>();
+        final int[] left = {pages.length};
+        for (int page : pages) {
+            apiManager.getApi().getItemList(ItemListRequest.carouselSample(page, 1))
+                    .enqueue(new Callback<ApiResponse<ItemListResponse>>() {
+                        @Override
+                        public void onResponse(Call<ApiResponse<ItemListResponse>> call,
+                                               Response<ApiResponse<ItemListResponse>> response) {
+                            for (PlayListItem item : takeCarouselItems(response, 1)) {
+                                if (!carouselContains(gathered, item.guid)) gathered.add(item);
+                            }
+                            if (--left[0] == 0) finishSessionCarousel(gathered);
+                        }
+
+                        @Override
+                        public void onFailure(Call<ApiResponse<ItemListResponse>> call, Throwable t) {
+                            if (--left[0] == 0) {
+                                if (gathered.isEmpty()) {
+                                    sessionCarouselLoading = false;
+                                    carouselLoaded = true;
+                                } else {
+                                    finishSessionCarousel(gathered);
+                                }
+                            }
+                        }
+                    });
+        }
+    }
+
+    private List<PlayListItem> takeCarouselItems(Response<ApiResponse<ItemListResponse>> response, int limit) {
+        List<PlayListItem> next = new ArrayList<>();
+        if (response == null || !response.isSuccessful() || response.body() == null
+                || response.body().code != 0 || response.body().data == null
+                || response.body().data.list == null) {
+            return next;
+        }
+        for (PlayListItem item : response.body().data.list) {
+            if (item == null || item.guid == null || item.guid.isEmpty()) continue;
+            if (item.title == null || item.title.isEmpty()) continue;
+            if (!"Movie".equals(item.type) && !"TV".equals(item.type)) continue;
+            next.add(item);
+            if (next.size() >= limit) break;
+        }
+        return next;
+    }
+
+    private boolean carouselContains(List<PlayListItem> list, String guid) {
+        for (PlayListItem item : list) {
+            if (guid.equals(item.guid)) return true;
+        }
+        return false;
+    }
+
+    private void finishSessionCarousel(List<PlayListItem> items) {
+        java.util.Collections.shuffle(items);
+        sessionCarousel = new ArrayList<>(items);
+        sessionCarouselLoading = false;
+        showCarousel(sessionCarousel, true);
+    }
+
+    private void showCarousel(List<PlayListItem> items, boolean enrich) {
+        carouselLoaded = true;
+        cachedCarousel.clear();
+        cachedCarousel.addAll(items);
+        heroBoundStamp = null;
+        if (showingOverview && heroRoot != null) bindHeroContent();
+        if (enrich) {
+            for (PlayListItem item : items) enrichCarouselItem(item);
+        }
+        syncHeroTimer();
     }
 
     private void enrichCarouselItem(final PlayListItem item) {
@@ -2142,6 +2295,11 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void setDetailChrome(boolean detail) {
+        if (!detail) {
+            detailCanvasColor = 0;
+            detailFade = null;
+            detailTinted.clear();
+        }
         View header = findViewById(R.id.moviesHeader);
         if (header != null) header.setVisibility(detail ? View.GONE : View.VISIBLE);
         applyMoviesChrome();
@@ -3489,9 +3647,6 @@ public class HomeActivity extends AppCompatActivity {
         backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
         backdrop.setBackgroundColor(color(R.color.bg_poster));
         hero.addView(backdrop);
-        if (backdropUrl != null) {
-            SimpleImageLoader.load(backdropUrl, backdrop, apiManager.getClient());
-        }
 
         View dim = new View(this);
         dim.setLayoutParams(new FrameLayout.LayoutParams(
@@ -3504,6 +3659,8 @@ public class HomeActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         fade.setBackgroundResource(R.drawable.bg_detail_fade);
         hero.addView(fade);
+        beginDetailCanvas(fade);
+        loadDetailBackdrop(backdrop, backdropUrl);
 
         LinearLayout heroRow = new LinearLayout(this);
         FrameLayout.LayoutParams rowLp = new FrameLayout.LayoutParams(
@@ -3655,12 +3812,7 @@ public class HomeActivity extends AppCompatActivity {
         hero.addView(heroRow);
         moviesContainer.addView(hero);
 
-        LinearLayout below = new LinearLayout(this);
-        below.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        below.setOrientation(LinearLayout.VERTICAL);
-        below.setPadding(dp(16), dp(8), dp(16), dp(28));
-        below.setBackgroundColor(color(R.color.bg_dark));
+        LinearLayout below = newDetailBelow();
 
         String overview = info.item != null && info.item.overview != null
                 ? info.item.overview : item.overview;
@@ -3787,13 +3939,14 @@ public class HomeActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
         hero.addView(backdrop);
-        if (backdropUrl != null) SimpleImageLoader.load(backdropUrl, backdrop, apiManager.getClient());
 
         View fade = new View(this);
         fade.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         fade.setBackgroundResource(R.drawable.bg_detail_fade);
         hero.addView(fade);
+        beginDetailCanvas(fade);
+        loadDetailBackdrop(backdrop, backdropUrl);
 
         LinearLayout titleBox = new LinearLayout(this);
         FrameLayout.LayoutParams titleLp = new FrameLayout.LayoutParams(
@@ -3939,7 +4092,7 @@ public class HomeActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         below.setOrientation(LinearLayout.VERTICAL);
         below.setPadding(dp(16), dp(8), dp(16), dp(28));
-        below.setBackgroundColor(color(R.color.bg_dark));
+        trackDetailSurface(below);
         return below;
     }
 
@@ -4030,7 +4183,6 @@ public class HomeActivity extends AppCompatActivity {
         backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
         hero.addView(backdrop);
         String backdropUrl = makeImageUrl(backdropPath, 800);
-        if (backdropUrl != null) SimpleImageLoader.load(backdropUrl, backdrop, apiManager.getClient());
 
         View dim = new View(this);
         dim.setLayoutParams(new FrameLayout.LayoutParams(
@@ -4042,6 +4194,8 @@ public class HomeActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         fade.setBackgroundResource(R.drawable.bg_detail_fade);
         hero.addView(fade);
+        beginDetailCanvas(fade);
+        loadDetailBackdrop(backdrop, backdropUrl);
 
         LinearLayout heroRow = new LinearLayout(this);
         FrameLayout.LayoutParams rowLp = new FrameLayout.LayoutParams(

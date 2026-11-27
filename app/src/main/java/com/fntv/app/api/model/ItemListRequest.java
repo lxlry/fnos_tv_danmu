@@ -80,12 +80,12 @@ public class ItemListRequest {
                 false, "sort_title", "ASC", 100);
     }
 
-    /** 首页轮播：全库最近入库的电影和剧集，不限定媒体库。 */
-    public static ItemListRequest carousel() {
+    /** 首页轮播抽样：全库电影和剧集，按标题稳定分页，方便按页随机抽。 */
+    public static ItemListRequest carouselSample(int page, int pageSize) {
         ItemListRequest req = new ItemListRequest(null,
                 Arrays.asList("Movie", "TV"),
-                true, "create_time", "DESC", 8);
-        req.page = 1;
+                true, "sort_title", "ASC", Math.max(1, pageSize));
+        req.page = Math.max(1, page);
         return req;
     }
 
