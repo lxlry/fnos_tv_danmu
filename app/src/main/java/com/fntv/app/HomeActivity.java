@@ -1532,7 +1532,7 @@ public class HomeActivity extends AppCompatActivity {
                             return;
                         }
                         if (total <= 8) {
-                            fetchCarouselPage(1, total, null);
+                            fetchCarouselPage(1, total);
                             return;
                         }
                         fetchCarouselPages(pickCarouselPages(total, 8));
